@@ -3,25 +3,38 @@ import json
 
 url = "http://localhost:4001/api/generate"
 
-def chat_with_gemma(message):
-    """Stream response from local Ollama model"""
-    data = {
-        "model": "gemma3:1b",  # Replace with your model
-        "prompt": message,
-        "max_tokens": 200
-    }
+def main():
+    print("🚀 Gemma3 Chatbot (Local)")
+    print("Type 'quit' to exit\n")
 
-    # Use stream=True to get incremental updates
-    with requests.post(url, json=data, stream=True) as response:
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() == 'quit':
+            break
+
+        # Prepare request data
+        data = {
+            "model": "gemma3:1b",  # Local model
+            "prompt": user_input,
+            "max_tokens": 200
+        }
+
         print("🤖 Gemma3: ", end='', flush=True)
-        
-        # Each line is a JSON fragment
-        for line in response.iter_lines(decode_unicode=True):
-            if line:
-                obj = json.loads(line)
-                print(obj.get("response", ""), end='', flush=True)
-        print("\n" + "="*50)
 
-# Test it
+        # Stream response
+        with requests.post(url, json=data, stream=True) as response:
+            full_response = ""
+            for line in response.iter_lines(decode_unicode=True):
+                if line:
+                    try:
+                        obj = json.loads(line)
+                        text = obj.get("response", "")
+                        print(text, end='', flush=True)
+                        full_response += text
+                    except json.JSONDecodeError:
+                        continue
+
+        print("\n" + "-"*60)
+
 if __name__ == "__main__":
-    chat_with_gemma("Explain AI in simple terms.")
+    main()
