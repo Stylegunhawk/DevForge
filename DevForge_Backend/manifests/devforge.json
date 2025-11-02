@@ -1,0 +1,40 @@
+{
+  "name": "devforge",
+  "version": "0.2.0",
+  "description": "DevForge AI-powered developer tools with intelligent routing",
+  "schema_version": "v1",
+  "gateway": "http://localhost:8000/api/gateway",
+  "tools": [
+    {
+      "name": "generate_data",
+      "description": "Generate realistic mock CSV/JSON data using Faker and Pandas. Supports custom fields and formats.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "description": "Number of rows to generate",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format",
+            "enum": ["csv", "json"],
+            "default": "json"
+          },
+          "fields": {
+            "type": "array",
+            "description": "Custom fields to generate (e.g., ['name', 'email', 'phone']). If omitted, generates common fields.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["rows"]
+      }
+    }
+  ]
+}
+
