@@ -63,8 +63,7 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
 
         return {
             "success": True,
-            "format": datagen_args.format,
-            "data": result,
+            "data": result  # CSV → plain text, JSON → JSON string
         }
 
     except ValueError as e:
