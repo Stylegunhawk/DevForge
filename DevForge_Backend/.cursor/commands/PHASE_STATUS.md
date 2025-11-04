@@ -6,9 +6,9 @@
 # Update Frequency: After each phase completion
 
 
-**Last Updated:** Nov 2, 2025  
-**Current Version:** v0.2.0  
-**Next Version:** v0.3.0 (Phase 3)
+**Last Updated:** Nov 4, 2025  
+**Current Version:** v0.3.1  
+**Next Version:** v0.4.0 (Phase 4)
 
 ---
 
@@ -84,34 +84,78 @@
 
 ---
 
-## 🔄 Phase 3: RAG + GitHub (NEXT - v0.3.0)
+## ✅ Phase 3: RAG + GitHub (COMPLETE - v0.3.1)
 
-**Planned:** Nov 10 - Nov 30, 2025 (3 weeks)  
-**Status:** Ready to begin
+**Duration:** Nov 4, 2025  
+**Completed:** Nov 4, 2025
 
-**Goals:**
-- RAG with ChromaDB + Kotaemon
-- GitHub operations (PyGitHub)
-- Multi-tool coordination
+### Phase 3.1: RAG Agent (COMPLETE)
 
-**Stub Files Ready:**
-- `src/agents/rag/agent.py` (empty)
-- `src/agents/github/agent.py` (empty)
-- `src/tools/rag/tools.py` (empty)
-- `src/tools/github/tools.py` (empty)
+**Delivered:**
+- ✅ RAG agent with LangGraph workflow (`src/agents/rag/agent.py`)
+- ✅ Dual vector store support: ChromaDB (local) + Qdrant Cloud (remote)
+- ✅ Document ingestion: PDF, MD, TXT, DOCX with async I/O
+- ✅ Semantic search with configurable top_k and score threshold
+- ✅ Response generation using ModelRouter with local/cloud fallback
+- ✅ 33+ comprehensive tests for RAG functionality
 
-**Models to Use:**
+**Tech Stack:**
+- ChromaDB 1.3.2 (local vector store)
+- Qdrant Client 1.7.0+ (cloud vector store)
+- LangChain Chroma 1.0.0, LangChain Qdrant 0.1.0+
+- PyPDF 3.17.0+, python-docx 1.1.0
+- aiofiles 23.0.0+ (async file I/O)
+
+**Models Used:**
+- Embeddings: `nomic-embed-text` (primary), `bge-m3` (fallback)
 - RAG Local: `gpt-oss:20b`
-- RAG Cloud: `gpt-oss:120b-cloud`
-- GitHub: `qwen3-coder:480b-cloud`
-- Embeddings: `nomic-embed-text`
+- RAG Cloud: `gpt-oss:120b-cloud` (fallback)
 
-**Dependencies to Add:**
-- `chromadb>=0.5.0`
-- `PyGithub>=2.4.0`
-- `langchain-community` (for embeddings)
+**Key Files:**
+- `src/agents/rag/agent.py` - LangGraph RAG workflow
+- `src/tools/rag/tools.py` - Document reading, chunking, ingestion, retrieval
+- `tests/test_rag.py` - 33 RAG tests
+- `manifests/devforge.json` - Added `retrieve_docs` tool
 
-**Documentation:** See `PROJECT_OVERVIEW.md` Section 3
+### Phase 3.2: Supervisor RAG Integration (COMPLETE)
+
+**Delivered:**
+- ✅ Supervisor routes "rag" intent to RAG agent
+- ✅ Error handling for RAG operations
+- ✅ Integration tests for RAG routing
+
+### Phase 3.3: GitHub Operations (COMPLETE)
+
+**Delivered:**
+- ✅ GitHub agent with LangGraph workflow (`src/agents/github/agent.py`)
+- ✅ PyGithub integration for repository operations
+- ✅ Support for: list repos, create repo, create issue, commit file, create PR
+- ✅ Natural language query parsing using LLM
+- ✅ Comprehensive test suite (`tests/test_github.py`)
+- ✅ Gateway integration with `github_operation` tool
+- ✅ Supervisor routing for "github" intent
+
+**Tech Stack:**
+- PyGithub 2.1.1+
+
+**Models Used:**
+- GitHub Operations: `qwen3-coder:480b-cloud` (via ModelRouter)
+
+**Key Files:**
+- `src/agents/github/agent.py` - LangGraph GitHub workflow
+- `src/tools/github/tools.py` - GitHub API operations wrapper
+- `tests/test_github.py` - GitHub operation tests
+- `manifests/devforge.json` - Added `github_operation` tool
+
+**Verification Checklist:**
+- ✅ All Phase 3 tests passing
+- ✅ RAG agent functional (ChromaDB + Qdrant)
+- ✅ GitHub agent functional (list repos, create issues, etc.)
+- ✅ Supervisor routing for "rag" and "github" intents
+- ✅ Gateway dispatches all three tools correctly
+- ✅ Manifest updated to v0.3.0
+
+**Documentation:** See `PROJECT_OVERVIEW.md` for Phase 3 details
 
 ---
 
@@ -160,10 +204,10 @@
 
 ## 🎯 Current Focus
 
-**Active Work:** Phase 3 - RAG + GitHub Integration  
-**Next Implementation:** `src/agents/rag/agent.py`, `src/tools/rag/tools.py`  
-**Cursor Context:** See `PROJECT_OVERVIEW.md` for Phase 3 roadmap  
-**Manifest Version:** 0.2.0 → 0.3.0 (pending)
+**Active Work:** Phase 4 - Prompt Reranking + Fine-Tuning  
+**Next Implementation:** Prompt reranking pipeline  
+**Cursor Context:** See `PROJECT_OVERVIEW.md` for Phase 4 roadmap  
+**Manifest Version:** 0.3.0
 
 **For Questions:**
 - Architecture: `BACKEND_PLAN.md`

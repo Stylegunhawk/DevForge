@@ -109,7 +109,7 @@ def route_to_agent(state: SupervisorState) -> Literal["datagen_node", "rag_node"
     route_map = {
         "datagen": "datagen_node",
         "rag": "rag_node",  # Phase 3
-        "github": "github_node",  # Phase 3
+        "github": "github_agent",  # Phase 3
         "unknown": "unknown_node",
     }
 
@@ -196,43 +196,97 @@ async def datagen_node(state: SupervisorState) -> SupervisorState:
 
 
 async def rag_node(state: SupervisorState) -> SupervisorState:
-    """Placeholder for RAG agent (Phase 3).
+    """Execute RAG agent for document search and querying.
 
     Args:
-        state: Supervisor state
+        state: Supervisor state with query
 
     Returns:
-        Updated state with Phase 3 message
+        Updated state with agent_result
     """
-    logger.info("RAG agent invoked (Phase 3 placeholder)")
+    from src.agents.rag.agent import rag_agent_invoke
 
-    return {
-        **state,
-        "agent_result": {
-            "success": False,
-            "message": "RAG functionality coming in Phase 3. This will enable document search and codebase querying.",
-        },
-    }
+    query = state.get("query", "")
+    logger.info(f"Executing RAG agent for query: {query[:50]}...")
+
+    try:
+        # Call RAG agent with query (no file_paths from supervisor - assumes documents already ingested)
+        result = await rag_agent_invoke(query=query)
+
+        logger.info(
+            f"RAG agent completed successfully",
+            extra={"success": result.get("success"), "documents_count": len(result.get("data", {}).get("documents", []))},
+        )
+
+        return {
+            **state,
+            "agent_result": result,
+        }
+
+    except Exception as e:
+        logger.error(
+            f"RAG agent failed: {e}",
+            extra={"error": str(e), "query": query[:50]},
+            exc_info=True,
+        )
+        return {
+            **state,
+            "error": f"RAG execution failed: {str(e)}",
+            "agent_result": {
+                "success": False,
+                "tool": "retrieve_docs",
+                "data": {
+                    "response": "",
+                    "documents": [],
+                    "backend": "chroma",
+                },
+                "error": str(e),
+            },
+        }
 
 
 async def github_node(state: SupervisorState) -> SupervisorState:
-    """Placeholder for GitHub agent (Phase 3).
-
+    '''Execute GitHub agent for repository operations.
+    
     Args:
-        state: Supervisor state
-
+        state: Supervisor state with query
+        
     Returns:
-        Updated state with Phase 3 message
-    """
-    logger.info("GitHub agent invoked (Phase 3 placeholder)")
-
-    return {
-        **state,
-        "agent_result": {
-            "success": False,
-            "message": "GitHub functionality coming in Phase 3. This will enable repository operations, PR creation, and code management.",
-        },
-    }
+        Updated state with agent_result
+    '''
+    from src.agents.github.agent import github_agent_invoke
+    
+    query = state.get("query", "")
+    logger.info(f"Executing GitHub agent for query: {query[:50]}...")
+    
+    try:
+        result = await github_agent_invoke(query=query)
+        
+        logger.info(
+            f"GitHub agent completed successfully",
+            extra={"success": result.get("success"), "operation": result.get("operation")}
+        )
+        
+        return {
+            **state,
+            "agent_result": result,
+        }
+        
+    except Exception as e:
+        logger.error(
+            f"GitHub agent failed: {e}",
+            extra={"error": str(e), "query": query[:50]},
+            exc_info=True
+        )
+        return {
+            **state,
+            "error": f"GitHub execution failed: {str(e)}",
+            "agent_result": {
+                "success": False,
+                "tool": "github_operation",
+                "error": str(e),
+            },
+        }
 
 
 async def unknown_node(state: SupervisorState) -> SupervisorState:

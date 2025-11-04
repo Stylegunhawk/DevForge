@@ -1,7 +1,5 @@
-**Phase 1 Implementation: COMPLETE**
-This file shows the final structure after Phase 1 completion.
-All files under `src/agents/datagen/` and `src/tools/datagen/` are fully implemented.
-See `tests/` for 36 passing tests validating functionality.
+**Phase 3 Implementation: COMPLETE**
+
 
 
 devforge-backend/
@@ -45,3 +43,106 @@ devforge-backend/
 ├── requirements.txt          # Dependencies (refined below)
 ├── README.md                 # Setup/install instructions, architecture overview
 └── setup.sh                  # Optional script: create venv, install deps
+
+## GitHub Agent Usage (Phase 3.3)
+
+### Basic Usage
+
+```python
+from src.agents.github.agent import github_agent_invoke
+
+# List repositories
+result = await github_agent_invoke("List my GitHub repositories")
+print(result)
+# {
+#   "success": True,
+#   "tool": "github_operation",
+#   "data": {
+#     "operation": "list_repos",
+#     "repositories": [...]
+#   },
+#   "execution_time": 1.23
+# }
+
+# Create an issue
+result = await github_agent_invoke(
+    "Create an issue in my-repo titled 'Fix login bug' with description 'Users cannot log in'"
+)
+# {
+#   "success": True,
+#   "tool": "github_operation",
+#   "data": {
+#     "operation": "create_issue",
+#     "issue_url": "https://github.com/user/my-repo/issues/123",
+#     "issue_number": 123
+#   }
+# }
+
+# Create a pull request
+result = await github_agent_invoke(
+    "Create a PR from branch feature-auth to main with title 'Add authentication'"
+)
+```
+
+### Via Gateway API
+
+```python
+import requests
+
+# Example: List repositories
+response = requests.post(
+    "http://localhost:8000/api/gateway",
+    json={
+        "name": "github_operation",
+        "arguments": {
+            "query": "List my GitHub repositories"
+        }
+    }
+)
+print(response.json())
+```
+
+### Via Supervisor
+
+```python
+from src.agents.supervisor import supervisor_invoke
+
+# Supervisor will classify intent as "github" and route accordingly
+result = await supervisor_invoke("List my GitHub repositories")
+# {
+#   "success": True,
+#   "intent": "github",
+#   "result": {
+#     "success": True,
+#     "tool": "github_operation",
+#     "data": {...}
+#   }
+# }
+```
+
+### Supported Operations
+
+- **List Repositories**: "List my repos", "Show all repositories"
+- **Create Repository**: "Create a new repo called my-project"
+- **Create Issue**: "Create an issue in my-repo titled 'Bug fix'"
+- **Commit File**: "Commit file.txt to my-repo with message 'Update config'"
+- **Create Pull Request**: "Open a PR from feature-branch to main"
+
+### Example User Queries
+
+1. **"List my GitHub repositories"**
+   - Parsed as: `operation="list_repos"`
+   - Returns: List of repository objects with name, description, URL
+
+2. **"Create an issue in my-repo titled 'Fix login bug'"**
+   - Parsed as: `operation="create_issue", repo="my-repo", title="Fix login bug"`
+   - Returns: Issue URL and number
+
+### Error Handling
+
+```python
+result = await github_agent_invoke("Invalid operation")
+if not result["success"]:
+    print(f"Error: {result.get('error')}")
+    # Error: Operation not supported or missing required parameters
+```

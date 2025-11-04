@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routers import router
 from src.core.config import settings
 from src.core.utils import setup_logging
+from src.api.routers import mcp_router
 
 # Track application start time for uptime calculation
 START_TIME = time.time()
@@ -42,6 +43,7 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(router, prefix="/api")
+app.include_router(mcp_router)  # ← Add this
 
 
 @app.get("/health")

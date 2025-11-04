@@ -9,13 +9,13 @@ Version 1.2 – Updated 02 Nov 2025 (Refined)
 DevForge is a modular, open-source, self-hosted developer chatbot designed as a daily coding companion.
 It combines Lobe Chat (Next.js UI) with a Python FastAPI backend to deliver:
 
-Feature	Description
-RAG	Query codebases, docs, and PDFs via vector store
-GitHub Ops	List, create, commit, and PRs using PyGitHub
-CI/CD Hooks	Trigger Vercel / Netlify builds
-CSV/JSON Mock Data	On-demand dataset generation with schema
-Prompt Reranking	Refine LLM outputs
-Fine-Tuning Pipeline	Optional LoRA training on OSS models
+Feature	Description	Status
+RAG	Query codebases, docs, and PDFs via vector store (ChromaDB/Qdrant)	✅ v0.3.1
+GitHub Ops	List repos, create issues, commit files, open PRs using PyGitHub	✅ v0.3.1
+CSV/JSON Mock Data	On-demand dataset generation with schema (Faker + Pandas)	✅ v0.1.0
+CI/CD Hooks	Trigger Vercel / Netlify builds	⏳ Phase 4
+Prompt Reranking	Refine LLM outputs	⏳ Phase 4
+Fine-Tuning Pipeline	Optional LoRA training on OSS models	⏳ Phase 4
 
 Differentiator: MCP-based multi-tool architecture — each capability is a discrete FastAPI endpoint registered through a single manifest.
 
@@ -66,7 +66,7 @@ Deployment	Docker Compose → Render (free tier)	Easy self-hosting
 |-------|--------|-------|------|---------|
 | Phase 1 | ✅ Complete | 1-3 | Core FastAPI + DataGen agent + MCP integration | v0.1.0 |
 | Phase 2 | ✅ Complete | 4-6 | Supervisor router + multi-model fallback | v0.2.0 |
-| Phase 3 | 🔄 In Progress | 7-10 | RAG (Kotaemon + Chroma) + GitHub tool | v0.3.0 |
+| Phase 3 | ✅ Complete | 7-10 | RAG (ChromaDB + Qdrant) + GitHub Operations | v0.3.1 |
 | Phase 4 | ⏳ Pending | 11-14 | Prompt reranking + LoRA fine-tuning | v0.4.0 |
 | Phase 5 | ⏳ Pending | 15-16 | Dockerize, deploy, docs, demo video | v0.5.0 |
 
@@ -85,6 +85,29 @@ Deployment	Docker Compose → Render (free tier)	Easy self-hosting
 - Health checking for model availability
 - Cost tracking for cloud model usage
 - LangGraph state management for supervisor workflow
+
+### Phase 3 Retrospective (v0.3.1 - Nov 4, 2025)
+
+**Achievements:**
+- ✅ RAG Agent with dual vector store support (ChromaDB local + Qdrant Cloud)
+- ✅ Document ingestion and semantic search for PDF, MD, TXT, DOCX
+- ✅ GitHub Operations agent with PyGithub integration
+- ✅ Supervisor routing extended to support "rag" and "github" intents
+- ✅ 33+ RAG tests + comprehensive GitHub operation tests
+- ✅ Released as v0.3.1 on Nov 4, 2025
+
+**Key Technical Wins:**
+- Async file I/O with aiofiles for document processing
+- LLM-based query parsing for GitHub operations
+- Configurable vector backends with graceful fallback
+- Natural language interface for GitHub operations
+
+**Example User Queries:**
+- "List my GitHub repositories"
+- "Create an issue in my-repo titled 'Fix login bug'"
+- "Search documents about authentication"
+- "Generate 100 user records in CSV format"
+
 5. Integration Flow (MCP)
 
 Handshake – Lobe Chat fetches http://localhost:8000/api/manifests/devforge.json

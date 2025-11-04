@@ -45,11 +45,28 @@ class Settings(BaseSettings):
     # Phase 3: Premium reasoning model
     PREMIUM_MODEL: str = "deepseek-v3.1:671b-cloud"
 
-    # Phase 3: Embedding model
+    # Phase 3: Embedding model (existing, kept for Phase 1-2 compatibility)
     EMBEDDING_MODEL: str = "bge-m3"
+
+    # Phase 3: RAG Configuration
+    VECTOR_BACKEND: str = "chroma"  # Options: chroma (default), qdrant
+    CHROMA_PERSIST_DIR: str = "./data/chromadb"
+    CHROMA_COLLECTION: str = "devforge_docs"
+    RAG_EMBED_MODEL: str = "nomic-embed-text"  # Primary for RAG
+    RAG_EMBED_MODEL_FALLBACK: str = "bge-m3"  # Fallback if nomic unavailable
+    RAG_CHUNK_SIZE: int = 500
+    RAG_CHUNK_OVERLAP: int = 50
+    RAG_TOP_K: int = 5
+    RAG_SCORE_THRESHOLD: float = 0.5
+
+    # Phase 3.1b: Qdrant Cloud Configuration
+    QDRANT_URL: str | None = None  # e.g., https://xxx.europe-west3-0.gcp.cloud.qdrant.io
+    QDRANT_API_KEY: str | None = None
+    QDRANT_COLLECTION: str = "devforge_docs"
 
     # Optional: GitHub Integration (Phase 3)
     GITHUB_TOKEN: str | None = None
+    GITHUB_USERNAME: str | None = None  # Optional: for display purposes
 
     # Optional: Database (Future phases)
     DATABASE_URL: str | None = None

@@ -43,30 +43,37 @@ devforge-backend/
 │   │   └── routers.py        # Define routes (e.g., /api/gateway, /manifests)
 │   ├── agents/               # LangGraph agents (modular by feature)
 │   │   ├── __init__.py
-│   │   ├── datagen/          # DataGen agent (Phase 1)
+│   │   ├── datagen/          # DataGen agent (Phase 1) ✅
 │   │   │   └── agent.py     # LangGraph workflow for data gen
-│   │   ├── rag/              # Placeholder for RAG (Phase 3)
-│   │   │   └── agent.py     # Stub
-│   │   ├── github/           # Placeholder for GitHub ops (Phase 3)
-│   │   │   └── agent.py     # Stub
-│   │   └── supervisor.py     # Main router agent (Phase 2)
+│   │   ├── rag/              # RAG agent (Phase 3.1) ✅
+│   │   │   ├── __init__.py
+│   │   │   └── agent.py     # LangGraph workflow for document retrieval
+│   │   ├── github/           # GitHub Operations agent (Phase 3.3) ✅
+│   │   │   ├── __init__.py
+│   │   │   └── agent.py     # LangGraph workflow for GitHub operations
+│   │   └── supervisor.py     # Main router agent (Phase 2) ✅
 │   ├── tools/                # Reusable Python functions (called by agents)
 │   │   ├── __init__.py
-│   │   ├── datagen/          # DataGen tools (e.g., Faker/Pandas funcs)
-│   │   │   └── tools.py     # e.g., generate_mock_data()
-│   │   ├── rag/              # Placeholder (e.g., retrieve_docs())
-│   │   │   └── tools.py     # Stub
-│   │   └── github/           # Placeholder (e.g., create_pr())
-│   │       └── tools.py     # Stub
+│   │   ├── datagen/          # DataGen tools (Phase 1) ✅
+│   │   │   ├── __init__.py
+│   │   │   └── tools.py     # generate_mock_data()
+│   │   ├── rag/              # RAG tools (Phase 3.1) ✅
+│   │   │   ├── __init__.py
+│   │   │   └── tools.py     # Document reading, chunking, ingestion, retrieval
+│   │   └── github/           # GitHub tools (Phase 3.3) ✅
+│   │       ├── __init__.py
+│   │       └── tools.py     # GitHub API operations (list repos, create issues, etc.)
 │   ├── core/                 # Shared utilities
 │   │   ├── __init__.py
 │   │   ├── config.py         # Load env vars, settings
 │   │   ├── schemas.py        # Pydantic models (e.g., ToolRequest)
 │   │   └── utils.py          # Helpers (e.g., logging, error handling)
 │   └── main.py               # FastAPI app entry point
-├── tests/                    # Unit/integration tests (future-ready)
+├── tests/                    # Unit/integration tests
 │   ├── __init__.py
-│   └── test_datagen.py       # Example test for DataGen
+│   ├── test_datagen.py       # DataGen tests (Phase 1) ✅
+│   ├── test_rag.py           # RAG tests (Phase 3.1) ✅
+│   └── test_github.py        # GitHub operation tests (Phase 3.3) ✅
 ├── requirements.txt          # Dependencies (refined below)
 ├── README.md                 # Setup/install instructions, architecture overview
 └── setup.sh                  # Optional script: create venv, install deps

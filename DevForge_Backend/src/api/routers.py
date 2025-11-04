@@ -7,6 +7,8 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Any
+
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -18,12 +20,18 @@ from src.core.utils import track_performance
 
 # Import agents
 from src.agents.datagen.agent import datagen_agent
+from src.agents.rag.agent import rag_agent_invoke
+from src.agents.github.agent import github_agent_invoke
+
+mcp_router = APIRouter()
 
 router = APIRouter()
 
 # Track supported tools
 SUPPORTED_TOOLS = {
     "generate_data": datagen_agent,
+    "retrieve_docs": rag_agent_invoke,
+    "github_operation": github_agent_invoke,
 }
 
 
@@ -107,46 +115,98 @@ def _generate_default_manifest() -> dict:
 
 @router.post("/gateway")
 @track_performance
-async def gateway(request: Request) -> GatewayResponse:
+async def gateway(gateway_req: GatewayRequest) -> GatewayResponse:
     start_time = time.time()
 
-    # Read raw body
-    body = await request.json()
+    # `arguments` is **already a dict** thanks to the validator above
+    args = gateway_req.arguments
+    tool_name = gateway_req.name          # snake_case alias
 
-    # Convert MCP/Lobe format to GatewayRequest format
-    if "apiName" in body:
-        body = {
-            "name": body["apiName"],
-            "arguments": body.get("arguments", {})
-        }
+    logging.info(f"Gateway invoked → {tool_name}", extra={"arguments": args})
 
-    # Convert string arguments to dict if needed
-    if isinstance(body.get("arguments"), str):
-        try:
-            body["arguments"] = json.loads(body["arguments"])
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid JSON format in 'arguments'")
+    if tool_name not in SUPPORTED_TOOLS:
+        raise HTTPException(status_code=400, detail=f"Unsupported tool: {tool_name}")
 
-    # Validate with schema after normalization
-    request = GatewayRequest(**body)
+    agent_func = SUPPORTED_TOOLS[tool_name]
 
-    # --- existing validation and execution logic continues ---
+    # ------------------------------------------------------------------- #
+    # Special handling for github_operation (still expects a single string)
+    # ------------------------------------------------------------------- #
+    if tool_name == "github_operation":
+        query = args.get("query")
+        if not query:
+            raise HTTPException(status_code=400, detail="github_operation requires 'query'")
+        result = await agent_func(query)
+    else:
+        result = await agent_func(args)          # ← dict, no extra parsing
 
-    logging.info(f"Gateway request received: {request.name}")
-
-    if request.name not in SUPPORTED_TOOLS:
-        raise HTTPException(status_code=400, detail=f"Unsupported tool: {request.name}")
-
-    agent_func = SUPPORTED_TOOLS[request.name]
-
-    agent_result = await agent_func(request.arguments)
-    execution_time = time.time() - start_time
+    exec_time = time.time() - start_time
 
     return GatewayResponse(
-        success=agent_result.get("success", False),
-        tool=request.name,
-        format=agent_result.get("format"),
-        data=agent_result.get("data"),
-        error=None,
-        execution_time=round(execution_time, 4),
+        success=result.get("success", False),
+        tool=tool_name,
+        format=result.get("format"),
+        data=result.get("data"),
+        error=result.get("error"),
+        execution_time=round(exec_time, 4),
     )
+
+@mcp_router.post("/mcp")
+async def mcp_endpoint(request: Request):
+    try:
+        payload = await request.json()
+    except:
+        return {"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}
+
+    if payload.get("jsonrpc") != "2.0":
+        return {"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request"}}
+
+    method = payload.get("method")
+    req_id = payload.get("id")
+
+    # 1. initialize
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "1.0.0",
+                "serverInfo": {"name": "DevForge", "version": "1.0"},
+                "capabilities": {"tools": {}}
+            }
+        }
+
+    # 2. tools/list
+    if method == "tools/list":
+        tools = []
+        for name, func in SUPPORTED_TOOLS.items():
+            tools.append({
+                "name": name,
+                "description": func.__doc__.strip() if func.__doc__ else "No description",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"rows": {"type": "integer"}},
+                    "required": ["rows"] if name == "generate_data" else []
+                }
+            })
+        return {"jsonrpc": "2.0", "id": req_id, "result": tools}
+
+    # 3. tools/call → reuse your gateway!
+    if method == "tools/call":
+        params = payload.get("params", {})
+        name = params.get("name")
+        args = params.get("arguments", {})
+
+        if name not in SUPPORTED_TOOLS:
+            return {"jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -32602, "message": "Tool not found"}}
+
+        # **Pydantic auto-parses string → dict**
+        gateway_req = GatewayRequest(apiName=name, arguments=args)
+        resp = await gateway(gateway_req)          # same route logic
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"content": [{"type": "text", "text": resp.json()}]}
+        }

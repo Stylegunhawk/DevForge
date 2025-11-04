@@ -31,21 +31,32 @@ Tool Call Decision: The LLM (e.g., Gemma-3:1B) recognizes the need for a tool (b
 Gateway Call to Backend: Lobe Chat intercepts the tool_call, looks up the gateway URL from the store, and POSTs to your FastAPI /api/gateway with the body {name: "generate_data", arguments: "{"query": "100 user records", "format": "csv"}"}.
 Backend Processing: FastAPI receives the request (validated via Pydantic in src/core/schemas.py). The gateway router (src/api/routers.py) dispatches based on name:
 
-For "generate_data": Invokes the LangGraph workflow (src/agents/datagen/agent.py), which parses the query, calls tools (src/tools/datagen/tools.py with Pandas/Faker), and formats output (JSON or CSV).
-Returns the result (e.g., {"data": "CSV string or JSON list"}).
+For "generate_data": Invokes the LangGraph workflow (src/agents/datagen/agent.py), which parses the query, calls tools (src/tools/datagen/tools.py with Pandas/Faker), and formats output (JSON or CSV). Returns the result (e.g., {"data": "CSV string or JSON list"}).
+
+For "retrieve_docs": Invokes the RAG agent (src/agents/rag/agent.py), which ingests documents if provided, performs semantic search, and generates contextually-aware responses. Returns result with documents and response.
+
+For "github_operation": Extracts query from arguments and invokes the GitHub agent (src/agents/github/agent.py), which parses the natural language query, determines the operation (list repos, create issue, etc.), and executes via PyGithub. Returns operation result.
 
 
 Response Back to Lobe Chat: The result is fed back to the LLM as a "tool response." The LLM generates a final user-friendly message (e.g., "Here's your generated data: [preview]"), which streams to the UI via SSE (fetchSSE in src/services/chat.ts), updating the Zustand chat store.
 
 Part 3: Enhancements for Future Scopes
 
-Multi-Tool Support: Add more entries to the manifest's api array (e.g., "retrieve_rag" in Phase 3). The gateway will handle dispatching to new agents/tools (e.g., elif req.name == "retrieve_rag" in routers.py).
-Multi-Model Routing: In Phase 2, expand src/agents/supervisor.py to classify queries (e.g., via Ollama) and route to specialized agents (e.g., qwen3-coder for coding).
+**Multi-Tool Support (Phase 3 - COMPLETE):**
+The manifest now includes three tools: `generate_data`, `retrieve_docs`, and `github_operation`. The gateway (`src/api/routers.py`) dispatches to the appropriate agent based on tool name, with special handling for GitHub operations (extracts `query` from arguments).
+
+**Multi-Model Routing (Phase 2 & 3 - COMPLETE):**
+The supervisor agent (`src/agents/supervisor.py`) classifies user intents and routes to specialized agents:
+- "datagen" → DataGen agent (qwen3:4b)
+- "rag" → RAG agent (gpt-oss:20b / gpt-oss:120b-cloud)
+- "github" → GitHub agent (qwen3-coder:480b-cloud)
 Security/Production: Use API keys in .env for auth (add middleware in main.py). For deployment (Phase 5), use Docker Compose to run both servers together; update gateway/manifest URLs to https://your-domain.com.
 Testing: After setup, test E2E: Add plugin via URL > Enable in an assistant > Prompt in chat. Monitor FastAPI logs for POSTs; use tools like Postman to simulate gateway calls.
 Troubleshooting: If CORS errors, verify middleware in main.py. If manifest fetch fails, ensure backend is running first. For hybrid JS/Python (stretch), expose JS agents as separate MCP gateways.
 
-## Part 4: Phase 1 Verification (Nov 2, 2025)
+## Part 4: Phase Verification
+
+### Phase 1 Verification (Nov 2, 2025)
 
 **Confirmed Working:**
 - ✅ Manifest served at `/api/manifests/devforge.json`
@@ -55,6 +66,15 @@ Troubleshooting: If CORS errors, verify middleware in main.py. If manifest fetch
 - ✅ CORS configured for `localhost:3000`
 - ✅ Performance: < 5s for 100 rows
 
-**Ready for Phase 2:** Supervisor agent can now be added to gateway router.
+### Phase 3 Verification (Nov 4, 2025)
+
+**Confirmed Working:**
+- ✅ All Phase 3 tools functional: `generate_data`, `retrieve_docs`, `github_operation`
+- ✅ RAG agent with ChromaDB and Qdrant Cloud support
+- ✅ GitHub agent with PyGithub integration
+- ✅ Supervisor routing for all three agent types
+- ✅ Comprehensive test coverage (100+ tests total)
+- ✅ Manifest updated to v0.3.0 with all three tools
+- ✅ Performance: RAG retrieval < 2s, GitHub operations < 3s
 
 This refined integration ensures seamless modularity, aligning with your DevForge phases—start with DataGen, expand iteratively. If issues arise (e.g., Ollama integration), debug via Lobe Chat's console or FastAPI's /docs Swagger UI.
