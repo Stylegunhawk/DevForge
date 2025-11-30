@@ -9,9 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 from fastapi import APIRouter, HTTPException, Request
-
 from fastapi.responses import JSONResponse
 
 from src.core.config import settings
@@ -22,23 +20,27 @@ from src.core.utils import track_performance
 from src.agents.datagen.agent import datagen_agent
 from src.agents.rag.agent import rag_agent_invoke
 from src.agents.github.agent import github_agent_invoke
-
-mcp_router = APIRouter()
+from src.agents.reranker import rerank_docs_invoke
+from src.agents.prompt_refiner.agent import refine_prompt_invoke
+from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
 
 router = APIRouter()
+mcp_router = APIRouter()
 
-# Track supported tools
+# Map tool names to agent invoke functions
 SUPPORTED_TOOLS = {
     "generate_data": datagen_agent,
     "retrieve_docs": rag_agent_invoke,
     "github_operation": github_agent_invoke,
+    "rerank_docs": rerank_docs_invoke,
+    "refine_prompt": refine_prompt_invoke,
+    "generate_cheatsheet": generate_cheatsheet_invoke,
 }
 
 
 @router.get("/manifests/devforge.json")
-async def get_manifest() -> JSONResponse:
-    """Serve DevForge plugin manifest for Lobe Chat discovery.
-
+async def get_manifest():
+    """
     Generates manifest dynamically with current gateway URL from settings.
     This allows the manifest to reflect the correct port and host.
 

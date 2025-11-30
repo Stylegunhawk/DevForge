@@ -16,6 +16,14 @@ from src.tools.rag.tools import (
     ingest_documents,
     retrieve_docs,
 )
+from src.agents.reranker import Reranker
+
+# Initialize reranker globally
+try:
+    reranker = Reranker()
+except Exception as e:
+    logger.warning(f"Failed to initialize Reranker: {e}. Reranking will be disabled.")
+    reranker = None
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +142,22 @@ async def retrieve_node(state: RAGState) -> RAGState:
                 "context": "",
                 "error": None,
             }
+
+        # Rerank documents if reranker is available
+        if reranker:
+            try:
+                # Rerank and take top_k (retrieval might return more, or we refine the order)
+                # Note: retrieve_docs already limits to top_k, but we might want to retrieve more then rerank?
+                # For now, we just re-order the retrieved docs.
+                documents = await reranker.rerank(
+                    query=query,
+                    documents=documents,
+                    top_k=top_k,
+                    key=lambda x: x.get("content", "")
+                )
+                logger.info("Documents reranked successfully")
+            except Exception as e:
+                logger.error(f"Reranking failed, using original order: {e}")
 
         # Concatenate document content into context
         context = "\n\n".join([f"[{i+1}] {doc['content']}" for i, doc in enumerate(documents)])

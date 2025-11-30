@@ -1,24 +1,18 @@
-# DevForge Backend - Phase Status Tracker
+# DevForge - Phase Status Tracker
 
-**Last Updated:** Nov 2, 2025  
-**Current Version:** v0.2.0  
-**Next Version:** v0.3.0 (Phase 3)
+# Context Mode: ENABLED
+# File Purpose: Phase Progress Tracker for DevForge Backend
+# Source of Truth: PROJECT_OVERVIEW.md + BACKEND_PLAN.md + INTEGRATION_PLAN.md
+# Update Frequency: After each phase completion
 
----
 
-## Phase Status Overview
-
-| Phase | Status | Version | Key Deliverables |
-|-------|--------|---------|------------------|
-| Phase 1 | ✅ Complete | v0.1.0 | DataGen Agent, MCP Gateway |
-| Phase 2 | ✅ Complete | v0.2.0 | ModelRouter, Supervisor Agent |
-| Phase 3 | 🔄 Next | v0.3.0 | RAG + GitHub Integration |
-| Phase 4 | ⏳ Pending | v0.4.0 | Prompt Reranking + Fine-Tuning |
-| Phase 5 | ⏳ Pending | v0.5.0 | Docker + Deployment |
+**Last Updated:** Nov 4, 2025  
+**Current Version:** v0.3.1  
+**Next Version:** v0.4.0 (Phase 4)
 
 ---
 
-## ✅ Phase 1: Foundation (COMPLETE - v0.1.0)
+## ✅ Phase 1: Foundation (COMPLETE)
 
 **Duration:** Oct 15 - Nov 2, 2025 (3 weeks)
 
@@ -40,11 +34,22 @@
 
 **Verification:** All items in `README.md` Phase 1 Verification Checklist completed ✓
 
+**Key Files:**
+- `src/main.py` - FastAPI app entry
+- `src/api/routers.py` - Gateway + manifest
+- `src/agents/datagen/agent.py` - Simple async DataGen
+- `src/tools/datagen/tools.py` - Faker/Pandas logic
+- `manifests/devforge.json` - MCP manifest v0.1.0
+- `tests/` - 36 passing tests
+
+**Documentation:** See `README.md` for API examples and integration guide.
+
 ---
 
 ## ✅ Phase 2: Multi-Model Routing (COMPLETE - v0.2.0)
 
-**Duration:** Nov 2, 2025 (1 day)
+**Duration:** Nov 2, 2025 (1 day)  
+**Completed:** Nov 2, 2025
 
 **Delivered:**
 - ✅ ModelRouter with task-to-model mapping (`src/core/model_router.py`)
@@ -54,9 +59,8 @@
 - ✅ 22 new tests for routing and supervisor logic
 - ✅ Manifest version bumped to v0.2.0
 
-**New Dependencies:**
-- `langgraph>=0.2.0` - Graph-based agent orchestration
-- `langchain-core>=0.3.0` - Required for LangGraph
+**Tech Stack Additions:**
+- LangGraph 0.2.0, langchain-core 0.3.0
 
 **Models Used:**
 - Supervisor: `deepseek-r1:8b` (intent classification)
@@ -76,40 +80,86 @@
 - `manifests/devforge.json` - Updated to v0.2.0
 - `tests/` - 58 passing tests total
 
+**Documentation:** See `.cursor/devforge-backend.md` for Phase 2 details
+
 ---
 
-## 🔄 Phase 3: RAG + GitHub Integration (NEXT - v0.3.0)
+## ✅ Phase 3: RAG + GitHub (COMPLETE - v0.3.1)
 
-**Planned:** Nov 10 - Nov 30, 2025 (3 weeks)
+**Duration:** Nov 4, 2025  
+**Completed:** Nov 4, 2025
 
-**Goals:**
-- RAG with ChromaDB + vector store
-- GitHub operations (PyGitHub)
-- Multi-tool coordination via supervisor
-- Embedding model integration
+### Phase 3.1: RAG Agent (COMPLETE)
 
-**Stub Files Ready:**
-- `src/agents/rag/agent.py` (empty)
-- `src/agents/github/agent.py` (empty)
-- `src/tools/rag/tools.py` (empty)
-- `src/tools/github/tools.py` (empty)
+**Delivered:**
+- ✅ RAG agent with LangGraph workflow (`src/agents/rag/agent.py`)
+- ✅ Dual vector store support: ChromaDB (local) + Qdrant Cloud (remote)
+- ✅ Document ingestion: PDF, MD, TXT, DOCX with async I/O
+- ✅ Semantic search with configurable top_k and score threshold
+- ✅ Response generation using ModelRouter with local/cloud fallback
+- ✅ 33+ comprehensive tests for RAG functionality
 
-**Models to Use:**
+**Tech Stack:**
+- ChromaDB 1.3.2 (local vector store)
+- Qdrant Client 1.7.0+ (cloud vector store)
+- LangChain Chroma 1.0.0, LangChain Qdrant 0.1.0+
+- PyPDF 3.17.0+, python-docx 1.1.0
+- aiofiles 23.0.0+ (async file I/O)
+
+**Models Used:**
+- Embeddings: `nomic-embed-text` (primary), `bge-m3` (fallback)
 - RAG Local: `gpt-oss:20b`
-- RAG Cloud: `gpt-oss:120b-cloud`
-- GitHub: `qwen3-coder:480b-cloud`
-- Embeddings: `nomic-embed-text` or `bge-m3`
+- RAG Cloud: `gpt-oss:120b-cloud` (fallback)
 
-**Dependencies to Add:**
-- `chromadb>=0.5.0`
-- `PyGithub>=2.4.0`
-- `langchain-community` (for embeddings)
+**Key Files:**
+- `src/agents/rag/agent.py` - LangGraph RAG workflow
+- `src/tools/rag/tools.py` - Document reading, chunking, ingestion, retrieval
+- `tests/test_rag.py` - 33 RAG tests
+- `manifests/devforge.json` - Added `retrieve_docs` tool
 
-**Documentation:** See `PROJECT_OVERVIEW.md` Section 3
+### Phase 3.2: Supervisor RAG Integration (COMPLETE)
+
+**Delivered:**
+- ✅ Supervisor routes "rag" intent to RAG agent
+- ✅ Error handling for RAG operations
+- ✅ Integration tests for RAG routing
+
+### Phase 3.3: GitHub Operations (COMPLETE)
+
+**Delivered:**
+- ✅ GitHub agent with LangGraph workflow (`src/agents/github/agent.py`)
+- ✅ PyGithub integration for repository operations
+- ✅ Support for: list repos, create repo, create issue, commit file, create PR
+- ✅ Natural language query parsing using LLM
+- ✅ Comprehensive test suite (`tests/test_github.py`)
+- ✅ Gateway integration with `github_operation` tool
+- ✅ Supervisor routing for "github" intent
+
+**Tech Stack:**
+- PyGithub 2.1.1+
+
+**Models Used:**
+- GitHub Operations: `qwen3-coder:480b-cloud` (via ModelRouter)
+
+**Key Files:**
+- `src/agents/github/agent.py` - LangGraph GitHub workflow
+- `src/tools/github/tools.py` - GitHub API operations wrapper
+- `tests/test_github.py` - GitHub operation tests
+- `manifests/devforge.json` - Added `github_operation` tool
+
+**Verification Checklist:**
+- ✅ All Phase 3 tests passing
+- ✅ RAG agent functional (ChromaDB + Qdrant)
+- ✅ GitHub agent functional (list repos, create issues, etc.)
+- ✅ Supervisor routing for "rag" and "github" intents
+- ✅ Gateway dispatches all three tools correctly
+- ✅ Manifest updated to v0.3.0
+
+**Documentation:** See `PROJECT_OVERVIEW.md` for Phase 3 details
 
 ---
 
-## ⏳ Phase 4: Prompt Reranking + Fine-Tuning (PENDING - v0.4.0)
+## ⏳ Phase 4: Prompt Reranking + Fine-Tuning (PENDING)
 
 **Planned:** Dec 1 - Dec 21, 2025 (3 weeks)
 
@@ -121,7 +171,7 @@
 
 ---
 
-## ⏳ Phase 5: Deployment (PENDING - v0.5.0)
+## ⏳ Phase 5: Deployment (PENDING)
 
 **Planned:** Dec 22, 2025 - Jan 5, 2026 (2 weeks)
 
@@ -140,11 +190,10 @@
 - `src/core/config.py` - Environment settings
 - `src/core/schemas.py` - Pydantic models
 - `src/core/utils.py` - Logging, performance tracking
-- `src/core/model_router.py` - Model selection and routing
 
 **Per-Phase Additions:**
 - Phase 1: `agents/datagen/`, `tools/datagen/`
-- Phase 2: `agents/supervisor.py`
+- Phase 2: `core/model_router.py`, `agents/supervisor.py`
 - Phase 3: `agents/rag/`, `agents/github/`, `tools/rag/`, `tools/github/`
 - Phase 4: `agents/reranker.py`, `finetune/`
 - Phase 5: `docker/`, `deploy/`
@@ -153,20 +202,14 @@
 
 ---
 
-## 📊 Test Coverage
+## 🎯 Current Focus
 
-- **Phase 1:** 36 tests (unit + integration + E2E)
-- **Phase 2:** 22 tests (routing + supervisor)
-- **Total:** 58/58 tests passing ✅
-- **Coverage:** > 90% across core modules
+**Active Work:** Phase 4 - Prompt Reranking + Fine-Tuning  
+**Next Implementation:** Prompt reranking pipeline  
+**Cursor Context:** See `PROJECT_OVERVIEW.md` for Phase 4 roadmap  
+**Manifest Version:** 0.3.0
 
----
-
-## 🎯 Next Steps
-
-1. Begin Phase 3: RAG + GitHub Integration
-2. Implement RAG agent with ChromaDB
-3. Implement GitHub agent with PyGithub
-4. Add integration tests for new tools
-5. Update manifest to v0.3.0
-
+**For Questions:**
+- Architecture: `BACKEND_PLAN.md`
+- Integration: `INTEGRATION_PLAN.md`
+- Roadmap: `PROJECT_OVERVIEW.md`

@@ -3,8 +3,8 @@
   "name": "DevForge",
   "meta": {
     "author": "You",
-    "version": "0.3.1",
-    "description": "Local developer tools (data generation, RAG, and GitHub automation)"
+    "version": "0.7.0",
+    "description": "Local developer tools (data generation, RAG, GitHub automation, and Cheat Sheets)"
   },
   "api": [
     {
@@ -23,7 +23,10 @@
           "format": {
             "type": "string",
             "description": "Output format",
-            "enum": ["json", "csv"],
+            "enum": [
+              "json",
+              "csv"
+            ],
             "default": "json"
           },
           "fields": {
@@ -34,7 +37,9 @@
             }
           }
         },
-        "required": ["rows"]
+        "required": [
+          "rows"
+        ]
       },
       "call_mode": "prefer"
     },
@@ -64,12 +69,17 @@
           },
           "embed_model": {
             "type": "string",
-            "enum": ["nomic-embed-text", "bge-m3"],
+            "enum": [
+              "nomic-embed-text",
+              "bge-m3"
+            ],
             "default": "nomic-embed-text",
             "description": "Embedding model to use"
           }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "call_mode": "prefer"
     },
@@ -84,7 +94,111 @@
             "description": "Natural language description of the GitHub action (e.g., 'list my repos', 'create issue in my-repo')"
           }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "rerank_docs",
+      "description": "Rerank retrieved documents by relevance using cross-encoder",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "User query"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of documents to rerank"
+          },
+          "top_k": {
+            "type": "integer",
+            "default": 5,
+            "description": "Number of top results to return"
+          }
+        },
+        "required": [
+          "query",
+          "documents"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "refine_prompt",
+      "description": "Refine and optimize a prompt for specific domains (image, code, rag, llm)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Original user prompt to refine"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "general",
+              "image",
+              "code",
+              "rag",
+              "llm"
+            ],
+            "default": "general",
+            "description": "Target domain for the prompt"
+          },
+          "skill_level": {
+            "type": "string",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "expert"
+            ],
+            "default": "intermediate",
+            "description": "Target skill level/complexity"
+          },
+          "file_context": {
+            "type": "string",
+            "description": "Optional context from attached files (code, markdown, etc.)"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "generate_cheatsheet",
+      "description": "Generate a dynamic cheat sheet for a programming language based on skill level.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string",
+            "description": "Programming language (e.g., python, javascript). Auto-detected if code_context is provided."
+          },
+          "skill_level": {
+            "type": "string",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "expert"
+            ],
+            "default": "beginner",
+            "description": "Target skill level"
+          },
+          "code_context": {
+            "type": "string",
+            "description": "Optional code snippet to auto-detect language and context."
+          }
+        },
+        "required": []
       },
       "call_mode": "prefer"
     }

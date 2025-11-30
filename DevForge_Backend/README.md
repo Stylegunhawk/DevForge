@@ -187,30 +187,43 @@ Phase 1 includes comprehensive test coverage:
 - ✅ Structured logging
 - ✅ Performance tracking
 
-## 🧠 Phase 2 Summary (v0.2.0)
+## 🧠 Phase 3 Summary (v0.3.1)
 
-Phase 2 introduced multi-model routing and the LangGraph-based Supervisor Agent.
+Phase 3 introduced RAG (Retrieval-Augmented Generation) and GitHub automation.
 
 **Key Highlights:**
-- ✅ Added `ModelRouter` with task-to-model mapping and async fallback support
-- ✅ Supervisor Agent automatically routes requests to DataGen or future tools (RAG / GitHub)
-- ✅ Integrated `langgraph` and `langchain-core` dependencies
-- ✅ All Phase 1 tests plus 22 new tests → **58/58 passing**
-- ✅ Manifest version bumped to `v0.2.0`
+- ✅ **RAG Agent**: Document ingestion (PDF, MD, TXT, DOCX) and semantic search using ChromaDB (local) and Qdrant (cloud).
+- ✅ **GitHub Agent**: Automate repository operations (list repos, create issues, PRs) using PyGithub.
+- ✅ **Supervisor Integration**: Intelligent routing for "rag" and "github" intents.
+- ✅ **Dual Vector Store**: Seamless fallback between local ChromaDB and cloud Qdrant.
+- ✅ **Manifest Update**: Bumped to `v0.3.1` with new tools `retrieve_docs` and `github_operation`.
 
 **New Components:**
-- `src/core/model_router.py` - Enhanced with `select_model_by_task()` and `check_model_health()`
-- `src/agents/supervisor.py` - LangGraph workflow with intent classification
-- Task-based routing: datagen, routing, rag_simple, rag_complex, code_gen, premium
+- `src/agents/rag/` & `src/tools/rag/` - Document processing and retrieval.
+- `src/agents/github/` & `src/tools/github/` - GitHub API integration.
+- `src/core/model_router.py` - Updated with RAG and GitHub model profiles.
 
-**Model Routing:**
-- Supervisor classification: `deepseek-r1:8b`
-- DataGen operations: `qwen3:4b` (local, fast)
-- Fallback chain: local → cloud escalation on failures
+## 🧠 Phase 4 Summary (v0.4.0)
 
-### Next Phase: RAG + GitHub Integration (v0.3.0)
+Phase 4 focused on improving RAG retrieval quality through reranking.
 
-Phase 3 will add document retrieval with ChromaDB and GitHub API automation via PyGithub.
+**Key Highlights:**
+- ✅ **Reranker Agent**: Uses `sentence-transformers` and Cross-Encoder models to re-score retrieved documents.
+- ✅ **RAG Integration**: Automatically reranks documents before context generation.
+- ✅ **New Tool**: `rerank_docs` added to MCP manifest.
+
+## 🎨 Phase 6 Summary (v0.6.0)
+
+Phase 6 added a **Prompt Refinement Agent** to optimize user prompts for various domains.
+
+**Key Highlights:**
+- ✅ **Prompt Refiner Agent**: Enhances prompts for Image, Code, RAG, and LLM tasks.
+- ✅ **Context Awareness**: Uses file context to tailor prompts to specific code or documentation.
+- ✅ **New Tool**: `refine_prompt` added to MCP manifest.
+
+### Next Phase: Deployment (v0.7.0)
+
+Phase 5 (Deployment) was deferred and is the next logical step.
 
 ## Project Structure
 
@@ -225,12 +238,12 @@ DevForge_Backend/
 │   │   ├── rag/             # RAG agent (Phase 3)
 │   │   └── github/          # GitHub agent (Phase 3)
 │   ├── tools/
-│   │   ├── datagen/         # DataGen tools (Faker + Pandas)
+│   │   ├── datagen/         # DataGen tools
 │   │   ├── rag/             # RAG tools (Phase 3)
 │   │   └── github/          # GitHub tools (Phase 3)
 │   └── core/                # Config, schemas, utils, model_router
-├── manifests/               # Plugin manifests (v0.2.0)
-├── tests/                   # Test suite (58 tests)
+├── manifests/               # Plugin manifests (v0.3.1)
+├── tests/                   # Test suite (58+ tests)
 └── requirements.txt        # Dependencies
 ```
 
@@ -321,7 +334,43 @@ Before considering Phase 1 complete, verify all items:
 - [ ] No stack traces exposed to clients (errors logged server-side)
 - [ ] Environment variables used for sensitive data
 - [ ] Input validation on all endpoints
-- [ ] Request/response logging for debugging
+### Phase 3 Verification Checklist (RAG + GitHub)
+
+- [ ] **RAG Agent**:
+    - [ ] Document ingestion works (PDF/MD/TXT).
+    - [ ] Semantic search returns relevant context.
+    - [ ] Fallback to cloud vector store works if local fails.
+- [ ] **GitHub Agent**:
+    - [ ] Can list repositories (`list my repos`).
+    - [ ] Can create issues (`create issue...`).
+    - [ ] Token authentication is working.
+- [ ] **Supervisor**:
+    - [ ] Correctly routes "search..." to RAG agent.
+    - [ ] Correctly routes "create repo..." to GitHub agent.
+- [ ] **Tests**:
+    - [ ] All tests pass: `pytest tests/ -v` (should be >90 tests).
+
+### Phase 4 Verification Checklist (Reranking)
+- [ ] **Reranker**:
+    - [ ] `Reranker` class initializes with default model.
+    - [ ] `rerank()` method correctly sorts documents by relevance.
+    - [ ] RAG agent uses reranker when available.
+- [ ] **Tests**:
+    - [ ] `pytest tests/test_reranker.py` passes.
+
+### Phase 6 Verification Checklist (Prompt Refiner)
+- [ ] **Prompt Refiner**:
+    - [ ] `PromptRefinerAgent` initializes correctly.
+    - [ ] `refine_prompt` tool works via Gateway.
+    - [ ] Context-aware refinement functions as expected.
+- [ ] **Tests**:
+    - [ ] `pytest tests/test_prompt_refiner.py` passes.
+
+### Phase 1 Verification Checklist
+- [ ] Server starts without errors.
+- [ ] Manifest loads successfully.
+- [ ] DataGen tool works via Gateway.
+- [ ] CORS configured correctly.
 
 ## Integration with Lobe Chat
 
