@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routers import router
 from src.core.config import settings
 from src.core.utils import setup_logging
+from src.core.middleware import RequestLoggingMiddleware
 from src.api.routers import mcp_router
 
 # Track application start time for uptime calculation
@@ -28,9 +29,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DevForge Backend",
     description="FastAPI backend for AI-powered developer tools",
-    version="0.1.0",
+    version="0.7.0",
     lifespan=lifespan,
 )
+
+# Add request/response logging middleware (BEFORE CORS)
+app.add_middleware(RequestLoggingMiddleware)
 
 # Configure CORS
 app.add_middleware(
@@ -66,7 +70,7 @@ async def root():
     """
     return {
         "message": "DevForge backend running",
-        "version": "0.1.0",
+        "version": "0.7.0",
         "docs": "/docs",
         "health": "/health",
     }

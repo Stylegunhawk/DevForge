@@ -1,103 +1,334 @@
 """Pydantic models for request/response validation.
 
-Pydantic v2 – field_validator, modern type hints, auto-parsing of JSON strings.
+Supports both REST API and MCP Protocol formats for maximum compatibility.
 """
 
 import json
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, field_validator, ValidationError
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # --------------------------------------------------------------------------- #
-# 1. GATEWAY (LobeChat / MCP) – accepts `arguments` as **string OR dict**
+# GATEWAY REQUEST - Supports both 'name' and 'apiName' for compatibility
 # --------------------------------------------------------------------------- #
 class GatewayRequest(BaseModel):
-    """Incoming tool-call from LobeChat, MCP, or any client.
-
-    LobeChat sends:
-        {"apiName": "...", "arguments": "{\"rows\":10,...}"}
-    Gemini/OpenAI function-calling sends:
-        {"name": "...", "arguments": {"rows":10,...}}
-    We accept **both**.
     """
+    Gateway request model supporting multiple client formats:
+    
+    1. Lobe Chat format: {"name": "tool_name", "arguments": {...}}
+    2. MCP Inspector format: {"apiName": "tool_name", "arguments": {...}}
+    3. String arguments: {"name": "tool_name", "arguments": "{\"key\": \"value\"}"}
+    
+    The model automatically:
+    - Accepts both 'name' and 'apiName'
+    - Parses JSON string arguments to dict
+    - Validates required fields
+    """
+    
+    # Accept either field name (Lobe Chat uses 'name', MCP Inspector uses 'apiName')
+    name: Optional[str] = Field(None, description="Tool name (snake_case, Lobe Chat format)")
+    apiName: Optional[str] = Field(None, description="Tool name (camelCase, MCP format)")
+    
+    # Arguments can be string or dict
+    arguments: Union[str, Dict[str, Any]] = Field(
+        ..., 
+        description="Tool arguments as JSON string or dict"
+    )
+    
+    # Optional MCP metadata
+    id: Optional[str] = Field(None, description="Request ID for tracking")
+    identifier: Optional[str] = Field(None, description="Plugin identifier")
+    type: Optional[Literal["default"]] = Field(None, description="Request type")
 
-    apiName: str                                   # LobeChat uses camelCase
-    arguments: str | Dict[str, Any]                # JSON string **or** dict
-    id: Optional[str] = None
-    identifier: Optional[str] = None
-    type: Optional[Literal["default"]] = None
-
-    # ------------------------------------------------------------------- #
-    # Auto-convert JSON string → dict (runs *before* any other validation)
-    # ------------------------------------------------------------------- #
     @field_validator("arguments", mode="before")
     @classmethod
-    def _normalize_arguments(cls, v: Any) -> Dict[str, Any]:
+    def parse_arguments(cls, v: Any) -> Dict[str, Any]:
+        """
+        Auto-parse arguments from JSON string to dict if needed.
+        
+        Args:
+            v: Raw arguments value (string or dict)
+            
+        Returns:
+            Parsed dict of arguments
+            
+        Raises:
+            ValueError: If JSON string is invalid
+        """
         if isinstance(v, str):
             try:
                 return json.loads(v)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Invalid JSON in 'arguments': {exc}")
+        
         if isinstance(v, dict):
             return v
+        
         raise ValueError(f"'arguments' must be str or dict, got {type(v).__name__}")
 
-    # ------------------------------------------------------------------- #
-    # Normalise field name for internal code (we use snake_case `name`)
-    # ------------------------------------------------------------------- #
-    @property
-    def name(self) -> str:
-        """Convenient snake_case alias used everywhere else."""
-        return self.apiName
+    @model_validator(mode="after")
+    def check_tool_name(self) -> "GatewayRequest":
+        """
+        Ensure at least one of 'name' or 'apiName' is provided.
+        
+        Returns:
+            Self if validation passes
+            
+        Raises:
+            ValueError: If neither field is provided
+        """
+        if not self.name and not self.apiName:
+            raise ValueError("Either 'name' or 'apiName' must be provided")
+        return self
+
+    def get_tool_name(self) -> str:
+        """
+        Get tool name from either 'name' or 'apiName' field.
+        Prioritizes 'name' if both are provided (for Lobe Chat compatibility).
+        
+        Returns:
+            Tool name string
+        """
+        return self.name or self.apiName or ""
+
+    model_config = {
+        "populate_by_name": True,  # Allow both field names in input
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "name": "generate_data",
+                    "arguments": {"rows": 10, "format": "json"}
+                },
+                {
+                    "apiName": "generate_data",
+                    "arguments": "{\"rows\": 10, \"format\": \"json\"}"
+                }
+            ]
+        }
+    }
 
 
 # --------------------------------------------------------------------------- #
-# 2. RESPONSE
+# GATEWAY RESPONSE - Standardized format for all tools
 # --------------------------------------------------------------------------- #
 class GatewayResponse(BaseModel):
-    success: bool
-    tool: str
-    format: Optional[str] = None
-    data: Optional[Any] = None
-    error: Optional[str] = None
-    execution_time: Optional[float] = None
+    """
+    Standardized response format for gateway endpoint.
+    
+    All tools return this format for consistency.
+    """
+    
+    success: bool = Field(..., description="Whether operation succeeded")
+    data: Optional[Any] = Field(None, description="Tool execution result (can be any type)")
+    message: str = Field(..., description="Human-readable status message")
+    tool: Optional[str] = Field(None, description="Tool name that was executed")
+    execution_time: Optional[float] = Field(None, description="Execution time in seconds")
+    error: Optional[str] = Field(None, description="Error message if operation failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "data": {"result": "example output"},
+                    "message": "Operation completed successfully",
+                    "tool": "generate_data",
+                    "execution_time": 1.23
+                },
+                {
+                    "success": False,
+                    "data": None,
+                    "message": "Operation failed: Invalid input",
+                    "error": "Invalid input",
+                    "tool": "generate_data",
+                    "execution_time": 0.05
+                }
+            ]
+        }
+    }
 
 
 # --------------------------------------------------------------------------- #
-# 3. TOOL-SPECIFIC ARG MODELS (used inside agents)
+# TOOL-SPECIFIC ARGUMENT MODELS
 # --------------------------------------------------------------------------- #
+
 class DataGenArgs(BaseModel):
-    rows: int
-    format: Literal["csv", "json"] = "json"
-    fields: Optional[List[str]] = None
+    """Arguments for generate_data tool."""
+    
+    rows: int = Field(..., ge=1, le=10000, description="Number of rows to generate")
+    format: Literal["csv", "json"] = Field("json", description="Output format")
+    fields: Optional[List[str]] = Field(None, description="Custom fields to generate")
 
-    @field_validator("rows")
-    @classmethod
-    def _check_rows(cls, v: int) -> int:
-        if not (1 <= v <= 10_000):
-            raise ValueError("rows must be 1-10,000")
-        return v
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"rows": 100, "format": "json", "fields": ["name", "email", "phone"]}
+            ]
+        }
+    }
 
 
 class RAGArgs(BaseModel):
-    query: str
-    file_paths: Optional[List[str]] = None
-    top_k: int = 5
-    embed_model: Optional[str] = None
-    backend: Optional[str] = None
-    score_threshold: Optional[float] = None
+    """Arguments for retrieve_docs tool."""
+    
+    query: str = Field(..., min_length=1, description="Search query")
+    file_paths: Optional[List[str]] = Field(None, description="Paths to documents to ingest")
+    top_k: int = Field(5, ge=1, le=50, description="Number of results to return")
+    embed_model: Optional[str] = Field(None, description="Embedding model to use")
+    backend: Optional[Literal["chromadb", "qdrant"]] = Field(None, description="Vector store backend")
+    score_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum relevance score")
 
-    @field_validator("top_k")
-    @classmethod
-    def _check_top_k(cls, v: int) -> int:
-        if not (1 <= v <= 50):
-            raise ValueError("top_k must be 1-50")
-        return v
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "query": "What is machine learning?",
+                    "top_k": 5,
+                    "score_threshold": 0.7
+                }
+            ]
+        }
+    }
 
-    @field_validator("score_threshold")
-    @classmethod
-    def _check_score(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None and not (0.0 <= v <= 1.0):
-            raise ValueError("score_threshold must be 0.0-1.0")
-        return v
+
+class GitHubArgs(BaseModel):
+    """Arguments for github_operation tool."""
+    
+    query: str = Field(..., description="Natural language GitHub operation request")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"query": "list my repositories"},
+                {"query": "create an issue titled 'Bug fix' in repo 'myproject'"}
+            ]
+        }
+    }
+
+
+class RerankArgs(BaseModel):
+    """Arguments for rerank_docs tool."""
+    
+    query: str = Field(..., description="Query for reranking")
+    documents: List[Dict[str, Any]] = Field(..., description="Documents to rerank")
+    top_k: Optional[int] = Field(None, ge=1, description="Number of results to return")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "query": "machine learning",
+                    "documents": [
+                        {"content": "ML is a subset of AI", "metadata": {}},
+                        {"content": "Python is great for data science", "metadata": {}}
+                    ],
+                    "top_k": 5
+                }
+            ]
+        }
+    }
+
+
+class PromptRefineArgs(BaseModel):
+    """Arguments for refine_prompt tool."""
+    
+    prompt: str = Field(..., description="Original prompt to refine")
+    domain: Literal["general", "image", "code", "rag", "llm"] = Field(
+        "general", 
+        description="Domain for optimization"
+    )
+    skill_level: Literal["beginner", "intermediate", "expert"] = Field(
+        "intermediate",
+        description="Target skill level"
+    )
+    file_context: Optional[str] = Field(None, description="File content for context")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "prompt": "Create a REST API",
+                    "domain": "code",
+                    "skill_level": "intermediate"
+                }
+            ]
+        }
+    }
+
+
+class CheatsheetArgs(BaseModel):
+    """Arguments for generate_cheatsheet tool."""
+    
+    language: str = Field(..., description="Programming language")
+    skill_level: Literal["beginner", "intermediate", "expert"] = Field(
+        "intermediate",
+        description="Target skill level"
+    )
+    code_context: Optional[str] = Field(None, description="Code snippet for context")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "language": "python",
+                    "skill_level": "intermediate"
+                }
+            ]
+        }
+    }
+
+
+# --------------------------------------------------------------------------- #
+# MCP PROTOCOL MODELS (for official MCP Inspector compatibility)
+# --------------------------------------------------------------------------- #
+
+class MCPRequest(BaseModel):
+    """
+    JSON-RPC 2.0 request format for MCP Protocol.
+    Used by official MCP Inspector.
+    """
+    
+    jsonrpc: Literal["2.0"] = "2.0"
+    method: str = Field(..., description="Method name (e.g., 'tools/call', 'tools/list')")
+    params: Optional[Dict[str, Any]] = Field(None, description="Method parameters")
+    id: Optional[Union[str, int]] = Field(None, description="Request ID")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {
+                        "name": "generate_data",
+                        "arguments": {"rows": 10}
+                    },
+                    "id": 1
+                }
+            ]
+        }
+    }
+
+
+class MCPResponse(BaseModel):
+    """
+    JSON-RPC 2.0 response format for MCP Protocol.
+    """
+    
+    jsonrpc: Literal["2.0"] = "2.0"
+    result: Optional[Any] = Field(None, description="Method result")
+    error: Optional[Dict[str, Any]] = Field(None, description="Error object if method failed")
+    id: Optional[Union[str, int]] = Field(None, description="Request ID")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "jsonrpc": "2.0",
+                    "result": {"content": [{"type": "text", "text": "Success"}]},
+                    "id": 1
+                }
+            ]
+        }
+    }

@@ -2,10 +2,10 @@
 
 # Context Mode: ENABLED
 # File Purpose: Implementation guide for DevForge backend
-# Source of Truth: PROJECT_OVERVIEW.md, BACKEND_PLAN.md, INTEGRATION_PLAN.md
+# Source of Truth: PROJECT_OVERVIEW.md, BACKEND_PLAN.md, INTEGRATION_PLAN.md, PHASE_STATUS.md
 # Update Frequency: After each phase completion
 
-**Status:** Phase 2 — Complete (v0.2.0) | Next Focus: Phase 3 — RAG + GitHub Integration
+**Status:** Phase 7 — Complete (v0.7.0) | Next Focus: Phase 8 (Enhanced DevOps) or Phase 5 (Deployment)
 
 
 ## ✅ PHASE 1: COMPLETE (Updated: Nov 2, 2025)
@@ -31,8 +31,8 @@
 ---
 DevForge/
 ├── .cursor/
-│   └── devforge-backend.md          # ✅ Phase 2 focus (current file)
-    └── PHASE_STATUS.MD
+│   └── devforge-backend.md          # ✅ Current status: Phase 7 complete (v0.7.0)
+    └── PHASE_STATUS.md
     └── devforge-lobe-chat.md
 ├── DevForge_Backend/
 │   
@@ -62,343 +62,231 @@ DevForge_Backend/
 4. **`../README.md`** - Phase 1 implementation (what's already working)
 5. **`../PHASE_STATUS.md`** - Current phase status and next steps
 
-**This file (`.cursor/devforge-backend.md`) focuses on Phase 2 implementation details.**
+**This file (`.cursor/devforge-backend.md`) provides implementation details and current status for all phases.**
 
 ---
 
 ## 🗺️ Quick Phase Reference
 
-| Phase | Status | Key Deliverables | Documentation |
-|-------|--------|------------------|---------------|
-| **Phase 1** | ✅ COMPLETE | DataGen agent, MCP gateway, 36 tests | `README.md` |
-| **Phase 2** | ✅ COMPLETE (v0.2.0) | Model router, supervisor agent, LangGraph | This file |
-| **Phase 3** | 🔄 NEXT | RAG (ChromaDB + Kotaemon), GitHub ops | `PROJECT_OVERVIEW.md` |
-| **Phase 4** | ⏳ PENDING | Prompt reranking, LoRA fine-tuning | `PROJECT_OVERVIEW.md` |
-| **Phase 5** | ⏳ PENDING | Docker, Render deployment | `BACKEND_PLAN.md` |
+| Phase | Status | Key Deliverables | Version | Documentation |
+|-------|--------|------------------|---------|---------------|
+| **Phase 1** | ✅ COMPLETE | DataGen agent, MCP gateway, 36 tests | v0.1.0 | `README.md` |
+| **Phase 2** | ✅ COMPLETE | Model router, supervisor agent, LangGraph | v0.2.0 | This file |
+| **Phase 3** | ✅ COMPLETE | RAG (ChromaDB + Qdrant), GitHub ops | v0.3.1 | `PROJECT_OVERVIEW.md` |
+| **Phase 4** | ✅ COMPLETE | Document reranking with Cross-Encoder | v0.4.0 | `PROJECT_OVERVIEW.md` |
+| **Phase 5** | ⏳ DEFERRED | Docker, Render deployment | - | `BACKEND_PLAN.md` |
+| **Phase 6** | ✅ COMPLETE | Prompt refinement agent | v0.6.0 | `PROJECT_OVERVIEW.md` |
+| **Phase 7** | ✅ COMPLETE | Dynamic cheat sheet generator | v0.7.0 | `PROJECT_OVERVIEW.md` |
+| **Phase 8** | 🔄 NEXT | Enhanced DevOps, CI/CD | v0.8.0 | `PHASE_STATUS.md` |
 
 **Architecture Decisions:** See `BACKEND_PLAN.md` for folder structure conventions.  
 **Integration Rules:** See `INTEGRATION_PLAN.md` for Lobe Chat MCP protocol.
 
 ---
 
-## 🎯 PHASE 3: RAG + GitHub Integration (NEXT - v0.3.0)
+## ✅ PHASE 2: COMPLETE (v0.2.0)
+
+**Delivered Features:**
+- ✅ ModelRouter with task-to-model mapping
+- ✅ Supervisor Agent with LangGraph
+- ✅ Intent classification using `deepseek-r1:8b`
+- ✅ Async fallback support with cost tracking
+- ✅ 22 new tests (58 total: 36 Phase 1 + 22 Phase 2)
+- ✅ Manifest version bumped to v0.2.0
+
+**Key Files:**
+- `src/core/model_router.py` - Enhanced with task mapping and health checks
+- `src/agents/supervisor.py` - LangGraph-based supervisor workflow
+
+---
+
+## ✅ PHASE 3: RAG + GitHub Integration (COMPLETE - v0.3.1)
 
 ### Overview
-Add document retrieval with ChromaDB and GitHub API automation via PyGithub.
+✅ **COMPLETE** - Document retrieval with ChromaDB/Qdrant and GitHub API automation via PyGithub.
 
-### Priority 1: Model Router
-**File**: `src/core/model_router.py`
-```python
-class ModelRouter:
-    """Route queries to optimal models based on task type and constraints"""
-    
-    MODELS = {
-        "qwen3:4b": {"speed": "fast", "cost": 0, "best_for": ["datagen", "simple_qa"]},
-        "deepseek-r1:8b": {"speed": "medium", "cost": 0, "best_for": ["routing", "classification"]},
-        "gpt-oss:20b": {"speed": "medium", "cost": 0, "best_for": ["rag_local", "reasoning"]},
-        "gpt-oss:120b-cloud": {"speed": "slow", "cost": 0.002, "best_for": ["rag_complex", "analysis"]},
-        "qwen3-coder:480b-cloud": {"speed": "slow", "cost": 0.01, "best_for": ["code_gen", "github"]},
-        "deepseek-v3.1:671b-cloud": {"speed": "slowest", "cost": 0.05, "best_for": ["premium_reasoning"]},
-    }
-    
-    def select_model(self, task_type: str, prefer_local: bool = True) -> str:
-        """Select optimal model for task"""
-        pass
-    
-    def invoke_with_fallback(self, model: str, prompt: str, fallback_chain: list) -> str:
-        """Try primary model, fallback on error"""
-        pass
-    
-    def estimate_cost(self, model: str, tokens: int) -> float:
-        """Estimate API cost for cloud models"""
-        pass
-```
+**Delivered Features:**
+- ✅ RAG agent with LangGraph workflow
+- ✅ Dual vector store support: ChromaDB (local) + Qdrant Cloud (remote)
+- ✅ Document ingestion: PDF, MD, TXT, DOCX with async I/O
+- ✅ Semantic search with configurable top_k and score threshold
+- ✅ GitHub agent with PyGithub integration
+- ✅ Support for: list repos, create repo, create issue, commit file, create PR
+- ✅ Natural language query parsing using LLM
+- ✅ 33+ comprehensive tests for RAG functionality
+- ✅ Comprehensive test suite for GitHub operations
+- ✅ Manifest updated to v0.3.1
 
-**Benefits:**
-- Automatic local→cloud escalation
-- Cost tracking for cloud usage
-- Resilience through fallback chains
+**Key Files:**
+- `src/agents/rag/agent.py` - LangGraph RAG workflow
+- `src/tools/rag/tools.py` - Document reading, chunking, ingestion, retrieval
+- `src/agents/github/agent.py` - LangGraph GitHub workflow
+- `src/tools/github/tools.py` - GitHub API operations wrapper
 
----
+**Models Used:**
+- Embeddings: `nomic-embed-text` (primary), `bge-m3` (fallback)
+- RAG Local: `gpt-oss:20b`
+- RAG Cloud: `gpt-oss:120b-cloud` (fallback)
+- GitHub Operations: `qwen3-coder:480b-cloud`
 
-### Priority 2: Supervisor Agent
-**File**: `src/agents/supervisor.py`
+### Implementation Details (Historical Reference)
+**Note:** Model Router and Supervisor Agent were implemented in Phase 2. See Phase 2 section above.
 
-**Now we introduce LangGraph** (justified for routing logic):
-```python
-from langgraph.graph import StateGraph, END
-from typing import TypedDict
+**RAG Workflow:**
+1. **Ingest Node**: Process and chunk documents if file_paths provided
+2. **Retrieve Node**: Semantic search with reranking (Phase 4 integration)
+3. **Generate Node**: LLM response based on retrieved context
+4. **Error Node**: Graceful error handling
 
-class SupervisorState(TypedDict):
-    query: str
-    intent: str  # "datagen" | "rag" | "github"
-    model: str
-    result: dict
+**GitHub Operations:**
+- Natural language query parsing
+- Support for: list repos, create repo, create issue, commit file, create PR
+- PyGithub integration with token authentication
 
-def classify_intent(state: SupervisorState) -> SupervisorState:
-    """Use deepseek-r1:8b to classify user intent"""
-    # LLM call to determine intent
-    pass
-
-def route_to_agent(state: SupervisorState) -> str:
-    """Route based on classified intent"""
-    intent_map = {
-        "datagen": "datagen_agent",
-        "rag": "rag_agent",      # Phase 3
-        "github": "github_agent"  # Phase 3
-    }
-    return intent_map.get(state["intent"], END)
-
-# Build graph
-workflow = StateGraph(SupervisorState)
-workflow.add_node("classify", classify_intent)
-workflow.add_conditional_edges("classify", route_to_agent)
-workflow.add_node("datagen_agent", datagen_agent)
-workflow.set_entry_point("classify")
-
-supervisor = workflow.compile()
-```
-
-**Routing Examples:**
-- "Generate 100 users" → `datagen_agent` (qwen3:4b)
-- "Search my codebase for X" → `rag_agent` (gpt-oss:20b) - Phase 3
-- "Create GitHub PR" → `github_agent` (qwen3-coder:480b-cloud) - Phase 3
-
----
-
-### Priority 3: Gateway Updates
-**Update**: `src/api/routers.py`
+**Gateway Tools (v0.3.1):**
 ```python
 SUPPORTED_TOOLS = {
     "generate_data": datagen_agent,
-    "retrieve_docs": rag_agent,      # Phase 3 stub
-    "github_operation": github_agent  # Phase 3 stub
-}
-
-@router.post("/api/gateway")
-async def gateway(request: GatewayRequest):
-    start_time = time.time()
-    
-    # Use supervisor for routing
-    result = await supervisor.ainvoke({
-        "query": request.arguments,
-        "intent": None,
-        "model": None,
-        "result": None
-    })
-    
-    execution_time = time.time() - start_time
-    
-    return GatewayResponse(
-        success=True,
-        tool=request.name,
-        data=result["result"],
-        execution_time=execution_time
-    )
-```
-
-**Error Handling:**
-- Unsupported tool → 400 with clear message
-- Model unavailable → Auto-fallback to cloud
-- Timeout → Return partial results + warning
-
----
-
-### Priority 4: Manifest Update
-**Update**: `manifests/devforge.json`
-```json
-{
-  "name": "devforge",
-  "version": "0.2.0",
-  "description": "DevForge AI-powered developer tools with intelligent routing",
-  "schema_version": "v1",
-  "gateway": "http://localhost:8000/api/gateway",
-  "tools": [
-    {
-      "name": "generate_data",
-      "description": "Generate realistic mock CSV/JSON data using Faker",
-      "available": true,
-      "parameters": { ... }
-    },
-    {
-      "name": "retrieve_docs",
-      "description": "Search codebase/docs using RAG (Coming in Phase 3)",
-      "available": false,
-      "parameters": { ... }
-    },
-    {
-      "name": "github_operation",
-      "description": "GitHub operations (Coming in Phase 3)",
-      "available": false,
-      "parameters": { ... }
-    }
-  ]
+    "retrieve_docs": rag_agent_invoke,      # ✅ Implemented
+    "github_operation": github_agent_invoke   # ✅ Implemented
 }
 ```
 
----
-
-### Testing Strategy
-
-**New Test Files:**
-1. `tests/test_model_router.py` - Model selection logic
-2. `tests/test_supervisor.py` - Intent classification (mock LLM)
-3. `tests/test_routing.py` - End-to-end routing verification
-
-**Test Scenarios:**
-```python
-# Mock LLM for testing
-@pytest.mark.asyncio
-async def test_supervisor_routes_datagen():
-    """Verify 'generate users' routes to datagen_agent"""
-    result = await supervisor.ainvoke({
-        "query": "Generate 50 user records",
-        "intent": None,
-        "model": None,
-        "result": None
-    })
-    assert result["intent"] == "datagen"
-    assert "qwen3:4b" in result["model"]
-
-async def test_model_fallback():
-    """Verify cloud fallback when local unavailable"""
-    router = ModelRouter()
-    # Simulate Ollama down
-    model = router.invoke_with_fallback(
-        "gpt-oss:20b",
-        "test prompt",
-        fallback_chain=["gpt-oss:120b-cloud"]
-    )
-    assert "cloud" in model
-```
-
-**Coverage Target:** >85% for new modules
+**Manifest (v0.3.1):**
+- All three tools available and functional
+- Gateway URL dynamically configured
+- Parameters properly defined
 
 ---
 
-### Dependencies Update
+## ✅ PHASE 4: Document Reranking (COMPLETE - v0.4.0)
 
-**Add to `requirements.txt`:**
-```txt
-# Phase 2 additions
-langgraph>=0.2.0           # NOW needed for supervisor
-langchain-core>=0.3.0      # LangGraph dependency
-```
+**Delivered Features:**
+- ✅ Reranker agent using `sentence-transformers` and Cross-Encoder models
+- ✅ Integration with RAG workflow (reranks retrieved docs before generation)
+- ✅ `rerank_docs` tool added to manifest
+- ✅ Unit tests for reranking logic
+- ✅ Cross-Encoder model: `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
----
+**Key Files:**
+- `src/agents/reranker.py` - Reranker implementation
+- `src/agents/rag/agent.py` - Updated with reranking step
+- `tests/test_reranker.py` - Reranker tests
 
-### Environment Variables
-
-**Add to `.env.example`:**
-```bash
-# Phase 2 Models
-SUPERVISOR_MODEL=deepseek-r1:8b
-FALLBACK_CLOUD_MODEL=gpt-oss:120b-cloud
-
-# Cost tracking
-ENABLE_COST_TRACKING=true
-MONTHLY_BUDGET_USD=50.0
-```
+**Implementation:**
+- Uses Cross-Encoder for re-scoring documents by relevance
+- Automatically integrated into RAG pipeline
+- Improves retrieval quality significantly
 
 ---
 
-## 🎯 Phase 2 Success Criteria
+## ⏳ PHASE 5: Deployment (DEFERRED)
 
-### Must Have:
-- [ ] Supervisor correctly classifies intents (100% accuracy on test set)
-- [ ] Model router selects appropriate models per task
-- [ ] Fallback works when primary model unavailable
-- [ ] All Phase 1 tests still pass (36 tests)
-- [ ] New Phase 2 tests pass (>20 tests)
-- [ ] Manifest version bumped to 0.2.0
-- [ ] Gateway logs show model selection decisions
+**Status:** Skipped to prioritize Phase 6.
 
-### Nice to Have:
-- [ ] Cost tracking dashboard (log total API spend)
-- [ ] Performance comparison (local vs cloud latency)
-- [ ] Supervisor reasoning explanations in logs
+**Planned Features:**
+- Docker configuration
+- Render deployment guide
+- Production environment setup
 
 ---
 
-## 🚨 Phase 2 Implementation Notes
+## ✅ PHASE 6: Prompt Refinement Agent (COMPLETE - v0.6.0)
 
-### LangGraph Best Practices:
-1. **State Management**: Use TypedDict for clear state schema
-2. **Error Handling**: Add error nodes in graph for graceful failures
-3. **Testing**: Mock LLM calls with predefined responses
-4. **Logging**: Log state transitions for debugging
+**Delivered Features:**
+- ✅ PromptRefinerAgent with domain handlers
+- ✅ Domain-specific handlers for Image, Code, RAG, and LLM
+- ✅ Context-aware prompt enhancement using file content
+- ✅ `refine_prompt` tool added to manifest
+- ✅ Unit tests (`tests/test_prompt_refiner.py`)
 
-### Model Configuration:
-```python
-# config.py additions
-TASK_MODEL_MAP = {
-    "datagen": settings.DEFAULT_MODEL,           # qwen3:4b
-    "routing": settings.SUPERVISOR_MODEL,        # deepseek-r1:8b
-    "rag_simple": settings.RAG_LOCAL_MODEL,      # gpt-oss:20b
-    "rag_complex": settings.RAG_CLOUD_MODEL,     # gpt-oss:120b-cloud
-    "code_gen": settings.GITHUB_MODEL,           # qwen3-coder:480b-cloud
-    "premium": settings.PREMIUM_MODEL            # deepseek-v3.1:671b-cloud
-}
-```
+**Key Files:**
+- `src/agents/prompt_refiner/agent.py`
+- `src/agents/prompt_refiner/enhancer.py`
+- `src/agents/prompt_refiner/domain_handlers.py`
+- `src/agents/prompt_refiner/templates.py`
 
-### Common Pitfalls:
-❌ Don't query cloud models unnecessarily (check local first)
-❌ Don't add RAG/GitHub logic yet (Phase 3 scope)
-✅ Focus on routing infrastructure only
-✅ Keep agents as stubs (empty functions)
+**Supported Domains:**
+- `general` - General-purpose refinement
+- `image` - Image generation prompts
+- `code` - Code generation prompts
+- `rag` - RAG query optimization
+- `llm` - LLM interaction prompts
 
----
-
-## 📅 Estimated Timeline
-
-**Phase 2 Implementation:**
-- Day 1-2: Model router + fallback logic
-- Day 3-4: Supervisor agent with LangGraph
-- Day 5: Gateway integration + testing
-- Day 6: Documentation + verification
-
-**Total:** 5-7 days (vs. 2-3 days for Phase 1)
+**Skill Levels:**
+- `beginner` - Simplified, clear instructions
+- `intermediate` - Balanced complexity
+- `expert` - Advanced, technical prompts
 
 ---
 
-## 🔮 Phase 3+ Preview
+## ✅ PHASE 7: Dynamic Cheat Sheets (COMPLETE - v0.7.0)
 
-**Phase 3 (Weeks 7-10):** RAG + GitHub tools
-**Phase 4 (Weeks 11-14):** Prompt reranking + LoRA fine-tuning
-**Phase 5 (Weeks 15-16):** Docker + Render deployment
+**Delivered Features:**
+- ✅ CheatsheetAgent with language profiles
+- ✅ Language detection from code context
+- ✅ Skill-level based content generation (Beginner, Intermediate, Expert)
+- ✅ `generate_cheatsheet` tool added to manifest
+- ✅ Unit tests (`tests/test_cheatsheet.py`)
 
-**Phase 3 Prep:**
-- Stub files already created: `src/agents/rag/agent.py`, `src/tools/rag/tools.py`
-- Dependencies to add: `chromadb>=0.5.0`, `PyGithub>=2.4.0`, `langchain-community`
-- Models ready: `gpt-oss:20b`, `gpt-oss:120b-cloud`, `qwen3-coder:480b-cloud`, `nomic-embed-text`
+**Key Files:**
+- `src/agents/cheatsheet/agent.py`
+- `src/agents/cheatsheet/generator.py`
+- `src/agents/cheatsheet/formatter.py`
+- `src/agents/cheatsheet/language_profiles.py`
 
----
+**Features:**
+- Auto-detects language from code context
+- Generates topics based on skill level
+- Quick reference sections
+- Markdown-formatted output
 
-## 🏁 Phase 2 Summary
-
-**Status:** ✅ Complete (Nov 2, 2025)  
-**Version:** v0.2.0  
-**Next:** Phase 3 — RAG + GitHub Integration (Nov 10 – Nov 30)  
-**Manifest:** v0.2.0 → v0.3.0 (upcoming)
-
-**Achievements:**
-- ✅ ModelRouter implemented with async fallback
-- ✅ Task-based model mapping added
-- ✅ Supervisor Agent built using LangGraph
-- ✅ 58 tests passing (36 from Phase 1 + 22 new)
-- ✅ Manifest bumped to v0.2.0
+**Supported Languages:**
+- Python, JavaScript, TypeScript, Java, C++, Go, Rust, and more
 
 ---
 
-## 🔄 Ready to Start Phase 3?
+## 🎯 Current Status Summary
+
+**Current Version:** v0.7.0  
+**Completed Phases:** 1, 2, 3, 4, 6, 7  
+**Deferred:** Phase 5 (Deployment)  
+**Next Phase:** Phase 8 (Enhanced DevOps) or Phase 5 (Deployment)
+
+**Total Tools Implemented:** 6
+1. `generate_data` - Mock CSV/JSON data generation
+2. `retrieve_docs` - RAG document search and retrieval
+3. `github_operation` - GitHub repository operations
+4. `rerank_docs` - Document reranking by relevance
+5. `refine_prompt` - Prompt optimization
+6. `generate_cheatsheet` - Dynamic cheat sheet generation
+
+**Test Coverage:** 100+ tests passing
+- Phase 1: 36 tests
+- Phase 2: 22 tests (58 total)
+- Phase 3: 33+ tests (100+ total)
+- Phase 4, 6, 7: Additional test suites
+
+**Manifest Version:** v0.7.0
+
+---
+
+## 🔄 Next Steps
+
+**Option 1: Phase 8 (Enhanced DevOps)**
+- CI/CD automation
+- Docker/Cloud deployment helpers
+- Enhanced monitoring and logging
+
+**Option 2: Phase 5 (Deployment)**
+- Dockerize application
+- Render deployment guide
+- Production environment setup
 
 **Pre-flight Checklist:**
-- [ ] Phase 2 fully verified (supervisor routing functional)
-- [ ] All 58 tests passing (36 Phase 1 + 22 Phase 2)
-- [ ] Models pulled: `ollama pull gpt-oss:20b`, `ollama pull nomic-embed-text`
-- [ ] Cursor context updated for Phase 3
+- ✅ All phases 1-7 complete and verified
+- ✅ 100+ tests passing
+- ✅ Manifest v0.7.0 functional
+- ✅ All 6 tools working correctly
 
-**First Implementation Step:**  
-Implement RAG agent with ChromaDB integration.
-
-🚀 **Ready for Phase 3!**
+🚀 **Ready for Phase 8 or Phase 5!**
