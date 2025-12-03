@@ -68,10 +68,10 @@ async def test_invalid_domain_fallback(mock_model_router):
 @pytest.mark.asyncio
 async def test_gateway_invoke_wrapper(mock_model_router):
     """Test the gateway wrapper function."""
-    result = await refine_prompt_invoke(
-        prompt="Test prompt",
-        domain="llm"
-    )
+    result = await refine_prompt_invoke({
+        "prompt": "Test prompt",
+        "domain": "llm"
+    })
     
     assert result["success"] is True
     assert result["tool"] == "refine_prompt"

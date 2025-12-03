@@ -71,10 +71,40 @@ Instructions:
 
 Refined Prompt:"""
 
+CODE_TEMPLATE_WITH_CONTEXT = """You are an expert software architect refining a code request with full project context.
+
+ORIGINAL REQUEST: {prompt}
+
+PROJECT CONTEXT:
+{context_summary}
+
+EVIDENCE:
+{evidence_block}
+
+TASK:
+Create a detailed, actionable specification that:
+1. Matches the existing tech stack ({frameworks})
+2. Follows detected coding conventions ({conventions})
+3. Integrates with existing code structure
+4. Uses installed dependencies where possible
+5. References actual classes/functions from context
+
+STRICT RULE: You MUST use the frameworks and language listed in the EVIDENCE section. Do NOT suggest alternatives unless explicitly requested.
+
+Output format:
+1. DEPENDENCIES: What's needed (prefer existing)
+2. IMPLEMENTATION: Detailed steps with code patterns
+3. INTEGRATION: How it fits existing code
+4. COMPATIBILITY: Convention adherence
+5. TESTING: Test approach matching project style
+
+Refined Specification:"""
+
 TEMPLATES = {
     "general": GENERAL_TEMPLATE,
     "llm": GENERAL_TEMPLATE,
     "image": IMAGE_TEMPLATE,
     "code": CODE_TEMPLATE,
+    "code_context": CODE_TEMPLATE_WITH_CONTEXT,
     "rag": RAG_TEMPLATE,
 }

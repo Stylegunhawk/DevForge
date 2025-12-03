@@ -165,6 +165,40 @@
           "file_context": {
             "type": "string",
             "description": "Optional context from attached files (code, markdown, etc.)"
+          },
+          "conversation_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "assistant",
+                    "system"
+                  ]
+                },
+                "content": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Last 5 conversation messages for project context (e.g., tech stack, previous work)"
+          },
+          "attached_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Code file contents to analyze for context (e.g., existing classes, functions, conventions)"
+          },
+          "project_files": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Dictionary of project files (e.g., {'requirements.txt': '...'}) for dependency analysis"
           }
         },
         "required": [

@@ -1,0 +1,134 @@
+.
+├── BACKEND_PLAN.md
+├── CODE_SNIPPETS.md
+├── IMPLEMENTATION_REVIEW.md
+├── INTEGRATION_PLAN.md
+├── MCP_GATEWAY_FIX.md
+├── PHASE_STATUS.md
+├── PROJECT_OVERVIEW.md
+├── README.md
+├── docs
+│   └── tools
+│       ├── README.md
+│       ├── generate_cheatsheet.md
+│       ├── generate_data.md
+│       ├── github_operation.md
+│       ├── refine_prompt.md
+│       ├── rerank_docs.md
+│       └── retrieve_docs.md
+├── manifests
+│   ├── __init__.py
+│   └── devforge.json
+├── pytest.ini
+├── requirements.txt
+├── scripts
+│   └── mcp_inspector.py
+├── setup.py
+├── src
+│   ├── __init__.py
+│   ├── __pycache__
+│   │  
+│   ├── agents
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   │
+│   │   ├── cheatsheet
+│   │   │   ├── __pycache__
+│   │ 
+│   │   │   ├── agent.py
+│   │   │   ├── formatter.py
+│   │   │   ├── generator.py
+│   │   │   └── language_profiles.py
+│   │   ├── datagen
+│   │   │   ├── __init__.py
+│   │   │   ├── __pycache__
+│   │   │   │   
+│   │   │   └── agent.py
+│   │   ├── github
+│   │   │   ├── __init__.py
+│   │   │   ├── __pycache__
+│   │   │   │
+│   │   │   └── agent.py
+│   │   ├── prompt_refiner
+│   │   │   ├── __pycache__
+│   │   │   │  
+│   │   │   ├── agent.py
+│   │   │   ├── code_parser.py
+│   │   │   ├── context_orchestrator.py
+│   │   │   ├── context_selector.py
+│   │   │   ├── context_types.py
+│   │   │   ├── conversation_parser.py
+│   │   │   ├── dependency_analyzer.py
+│   │   │   ├── domain_handlers.py
+│   │   │   ├── enhancer.py
+│   │   │   ├── sanitizer.py
+│   │   │   └── templates.py
+│   │   ├── rag
+│   │   │   ├── __init__.py
+│   │   │   ├── __pycache__
+│   │   │   │  
+│   │   │   └── agent.py
+│   │   ├── reranker.py
+│   │   └── supervisor.py
+│   ├── api
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   │ 
+│   │   └── routers.py
+│   ├── core
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   │  
+│   │   ├── config.py
+│   │   ├── middleware.py
+│   │   ├── model_router.py
+│   │   ├── schemas.py
+│   │   └── utils.py
+│   ├── main.py
+│   └── tools
+│       ├── __init__.py
+│       ├── __pycache__
+│       │   ├── __init__.cpython-312.pyc
+│       │   └── __init__.cpython-314.pyc
+│       ├── cheatsheet
+│       │   ├── __pycache__
+│       │   │   
+│       │   ├── templates.py
+│       │   └── tools.py
+│       ├── datagen
+│       │   ├── __init__.py
+│       │   ├── __pycache__
+│       │   
+│       │   └── tools.py
+│       ├── github
+│       │   ├── __init__.py
+│       │   ├── __pycache__
+│       │   │   ├── __init__.cpython-312.pyc
+│       │   │   └── tools.cpython-312.pyc
+│       │   └── tools.py
+│       └── rag
+│           ├── __init__.py
+│           ├── __pycache__
+│        
+│           └── tools.py
+├── structure.txt
+├── tests
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   
+│   ├── test_api.py
+│   ├── test_cheatsheet.py
+│   ├── test_context_parser.py
+│   ├── test_datagen.py
+│   ├── test_end_to_end.py
+│   ├── test_github.py
+│   ├── test_prompt_refiner.py
+│   ├── test_prompt_refiner_phase2.py
+│   ├── test_rag.py
+│   ├── test_reranker.py
+│   └── test_sanitizer.py
+└── venv
+    ├──
+ 
+
+6882 directories, 53563 files

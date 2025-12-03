@@ -239,11 +239,30 @@ async def mcp_endpoint(request: Request):
     
     Handles:
     - initialize: Server capabilities handshake
+    - initialized: Notification after initialization
     - tools/list: List available tools
     - tools/call: Execute a tool
+    - resources/list: List available resources
+    - prompts/list: List available prompts
     """
+    start_time = time.time()
+    
     try:
         body = await request.body()
+        body_str = body.decode("utf-8") if body else ""
+        
+        # Enhanced logging for traffic visibility
+        client_host = request.client.host if request.client else "unknown"
+        logging.info(
+            f"MCP Request [{client_host}]",
+            extra={
+                "method": request.method,
+                "url": str(request.url),
+                "client_host": client_host,
+                "body_length": len(body_str),
+                "body_preview": body_str[:200] if body_str else None,
+            }
+        )
         
         # Handle empty body
         if not body:
@@ -261,9 +280,9 @@ async def mcp_endpoint(request: Request):
         
         # Parse JSON
         try:
-            payload = json.loads(body)
+            payload = json.loads(body_str)
         except json.JSONDecodeError as e:
-            logging.error(f"MCP endpoint JSON decode error: {e}")
+            logging.error(f"MCP endpoint JSON decode error: {e}", extra={"body": body_str[:500]})
             return JSONResponse(
                 status_code=400,
                 content={
@@ -277,6 +296,7 @@ async def mcp_endpoint(request: Request):
         
         # Validate JSON-RPC version
         if payload.get("jsonrpc") != "2.0":
+            logging.warning(f"Invalid JSON-RPC version: {payload.get('jsonrpc')}")
             return JSONResponse(
                 status_code=400,
                 content={
@@ -292,27 +312,61 @@ async def mcp_endpoint(request: Request):
         req_id = payload.get("id")
         params = payload.get("params", {})
         
-        logging.info(f"MCP method: {method}, id: {req_id}")
+        # Enhanced logging with request details
+        logging.info(
+            f"MCP method: {method}",
+            extra={
+                "method": method,
+                "request_id": req_id,
+                "params_keys": list(params.keys()) if isinstance(params, dict) else None,
+                "is_notification": req_id is None,
+            }
+        )
         
         # Handle initialize
         if method == "initialize":
-            logging.info("MCP initialize request received")
-            return JSONResponse(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "result": {
-                        "protocolVersion": "2024-11-05",
-                        "serverInfo": {
-                            "name": "DevForge",
-                            "version": "0.7.0"
-                        },
-                        "capabilities": {
-                            "tools": {}
-                        }
-                    }
+            client_info = params.get("clientInfo", {})
+            logging.info(
+                "MCP initialize request received",
+                extra={
+                    "client_name": client_info.get("name"),
+                    "client_version": client_info.get("version"),
                 }
             )
+            
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "serverInfo": {
+                        "name": "DevForge",
+                        "version": "0.7.0"
+                    },
+                    "capabilities": {
+                        "tools": {},
+                        "resources": {},
+                        "prompts": {},
+                    }
+                }
+            }
+            
+            exec_time = time.time() - start_time
+            logging.info(
+                "MCP initialize response",
+                extra={
+                    "execution_time": exec_time,
+                    "capabilities": ["tools", "resources", "prompts"],
+                }
+            )
+            
+            return JSONResponse(content=response)
+        
+        # Handle initialized notification (no response needed)
+        if method == "initialized":
+            logging.info("MCP initialized notification received")
+            # Notifications don't require a response
+            return JSONResponse(status_code=200, content={})
         
         # Handle tools/list
         if method == "tools/list":
@@ -328,110 +382,218 @@ async def mcp_endpoint(request: Request):
                     "inputSchema": input_schema
                 })
             
-            return JSONResponse(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "result": {"tools": tools}
+            exec_time = time.time() - start_time
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"tools": tools}
+            }
+            
+            logging.info(
+                "MCP tools/list response",
+                extra={
+                    "tools_count": len(tools),
+                    "execution_time": exec_time,
+                    "tool_names": [t["name"] for t in tools],
                 }
             )
+            
+            return JSONResponse(content=response)
+        
+        # Handle resources/list
+        if method == "resources/list":
+            logging.info("MCP resources/list request received")
+            
+            # Return empty resources list for now
+            resources = []
+            
+            exec_time = time.time() - start_time
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"resources": resources}
+            }
+            
+            logging.info(
+                "MCP resources/list response",
+                extra={
+                    "resources_count": len(resources),
+                    "execution_time": exec_time,
+                }
+            )
+            
+            return JSONResponse(content=response)
+        
+        # Handle prompts/list
+        if method == "prompts/list":
+            logging.info("MCP prompts/list request received")
+            
+            # Return empty prompts list for now
+            prompts = []
+            
+            exec_time = time.time() - start_time
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"prompts": prompts}
+            }
+            
+            logging.info(
+                "MCP prompts/list response",
+                extra={
+                    "prompts_count": len(prompts),
+                    "execution_time": exec_time,
+                }
+            )
+            
+            return JSONResponse(content=response)
         
         # Handle tools/call
         if method == "tools/call":
-            logging.info(f"MCP tools/call request: {params}")
-            
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
             
+            logging.info(
+                f"MCP tools/call request",
+                extra={
+                    "tool_name": tool_name,
+                    "arguments_keys": list(arguments.keys()) if isinstance(arguments, dict) else None,
+                    "arguments_preview": json.dumps(arguments)[:200] if arguments else None,
+                }
+            )
+            
             if not tool_name:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "error": {
-                            "code": -32602,
-                            "message": "Invalid params: 'name' is required"
-                        }
+                error_response = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32602,
+                        "message": "Invalid params: 'name' is required"
                     }
-                )
+                }
+                logging.warning("MCP tools/call: missing tool name")
+                return JSONResponse(status_code=400, content=error_response)
             
             if tool_name not in SUPPORTED_TOOLS:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "error": {
-                            "code": -32602,
-                            "message": f"Tool not found: {tool_name}"
-                        }
+                error_response = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32602,
+                        "message": f"Tool not found: {tool_name}"
+                    }
+                }
+                logging.warning(
+                    "MCP tools/call: tool not found",
+                    extra={
+                        "tool_name": tool_name,
+                        "available_tools": list(SUPPORTED_TOOLS.keys()),
                     }
                 )
+                return JSONResponse(status_code=400, content=error_response)
             
             # Call the tool via gateway
             try:
+                tool_start_time = time.time()
                 gateway_req = GatewayRequest(apiName=tool_name, arguments=arguments)
                 gateway_response = await gateway(gateway_req)
+                tool_exec_time = time.time() - tool_start_time
                 
                 # Extract response body
                 response_body = json.loads(gateway_response.body.decode())
                 
                 # Return MCP-formatted response
-                return JSONResponse(
-                    content={
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "result": {
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": json.dumps(response_body)
-                                }
-                            ]
-                        }
+                exec_time = time.time() - start_time
+                mcp_response = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(response_body, indent=2)
+                            }
+                        ]
+                    }
+                }
+                
+                logging.info(
+                    "MCP tools/call response",
+                    extra={
+                        "tool_name": tool_name,
+                        "success": response_body.get("success", False),
+                        "tool_execution_time": tool_exec_time,
+                        "total_execution_time": exec_time,
+                        "response_size": len(json.dumps(response_body)),
                     }
                 )
+                
+                return JSONResponse(content=mcp_response)
             
             except Exception as e:
-                logging.error(f"MCP tools/call error: {e}", exc_info=True)
-                return JSONResponse(
-                    status_code=500,
-                    content={
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "error": {
-                            "code": -32603,
-                            "message": f"Internal error: {str(e)}"
-                        }
+                exec_time = time.time() - start_time
+                error_response = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32603,
+                        "message": f"Internal error: {str(e)}"
                     }
+                }
+                
+                logging.error(
+                    "MCP tools/call error",
+                    extra={
+                        "tool_name": tool_name,
+                        "error": str(e),
+                        "execution_time": exec_time,
+                    },
+                    exc_info=True
                 )
+                
+                return JSONResponse(status_code=500, content=error_response)
         
         # Unknown method
-        return JSONResponse(
-            status_code=400,
-            content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {
-                    "code": -32601,
-                    "message": f"Method not found: {method}"
-                }
+        exec_time = time.time() - start_time
+        error_response = {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {
+                "code": -32601,
+                "message": f"Method not found: {method}"
+            }
+        }
+        
+        logging.warning(
+            "MCP unknown method",
+            extra={
+                "method": method,
+                "execution_time": exec_time,
             }
         )
+        
+        return JSONResponse(status_code=400, content=error_response)
     
     except Exception as e:
-        logging.error(f"MCP endpoint error: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "jsonrpc": "2.0",
-                "error": {
-                    "code": -32603,
-                    "message": f"Internal error: {str(e)}"
-                }
+        exec_time = time.time() - start_time
+        error_response = {
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32603,
+                "message": f"Internal error: {str(e)}"
             }
+        }
+        
+        logging.error(
+            "MCP endpoint unhandled error",
+            extra={
+                "error": str(e),
+                "execution_time": exec_time,
+            },
+            exc_info=True
         )
+        
+        return JSONResponse(status_code=500, content=error_response)
 
 
 def _get_tool_schema(tool_name: str) -> dict:
@@ -553,61 +715,3 @@ def _get_tool_schema(tool_name: str) -> dict:
         "properties": {},
         "required": []
     })
-async def mcp_endpoint(request: Request):
-    try:
-        payload = await request.json()
-    except:
-        return {"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}
-
-    if payload.get("jsonrpc") != "2.0":
-        return {"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request"}}
-
-    method = payload.get("method")
-    req_id = payload.get("id")
-
-    # 1. initialize
-    if method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "protocolVersion": "1.0.0",
-                "serverInfo": {"name": "DevForge", "version": "1.0"},
-                "capabilities": {"tools": {}}
-            }
-        }
-
-    # 2. tools/list
-    if method == "tools/list":
-        tools = []
-        for name, func in SUPPORTED_TOOLS.items():
-            tools.append({
-                "name": name,
-                "description": func.__doc__.strip() if func.__doc__ else "No description",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"rows": {"type": "integer"}},
-                    "required": ["rows"] if name == "generate_data" else []
-                }
-            })
-        return {"jsonrpc": "2.0", "id": req_id, "result": tools}
-
-    # 3. tools/call → reuse your gateway!
-    if method == "tools/call":
-        params = payload.get("params", {})
-        name = params.get("name")
-        args = params.get("arguments", {})
-
-        if name not in SUPPORTED_TOOLS:
-            return {"jsonrpc": "2.0", "id": req_id,
-                    "error": {"code": -32602, "message": "Tool not found"}}
-
-        # **Pydantic auto-parses string → dict**
-        gateway_req = GatewayRequest(apiName=name, arguments=args)
-        resp = await gateway(gateway_req)          # same route logic
-
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {"content": [{"type": "text", "text": resp.json()}]}
-        }
