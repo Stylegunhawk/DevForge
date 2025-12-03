@@ -1,7 +1,7 @@
-import { BrandLoading} from '@lobehub/ui/brand';
+import { BrandLoading } from '@lobehub/ui/brand';
 import { Center } from 'react-layout-kit';
-import DevForgeText from '@/components/DevForgeText';
 
+import DevForgeText from '@/components/DevForgeText';
 import { isCustomBranding } from '@/const/version';
 
 import CircleLoading from '../CircleLoading';

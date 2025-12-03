@@ -3,77 +3,77 @@ import { ModelProviderCard } from '@/types/llm';
 const Ollama: ModelProviderCard = {
   chatModels: [
     {
-      id: 'deepseek-r1',
-      displayName: 'DeepSeek R1',
+      contextWindowTokens: 128_000,
       description: 'DeepSeek reasoning model with tool-calling support.',
-      contextWindowTokens: 128_000,
-      enabled: true,
-      functionCall: true
-    },
-    {
-      id: 'deepseek-r1:8b',
-      displayName: 'DeepSeek R1 8B',
-      description: 'Efficient reasoning model with tool-calling support.',
-      contextWindowTokens: 128_000,
-      enabled: true,
-      functionCall: true
-    },
-    {
-      id: 'gpt-oss:20b-cloud',
-      displayName: 'GPT-OSS 20B (Cloud)',
-      description: 'Open-source GPT model with tool-calling support.',
-      contextWindowTokens: 128_000,
-      enabled: true,
-      functionCall: true
-    },
-    {
-      id: 'gpt-oss:120b-cloud',
-      displayName: 'GPT-OSS 120B (Cloud)',
-      description: 'Large GPT-OSS model with tool-calling support.',
-      contextWindowTokens: 128_000,
-      enabled: true,
-      functionCall: true
-    },
-    {
-      id: 'qwen3:4b',
-      displayName: 'Qwen3 4B',
-      description: 'Qwen3 lightweight model with tool-calling support.',
-      contextWindowTokens: 128_000,
-      enabled: true,
-      functionCall: true
-    },
-    {
-      id: 'qwen3-coder:480b-cloud',
-      displayName: 'Qwen3 Coder 480B (Cloud)',
-      description: 'Qwen3 Coder model with tool-calling support.',
-      contextWindowTokens: 128_000,
-      enabled: true,
-      functionCall: true
-    },
-    {
-      id: 'deepseek-v3.1:671b-cloud',
-      displayName: 'DeepSeek V3.1 671B (Cloud)',
-      description: 'DeepSeek ultra large model with tool-calling support.',
-      contextWindowTokens: 128_000,
-      enabled: true,
-      functionCall: true
-    },
-    {
-      id: 'qwen3-vl:235b-cloud',
-      displayName: 'Qwen3-VL 235B (Cloud)',
-      description: 'Vision-language model with vision + tool-calling support.',
-      contextWindowTokens: 128_000,
+      displayName: 'DeepSeek R1',
       enabled: true,
       functionCall: true,
-      vision: true
+      id: 'deepseek-r1',
     },
     {
-      id: 'gemma3:1b',
-      displayName: 'Gemma3 1B',
-      description: 'Google Gemma3 small model.',
+      contextWindowTokens: 128_000,
+      description: 'Efficient reasoning model with tool-calling support.',
+      displayName: 'DeepSeek R1 8B',
+      enabled: true,
+      functionCall: true,
+      id: 'deepseek-r1:8b',
+    },
+    {
+      contextWindowTokens: 128_000,
+      description: 'Open-source GPT model with tool-calling support.',
+      displayName: 'GPT-OSS 20B (Cloud)',
+      enabled: true,
+      functionCall: true,
+      id: 'gpt-oss:20b-cloud',
+    },
+    {
+      contextWindowTokens: 128_000,
+      description: 'Large GPT-OSS model with tool-calling support.',
+      displayName: 'GPT-OSS 120B (Cloud)',
+      enabled: true,
+      functionCall: true,
+      id: 'gpt-oss:120b-cloud',
+    },
+    {
+      contextWindowTokens: 128_000,
+      description: 'Qwen3 lightweight model with tool-calling support.',
+      displayName: 'Qwen3 4B',
+      enabled: true,
+      functionCall: true,
+      id: 'qwen3:4b',
+    },
+    {
+      contextWindowTokens: 128_000,
+      description: 'Qwen3 Coder model with tool-calling support.',
+      displayName: 'Qwen3 Coder 480B (Cloud)',
+      enabled: true,
+      functionCall: true,
+      id: 'qwen3-coder:480b-cloud',
+    },
+    {
+      contextWindowTokens: 128_000,
+      description: 'DeepSeek ultra large model with tool-calling support.',
+      displayName: 'DeepSeek V3.1 671B (Cloud)',
+      enabled: true,
+      functionCall: true,
+      id: 'deepseek-v3.1:671b-cloud',
+    },
+    {
+      contextWindowTokens: 128_000,
+      description: 'Vision-language model with vision + tool-calling support.',
+      displayName: 'Qwen3-VL 235B (Cloud)',
+      enabled: true,
+      functionCall: true,
+      id: 'qwen3-vl:235b-cloud',
+      vision: true,
+    },
+    {
       contextWindowTokens: 32_768,
-      enabled: true
-    }
+      description: 'Google Gemma3 small model.',
+      displayName: 'Gemma3 1B',
+      enabled: true,
+      id: 'gemma3:1b',
+    },
   ],
 
   checkModel: 'deepseek-r1',
@@ -95,7 +95,7 @@ const Ollama: ModelProviderCard = {
     defaultShowBrowserRequest: true,
     sdkType: 'ollama',
     showApiKey: false,
-    showModelFetcher: true
+    showModelFetcher: true,
   },
 
   showApiKey: false,
