@@ -156,14 +156,34 @@ class GatewayResponse(BaseModel):
 class DataGenArgs(BaseModel):
     """Arguments for generate_data tool."""
     
+    # Original v1 parameters (required for backward compatibility)
     rows: int = Field(..., ge=1, le=10000, description="Number of rows to generate")
     format: Literal["csv", "json"] = Field("json", description="Output format")
     fields: Optional[List[str]] = Field(None, description="Custom fields to generate")
+    
+    # New v2 parameters (Phase 8 - all optional for backward compat)
+    prompt: Optional[str] = Field(
+        None,
+        description="Natural language description for LLM-powered schema design"
+    )
+    domain: Optional[Literal["ecommerce", "saas"]] = Field(
+        None,
+        description="Pre-defined domain template (ecommerce or saas)"
+    )
+    realism_level: Literal["basic", "medium", "high"] = Field(
+        "basic",
+        description="Data quality realism level (null/duplicate/outlier injection)"
+    )
 
     model_config = {
         "json_schema_extra": {
             "examples": [
-                {"rows": 100, "format": "json", "fields": ["name", "email", "phone"]}
+                # V1 example (backward compatible)
+                {"rows": 100, "format": "json", "fields": ["name", "email", "phone"]},
+                # V2 example with domain
+                {"rows": 500, "format": "json", "domain": "ecommerce", "realism_level": "medium"},
+                # V2 example with prompt
+                {"rows": 200, "format": "csv", "prompt": "Generate user subscription data", "realism_level": "high"}
             ]
         }
     }

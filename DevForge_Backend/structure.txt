@@ -27,14 +27,26 @@
 ├── src
 │   ├── __init__.py
 │   ├── __pycache__
-│   │  
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── __init__.cpython-313.pyc
+│   │   ├── __init__.cpython-314.pyc
+│   │   ├── main.cpython-312.pyc
+│   │   ├── main.cpython-313.pyc
+│   │   └── main.cpython-314.pyc
 │   ├── agents
 │   │   ├── __init__.py
 │   │   ├── __pycache__
-│   │   │
+│   │   │   ├── __init__.cpython-312.pyc
+│   │   │   ├── __init__.cpython-314.pyc
+│   │   │   ├── reranker.cpython-312.pyc
+│   │   │   ├── supervisor.cpython-312.pyc
+│   │   │   └── supervisor.cpython-314.pyc
 │   │   ├── cheatsheet
 │   │   │   ├── __pycache__
-│   │ 
+│   │   │   │   ├── agent.cpython-312.pyc
+│   │   │   │   ├── formatter.cpython-312.pyc
+│   │   │   │   ├── generator.cpython-312.pyc
+│   │   │   │   └── language_profiles.cpython-312.pyc
 │   │   │   ├── agent.py
 │   │   │   ├── formatter.py
 │   │   │   ├── generator.py
@@ -42,16 +54,34 @@
 │   │   ├── datagen
 │   │   │   ├── __init__.py
 │   │   │   ├── __pycache__
-│   │   │   │   
+│   │   │   │   ├── __init__.cpython-312.pyc
+│   │   │   │   ├── __init__.cpython-314.pyc
+│   │   │   │   ├── agent.cpython-312.pyc
+│   │   │   │   └── agent.cpython-314.pyc
 │   │   │   └── agent.py
 │   │   ├── github
 │   │   │   ├── __init__.py
 │   │   │   ├── __pycache__
-│   │   │   │
+│   │   │   │   ├── __init__.cpython-312.pyc
+│   │   │   │   └── agent.cpython-312.pyc
 │   │   │   └── agent.py
 │   │   ├── prompt_refiner
 │   │   │   ├── __pycache__
-│   │   │   │  
+│   │   │   │   ├── agent.cpython-312.pyc
+│   │   │   │   ├── agent.cpython-314.pyc
+│   │   │   │   ├── code_parser.cpython-312.pyc
+│   │   │   │   ├── context_orchestrator.cpython-312.pyc
+│   │   │   │   ├── context_selector.cpython-312.pyc
+│   │   │   │   ├── context_types.cpython-312.pyc
+│   │   │   │   ├── conversation_parser.cpython-312.pyc
+│   │   │   │   ├── dependency_analyzer.cpython-312.pyc
+│   │   │   │   ├── domain_handlers.cpython-312.pyc
+│   │   │   │   ├── domain_handlers.cpython-314.pyc
+│   │   │   │   ├── enhancer.cpython-312.pyc
+│   │   │   │   ├── enhancer.cpython-314.pyc
+│   │   │   │   ├── sanitizer.cpython-312.pyc
+│   │   │   │   ├── templates.cpython-312.pyc
+│   │   │   │   └── templates.cpython-314.pyc
 │   │   │   ├── agent.py
 │   │   │   ├── code_parser.py
 │   │   │   ├── context_orchestrator.py
@@ -66,19 +96,35 @@
 │   │   ├── rag
 │   │   │   ├── __init__.py
 │   │   │   ├── __pycache__
-│   │   │   │  
+│   │   │   │   ├── __init__.cpython-312.pyc
+│   │   │   │   ├── __init__.cpython-314.pyc
+│   │   │   │   ├── agent.cpython-312.pyc
+│   │   │   │   └── agent.cpython-314.pyc
 │   │   │   └── agent.py
 │   │   ├── reranker.py
 │   │   └── supervisor.py
 │   ├── api
 │   │   ├── __init__.py
 │   │   ├── __pycache__
-│   │   │ 
+│   │   │   ├── __init__.cpython-312.pyc
+│   │   │   ├── __init__.cpython-314.pyc
+│   │   │   ├── routers.cpython-312.pyc
+│   │   │   └── routers.cpython-314.pyc
 │   │   └── routers.py
 │   ├── core
 │   │   ├── __init__.py
 │   │   ├── __pycache__
-│   │   │  
+│   │   │   ├── __init__.cpython-312.pyc
+│   │   │   ├── __init__.cpython-314.pyc
+│   │   │   ├── config.cpython-312.pyc
+│   │   │   ├── config.cpython-314.pyc
+│   │   │   ├── middleware.cpython-312.pyc
+│   │   │   ├── model_router.cpython-312.pyc
+│   │   │   ├── model_router.cpython-314.pyc
+│   │   │   ├── schemas.cpython-312.pyc
+│   │   │   ├── schemas.cpython-314.pyc
+│   │   │   ├── utils.cpython-312.pyc
+│   │   │   └── utils.cpython-314.pyc
 │   │   ├── config.py
 │   │   ├── middleware.py
 │   │   ├── model_router.py
@@ -92,13 +138,31 @@
 │       │   └── __init__.cpython-314.pyc
 │       ├── cheatsheet
 │       │   ├── __pycache__
-│       │   │   
+│       │   │   ├── templates.cpython-312.pyc
+│       │   │   └── tools.cpython-312.pyc
 │       │   ├── templates.py
 │       │   └── tools.py
 │       ├── datagen
 │       │   ├── __init__.py
 │       │   ├── __pycache__
-│       │   
+│       │   │   ├── __init__.cpython-312.pyc
+│       │   │   ├── __init__.cpython-314.pyc
+│       │   │   ├── advanced_generator.cpython-312.pyc
+│       │   │   ├── domain_templates.cpython-312.pyc
+│       │   │   ├── realism_engine.cpython-312.pyc
+│       │   │   ├── relationship_engine.cpython-312.pyc
+│       │   │   ├── schema_designer.cpython-312.pyc
+│       │   │   ├── schema_models.cpython-312.pyc
+│       │   │   ├── simple_distributions.cpython-312.pyc
+│       │   │   ├── tools.cpython-312.pyc
+│       │   │   └── tools.cpython-314.pyc
+│       │   ├── advanced_generator.py
+│       │   ├── domain_templates.py
+│       │   ├── realism_engine.py
+│       │   ├── relationship_engine.py
+│       │   ├── schema_designer.py
+│       │   ├── schema_models.py
+│       │   ├── simple_distributions.py
 │       │   └── tools.py
 │       ├── github
 │       │   ├── __init__.py
@@ -109,26 +173,48 @@
 │       └── rag
 │           ├── __init__.py
 │           ├── __pycache__
-│        
+│           │   ├── __init__.cpython-312.pyc
+│           │   ├── __init__.cpython-314.pyc
+│           │   ├── tools.cpython-312.pyc
+│           │   └── tools.cpython-314.pyc
 │           └── tools.py
 ├── structure.txt
-├── tests
-│   ├── __init__.py
-│   ├── __pycache__
-│   │   
-│   ├── test_api.py
-│   ├── test_cheatsheet.py
-│   ├── test_context_parser.py
-│   ├── test_datagen.py
-│   ├── test_end_to_end.py
-│   ├── test_github.py
-│   ├── test_prompt_refiner.py
-│   ├── test_prompt_refiner_phase2.py
-│   ├── test_rag.py
-│   ├── test_reranker.py
-│   └── test_sanitizer.py
-└── venv
-    ├──
- 
+└── tests
+    ├── __init__.py
+    ├── __pycache__
+    │   ├── __init__.cpython-312.pyc
+    │   ├── test_api.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_cheatsheet.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_context_parser.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_datagen.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_distributions.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_domain_templates.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_end_to_end.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_github.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_prompt_refiner.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_prompt_refiner_phase2.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_rag.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_rag.cpython-314.pyc
+    │   ├── test_realism.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_relationships.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_reranker.cpython-312-pytest-8.4.2.pyc
+    │   ├── test_sanitizer.cpython-312-pytest-8.4.2.pyc
+    │   └── test_schema_designer.cpython-312-pytest-8.4.2.pyc
+    ├── test_api.py
+    ├── test_cheatsheet.py
+    ├── test_context_parser.py
+    ├── test_datagen.py
+    ├── test_distributions.py
+    ├── test_domain_templates.py
+    ├── test_end_to_end.py
+    ├── test_github.py
+    ├── test_prompt_refiner.py
+    ├── test_prompt_refiner_phase2.py
+    ├── test_rag.py
+    ├── test_realism.py
+    ├── test_relationships.py
+    ├── test_reranker.py
+    ├── test_sanitizer.py
+    └── test_schema_designer.py
 
-6882 directories, 53563 files
+35 directories, 183 files
