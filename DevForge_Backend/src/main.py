@@ -1,40 +1,44 @@
 """DevForge Backend - FastAPI application entry point."""
 
 import time
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routers import router
 from src.core.config import settings
-from src.core.utils import setup_logging
-from src.core.middleware import RequestLoggingMiddleware
-from src.api.routers import mcp_router
+from src.api.routers import router, mcp_router
+from src.api.monitoring import router as monitoring_router  # Phase 3
 
 # Track application start time for uptime calculation
 START_TIME = time.time()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events."""
     # Startup
-    setup_logging(settings.LOG_LEVEL)
+    logger.info("DevForge v0.8.0 starting up...")
     yield
-    # Shutdown (if needed in future)
+    # Shutdown
+    logger.info("DevForge shutting down...")
 
 
 # Create FastAPI app
 app = FastAPI(
     title="DevForge Backend",
-    description="FastAPI backend for AI-powered developer tools",
-    version="0.7.0",
+    description="FastAPI backend for AI-powered developer tools with intelligent GitHub automation",
+    version="0.8.0",
     lifespan=lifespan,
 )
-
-# Add request/response logging middleware (BEFORE CORS)
-app.add_middleware(RequestLoggingMiddleware)
 
 # Configure CORS
 app.add_middleware(
@@ -47,7 +51,8 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(router, prefix="/api")
-app.include_router(mcp_router)  # ← Add this
+app.include_router(mcp_router)  # MCP endpoints
+app.include_router(monitoring_router)  # Phase 3: Observability
 
 
 @app.get("/health")
@@ -70,7 +75,7 @@ async def root():
     """
     return {
         "message": "DevForge backend running",
-        "version": "0.7.0",
+        "version": "0.8.0",
         "docs": "/docs",
         "health": "/health",
     }

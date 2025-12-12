@@ -1,87 +1,47 @@
 .
-├── BACKEND_PLAN.md
-├── CODE_SNIPPETS.md
-├── IMPLEMENTATION_REVIEW.md
-├── INTEGRATION_PLAN.md
-├── MCP_GATEWAY_FIX.md
-├── PHASE_STATUS.md
-├── PROJECT_OVERVIEW.md
-├── README.md
+├── .cursor
+│   └── commands
+│       ├── PHASE_STATUS.md
+│       ├── devforge-backend.md
+│       ├── devforge-lobe-chat.md
+│       └── github-examples.md
 ├── docs
-│   └── tools
-│       ├── README.md
-│       ├── generate_cheatsheet.md
-│       ├── generate_data.md
-│       ├── github_operation.md
-│       ├── refine_prompt.md
-│       ├── rerank_docs.md
-│       └── retrieve_docs.md
+│   ├── tools
+│   │   ├── README.md
+│   │   ├── generate_cheatsheet.md
+│   │   ├── generate_data.md
+│   │   ├── github_operation.md
+│   │   ├── refine_prompt.md
+│   │   ├── rerank_docs.md
+│   │   └── retrieve_docs.md
+│   └── github_operations_curls.md
 ├── manifests
 │   ├── __init__.py
 │   └── devforge.json
-├── pytest.ini
-├── requirements.txt
 ├── scripts
 │   └── mcp_inspector.py
-├── setup.py
 ├── src
-│   ├── __init__.py
-│   ├── __pycache__
-│   │   ├── __init__.cpython-312.pyc
-│   │   ├── __init__.cpython-313.pyc
-│   │   ├── __init__.cpython-314.pyc
-│   │   ├── main.cpython-312.pyc
-│   │   ├── main.cpython-313.pyc
-│   │   └── main.cpython-314.pyc
 │   ├── agents
-│   │   ├── __init__.py
-│   │   ├── __pycache__
-│   │   │   ├── __init__.cpython-312.pyc
-│   │   │   ├── __init__.cpython-314.pyc
-│   │   │   ├── reranker.cpython-312.pyc
-│   │   │   ├── supervisor.cpython-312.pyc
-│   │   │   └── supervisor.cpython-314.pyc
 │   │   ├── cheatsheet
-│   │   │   ├── __pycache__
-│   │   │   │   ├── agent.cpython-312.pyc
-│   │   │   │   ├── formatter.cpython-312.pyc
-│   │   │   │   ├── generator.cpython-312.pyc
-│   │   │   │   └── language_profiles.cpython-312.pyc
 │   │   │   ├── agent.py
 │   │   │   ├── formatter.py
 │   │   │   ├── generator.py
 │   │   │   └── language_profiles.py
 │   │   ├── datagen
 │   │   │   ├── __init__.py
-│   │   │   ├── __pycache__
-│   │   │   │   ├── __init__.cpython-312.pyc
-│   │   │   │   ├── __init__.cpython-314.pyc
-│   │   │   │   ├── agent.cpython-312.pyc
-│   │   │   │   └── agent.cpython-314.pyc
 │   │   │   └── agent.py
 │   │   ├── github
+│   │   │   ├── intelligence
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── commit_generator.py
+│   │   │   │   ├── log_parser.py
+│   │   │   │   └── repo_discovery.py
+│   │   │   ├── workflows
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── rollback.py
 │   │   │   ├── __init__.py
-│   │   │   ├── __pycache__
-│   │   │   │   ├── __init__.cpython-312.pyc
-│   │   │   │   └── agent.cpython-312.pyc
 │   │   │   └── agent.py
 │   │   ├── prompt_refiner
-│   │   │   ├── __pycache__
-│   │   │   │   ├── agent.cpython-312.pyc
-│   │   │   │   ├── agent.cpython-314.pyc
-│   │   │   │   ├── code_parser.cpython-312.pyc
-│   │   │   │   ├── context_orchestrator.cpython-312.pyc
-│   │   │   │   ├── context_selector.cpython-312.pyc
-│   │   │   │   ├── context_types.cpython-312.pyc
-│   │   │   │   ├── conversation_parser.cpython-312.pyc
-│   │   │   │   ├── dependency_analyzer.cpython-312.pyc
-│   │   │   │   ├── domain_handlers.cpython-312.pyc
-│   │   │   │   ├── domain_handlers.cpython-314.pyc
-│   │   │   │   ├── enhancer.cpython-312.pyc
-│   │   │   │   ├── enhancer.cpython-314.pyc
-│   │   │   │   ├── sanitizer.cpython-312.pyc
-│   │   │   │   ├── templates.cpython-312.pyc
-│   │   │   │   └── templates.cpython-314.pyc
 │   │   │   ├── agent.py
 │   │   │   ├── code_parser.py
 │   │   │   ├── context_orchestrator.py
@@ -95,126 +55,131 @@
 │   │   │   └── templates.py
 │   │   ├── rag
 │   │   │   ├── __init__.py
-│   │   │   ├── __pycache__
-│   │   │   │   ├── __init__.cpython-312.pyc
-│   │   │   │   ├── __init__.cpython-314.pyc
-│   │   │   │   ├── agent.cpython-312.pyc
-│   │   │   │   └── agent.cpython-314.pyc
 │   │   │   └── agent.py
+│   │   ├── __init__.py
 │   │   ├── reranker.py
 │   │   └── supervisor.py
 │   ├── api
 │   │   ├── __init__.py
-│   │   ├── __pycache__
-│   │   │   ├── __init__.cpython-312.pyc
-│   │   │   ├── __init__.cpython-314.pyc
-│   │   │   ├── routers.cpython-312.pyc
-│   │   │   └── routers.cpython-314.pyc
+│   │   ├── monitoring.py
 │   │   └── routers.py
 │   ├── core
 │   │   ├── __init__.py
-│   │   ├── __pycache__
-│   │   │   ├── __init__.cpython-312.pyc
-│   │   │   ├── __init__.cpython-314.pyc
-│   │   │   ├── config.cpython-312.pyc
-│   │   │   ├── config.cpython-314.pyc
-│   │   │   ├── middleware.cpython-312.pyc
-│   │   │   ├── model_router.cpython-312.pyc
-│   │   │   ├── model_router.cpython-314.pyc
-│   │   │   ├── schemas.cpython-312.pyc
-│   │   │   ├── schemas.cpython-314.pyc
-│   │   │   ├── utils.cpython-312.pyc
-│   │   │   └── utils.cpython-314.pyc
+│   │   ├── audit.py
+│   │   ├── confidence.py
 │   │   ├── config.py
+│   │   ├── features.py
+│   │   ├── jobs.py
 │   │   ├── middleware.py
 │   │   ├── model_router.py
+│   │   ├── performance.py
 │   │   ├── schemas.py
+│   │   ├── security.py
+│   │   ├── session.py
 │   │   └── utils.py
-│   ├── main.py
-│   └── tools
-│       ├── __init__.py
-│       ├── __pycache__
-│       │   ├── __init__.cpython-312.pyc
-│       │   └── __init__.cpython-314.pyc
-│       ├── cheatsheet
-│       │   ├── __pycache__
-│       │   │   ├── templates.cpython-312.pyc
-│       │   │   └── tools.cpython-312.pyc
-│       │   ├── templates.py
-│       │   └── tools.py
-│       ├── datagen
-│       │   ├── __init__.py
-│       │   ├── __pycache__
-│       │   │   ├── __init__.cpython-312.pyc
-│       │   │   ├── __init__.cpython-314.pyc
-│       │   │   ├── advanced_generator.cpython-312.pyc
-│       │   │   ├── domain_templates.cpython-312.pyc
-│       │   │   ├── realism_engine.cpython-312.pyc
-│       │   │   ├── relationship_engine.cpython-312.pyc
-│       │   │   ├── schema_designer.cpython-312.pyc
-│       │   │   ├── schema_models.cpython-312.pyc
-│       │   │   ├── simple_distributions.cpython-312.pyc
-│       │   │   ├── tools.cpython-312.pyc
-│       │   │   └── tools.cpython-314.pyc
-│       │   ├── advanced_generator.py
-│       │   ├── domain_templates.py
-│       │   ├── realism_engine.py
-│       │   ├── relationship_engine.py
-│       │   ├── schema_designer.py
-│       │   ├── schema_models.py
-│       │   ├── simple_distributions.py
-│       │   └── tools.py
-│       ├── github
-│       │   ├── __init__.py
-│       │   ├── __pycache__
-│       │   │   ├── __init__.cpython-312.pyc
-│       │   │   └── tools.cpython-312.pyc
-│       │   └── tools.py
-│       └── rag
-│           ├── __init__.py
-│           ├── __pycache__
-│           │   ├── __init__.cpython-312.pyc
-│           │   ├── __init__.cpython-314.pyc
-│           │   ├── tools.cpython-312.pyc
-│           │   └── tools.cpython-314.pyc
-│           └── tools.py
-├── structure.txt
-└── tests
-    ├── __init__.py
-    ├── __pycache__
-    │   ├── __init__.cpython-312.pyc
-    │   ├── test_api.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_cheatsheet.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_context_parser.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_datagen.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_distributions.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_domain_templates.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_end_to_end.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_github.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_prompt_refiner.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_prompt_refiner_phase2.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_rag.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_rag.cpython-314.pyc
-    │   ├── test_realism.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_relationships.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_reranker.cpython-312-pytest-8.4.2.pyc
-    │   ├── test_sanitizer.cpython-312-pytest-8.4.2.pyc
-    │   └── test_schema_designer.cpython-312-pytest-8.4.2.pyc
-    ├── test_api.py
-    ├── test_cheatsheet.py
-    ├── test_context_parser.py
-    ├── test_datagen.py
-    ├── test_distributions.py
-    ├── test_domain_templates.py
-    ├── test_end_to_end.py
-    ├── test_github.py
-    ├── test_prompt_refiner.py
-    ├── test_prompt_refiner_phase2.py
-    ├── test_rag.py
-    ├── test_realism.py
-    ├── test_relationships.py
-    ├── test_reranker.py
-    ├── test_sanitizer.py
-    └── test_schema_designer.py
+│   ├── tools
+│   │   ├── cheatsheet
+│   │   │   ├── templates.py
+│   │   │   └── tools.py
+│   │   ├── datagen
+│   │   │   ├── __init__.py
+│   │   │   ├── advanced_generator.py
+│   │   │   ├── advanced_generator_v2.py
+│   │   │   ├── catalog_factory.py
+│   │   │   ├── context_classifier.py
+│   │   │   ├── domain_templates.py
+│   │   │   ├── field_value_generator.py
+│   │   │   ├── lexical_classifier.py
+│   │   │   ├── lexical_dict.py
+│   │   │   ├── llm_classifier.py
+│   │   │   ├── pattern_classifier.py
+│   │   │   ├── realism_engine.py
+│   │   │   ├── relationship_engine.py
+│   │   │   ├── schema_designer.py
+│   │   │   ├── schema_models.py
+│   │   │   ├── semantic_analyzer.py
+│   │   │   ├── semantic_analyzer_v2.py
+│   │   │   ├── semantic_models.py
+│   │   │   ├── semantic_router.py
+│   │   │   ├── semantic_types.py
+│   │   │   ├── simple_distributions.py
+│   │   │   ├── tools.py
+│   │   │   └── value_catalog_builder.py
+│   │   ├── github
+│   │   │   ├── __init__.py
+│   │   │   └── tools.py
+│   │   ├── rag
+│   │   │   ├── __init__.py
+│   │   │   └── tools.py
+│   │   ├── __init__.py
+│   │   ├── changelog.py
+│   │   ├── ci_diagnostics.py
+│   │   └── scaffold.py
+│   ├── __init__.py
+│   └── main.py
+├── tests
+│   ├── __init__.py
+│   ├── test_api.py
+│   ├── test_changelog.py
+│   ├── test_cheatsheet.py
+│   ├── test_ci_diagnostics.py
+│   ├── test_commit_generator.py
+│   ├── test_confidence.py
+│   ├── test_context_parser.py
+│   ├── test_datagen.py
+│   ├── test_distributions.py
+│   ├── test_domain_templates.py
+│   ├── test_e2e_semantic.py
+│   ├── test_end_to_end.py
+│   ├── test_features.py
+│   ├── test_field_value_generator.py
+│   ├── test_github.py
+│   ├── test_github_agent_integration.py
+│   ├── test_github_integration.py
+│   ├── test_github_rollback.py
+│   ├── test_integration_phase1.py
+│   ├── test_integration_phase1_patterns.py
+│   ├── test_jobs.py
+│   ├── test_lexical_expansion.py
+│   ├── test_log_parser.py
+│   ├── test_monitoring.py
+│   ├── test_performance.py
+│   ├── test_phase1_regression.py
+│   ├── test_prompt_refiner.py
+│   ├── test_prompt_refiner_phase2.py
+│   ├── test_rag.py
+│   ├── test_realism.py
+│   ├── test_relationships.py
+│   ├── test_repo_discovery.py
+│   ├── test_reranker.py
+│   ├── test_rollback.py
+│   ├── test_sanitizer.py
+│   ├── test_scaffold.py
+│   ├── test_schema_designer.py
+│   ├── test_semantic_analyzer.py
+│   ├── test_semantic_analyzer_v2.py
+│   ├── test_semantic_models.py
+│   ├── test_semantic_router.py
+│   ├── test_session.py
+│   └── test_value_catalog_builder.py
+├── .env.example
+├── .gitignore
+├── BACKEND_PLAN.md
+├── CHANGELOG.md
+├── CODE_SNIPPETS.md
+├── IMPLEMENTATION_REVIEW.md
+├── INTEGRATION_PLAN.md
+├── MCP_GATEWAY_FIX.md
+├── PHASE3_SUMMARY.md
+├── PHASE_STATUS.md
+├── PROJECT_OVERVIEW.md
+├── README.md
+├── README_v0.8.0.md
+├── SECURITY.md
+├── USAGE.md
+├── pytest.ini
+├── requirements.txt
+├── setup.py
+└── structure.txt
 
-35 directories, 183 files
+24 directories, 159 files

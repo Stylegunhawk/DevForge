@@ -3,8 +3,8 @@
   "name": "DevForge",
   "meta": {
     "author": "You",
-    "version": "0.7.0",
-    "description": "Local developer tools (data generation, RAG, GitHub automation, and Cheat Sheets)"
+    "version": "0.8.0",
+    "description": "Local developer tools with intelligent GitHub automation (data generation, RAG, GitOps, CI/CD, and Cheat Sheets)"
   },
   "api": [
     {
@@ -85,13 +85,42 @@
     },
     {
       "name": "github_operation",
-      "description": "Perform GitHub actions such as listing repositories, creating issues, committing files, and opening pull requests.",
+      "description": "Intelligent GitHub automation with natural language. Supports: list repos, create issues, commit files, create PRs. v0.8 features: fuzzy repo matching, AI commit messages from diffs, log-to-issue parsing (Python/JS/Java/Go), confidence-based safety gating.",
       "parameters": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
-            "description": "Natural language description of the GitHub action (e.g., 'list my repos', 'create issue in my-repo')"
+            "description": "Natural language description of the GitHub action (e.g., 'list my repos', 'create issue in backend about login bug', 'commit auth changes')"
+          },
+          "context": {
+            "type": "object",
+            "description": "Optional context for enhanced intelligence (v0.8)",
+            "properties": {
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "File list for commit message context"
+              },
+              "diff": {
+                "type": "string",
+                "description": "Git diff for auto-generating Conventional Commit messages"
+              },
+              "error_log": {
+                "type": "string",
+                "description": "Stack trace for intelligent issue creation with file/line extraction"
+              },
+              "session_id": {
+                "type": "string",
+                "description": "Session ID for multi-turn conversation context"
+              },
+              "repo": {
+                "type": "string",
+                "description": "Pre-specified repository (owner/repo) to skip fuzzy matching"
+              }
+            }
           }
         },
         "required": [
@@ -233,6 +262,110 @@
           }
         },
         "required": []
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "generate_changelog",
+      "description": "Generate release notes and changelog from git history between tags or commits. Parses conventional commits and categories changes (features, fixes, docs, etc.).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "Repository name (user/repo or org/repo)"
+          },
+          "from_tag": {
+            "type": "string",
+            "description": "Start tag or commit SHA"
+          },
+          "to_tag": {
+            "type": "string",
+            "default": "HEAD",
+            "description": "End tag or commit SHA (default: HEAD)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "json"
+            ],
+            "default": "markdown",
+            "description": "Output format"
+          }
+        },
+        "required": [
+          "repo",
+          "from_tag"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "analyze_ci_failure",
+      "description": "Analyze CI/CD pipeline failures and suggest fixes. Detects test failures, build errors, dependency issues, and timeouts. Auto-fix policy enforced for safe operations.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "Repository name (user/repo)"
+          },
+          "run_id": {
+            "type": "integer",
+            "description": "Workflow run ID (optional, defaults to latest failed run)"
+          },
+          "pr_number": {
+            "type": "integer",
+            "description": "PR number to analyze (optional, alternative to run_id)"
+          }
+        },
+        "required": [
+          "repo"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "scaffold_repository",
+      "description": "Create new repository from template with CI/CD setup. Templates: fastapi, react, nextjs, microservice, docs. Includes token validation, idempotency checks, and async fallback for large templates.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Repository name (lowercase, hyphens/underscores/dots allowed)"
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "fastapi",
+              "react",
+              "nextjs",
+              "microservice",
+              "docs"
+            ],
+            "description": "Template to use"
+          },
+          "description": {
+            "type": "string",
+            "description": "Repository description (max 200 chars, optional)"
+          },
+          "private": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether repository should be private"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force creation even if repository exists"
+          }
+        },
+        "required": [
+          "name",
+          "template"
+        ]
       },
       "call_mode": "prefer"
     }

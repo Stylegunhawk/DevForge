@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     CORS_ORIGINS: str = "http://localhost:3000"
     LOG_LEVEL: str = "INFO"
+    ENVIRONMENT: str = "development"
 
     # Ollama Configuration
     OLLAMA_HOST: str = "http://localhost:11434"
@@ -40,7 +41,7 @@ class Settings(BaseSettings):
     RAG_CLOUD_MODEL: str = "gpt-oss:120b-cloud"
 
     # Phase 3: GitHub operations model
-    GITHUB_MODEL: str = "qwen3-coder:480b-cloud"
+    GITHUB_MODEL: str = "gpt-oss:20b-cloud"
 
     # Phase 3: Premium reasoning model
     PREMIUM_MODEL: str = "deepseek-v3.1:671b-cloud"
@@ -70,6 +71,33 @@ class Settings(BaseSettings):
 
     # Optional: Database (Future phases)
     DATABASE_URL: str | None = None
+
+    # GitOps v0.8 Configuration
+    GITOPS_STORAGE: str = "memory"  # "memory" | "redis" | "postgres"
+    GITOPS_ENABLE_FUZZY_SEARCH: bool = True
+    GITOPS_FUZZY_THRESHOLD: float = 0.85
+    GITOPS_ENABLE_COMMIT_GEN: bool = True
+    GITOPS_ENABLE_WORKFLOWS: bool = True
+    GITOPS_ENABLE_LOG_PARSING: bool = True
+    GITOPS_ENABLE_ASYNC_JOBS: bool = True
+    GITOPS_AUTO_CONFIRM: bool = False
+    GITOPS_ENABLE_ROLLBACK: bool = True
+    GITOPS_UNDO_WINDOW_MINUTES: int = 30
+    GITOPS_REPO_CACHE_TTL: int = 3600  # 1 hour
+    GITOPS_LLM_TIMEOUT: int = 10
+    GITOPS_SESSION_TTL: int = 1800  # 30 minutes
+    GITOPS_JOB_CLEANUP_HOURS: int = 24
+
+    # Optional: Redis (only if GITOPS_STORAGE="redis")
+    REDIS_URL: str | None = None
+
+    # Auto-fix Policy (CI Diagnostics)
+    GITOPS_AUTO_FIX_THRESHOLD: float = 0.95
+    GITOPS_AUTO_FIX_TYPES: List[str] = ["format", "dependency_patch", "lint"]
+    
+    # Work unit thresholds for async fallback
+    MAX_SYNC_WORK_UNITS: int = 50
+    WORK_UNIT_TIMEOUT_SECONDS: int = 10
 
     @property
     def cors_origins_list(self) -> List[str]:

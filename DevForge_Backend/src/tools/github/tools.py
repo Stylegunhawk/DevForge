@@ -1,14 +1,17 @@
 # src/tools/github/tools.py
 """
 GitHub operations tools using PyGithub.
-Phase 3.3 implementation.
+Phase 3.3 implementation with lazy initialization for test safety.
 """
 
 import logging
+import os
+import time
+from functools import wraps
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
-from github import Github, GithubException, Auth
+from github import Github, GithubException, Auth, RateLimitExceededException
 from github.Repository import Repository
 from github.GithubObject import NotSet
 
@@ -17,30 +20,104 @@ from src.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def handle_rate_limits(func):
+    """Decorator to handle GitHub API rate limits."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (RateLimitExceededException, GithubException) as e:
+            status = getattr(e, 'status', None)
+            data = getattr(e, 'data', {})
+            headers = getattr(e, 'headers', {})
+            
+            # Check for rate limit indicators
+            is_rate_limit = (
+                isinstance(e, RateLimitExceededException) or 
+                status == 429 or 
+                (status == 403 and 'rate limit' in str(data.get('message', '')).lower())
+            )
+            
+            if is_rate_limit:
+                retry_after = headers.get('Retry-After')
+                limit_reset = headers.get('X-RateLimit-Reset')
+                
+                wait_time = 60  # Default fallback
+                if retry_after:
+                    wait_time = int(retry_after)
+                elif limit_reset:
+                    wait_time = max(1, int(float(limit_reset) - time.time()))
+                
+                msg = f"GitHub API rate limit exceeded. Please retry after {wait_time} seconds."
+                logger.warning(msg, extra={"wait_time": wait_time})
+                
+                # Re-raise as a clean exception that can be caught by the agent
+                raise Exception(msg) from e
+            raise
+    return wrapper
+
+
 class GitHubTools:
-    """GitHub API operations wrapper using PyGithub."""
+    """GitHub API operations wrapper using PyGithub.
     
-    def __init__(self, token: Optional[str] = None):
-        """Initialize GitHub client.
+    Uses lazy initialization to prevent network calls at import time.
+    Set GITOPS_MOCK_GITHUB=true to skip all GitHub API calls (for testing).
+    """
+    
+    def __init__(self, token: Optional[str] = None, lazy: bool = True):
+        # ... (init code remains same) ...
+        self.token = token or getattr(settings, 'GITHUB_TOKEN', None)
+        self._client: Optional[Github] = None
+        self._user = None
+        self._mock_mode = os.getenv("GITOPS_MOCK_GITHUB", "").lower() in ("true", "1", "yes")
         
-        Args:
-            token: GitHub personal access token. Falls back to settings.GITHUB_TOKEN
-        """
-        self.token = token or settings.GITHUB_TOKEN
-        if not self.token:
+        # Validate token early (but don't connect yet)
+        if not self._mock_mode and not self.token:
             raise ValueError(
                 "GitHub token required. Set GITHUB_TOKEN in .env or pass token parameter"
             )
         
+        # Legacy behavior: initialize immediately if lazy=False
+        if not lazy and not self._mock_mode:
+            self._init_client()
+    
+    def _init_client(self) -> None:
+        """Initialize the GitHub client (called lazily on first use)."""
+        if self._client is not None:
+            return
+            
+        if self._mock_mode:
+            logger.info("GitHub client in MOCK mode - no API calls will be made")
+            return
+            
         auth = Auth.Token(self.token)
-        self.client = Github(auth=auth)
-        self.user = self.client.get_user()
+        self._client = Github(auth=auth)
+        self._user = self._client.get_user()
         
         logger.info(
-            f"GitHub client initialized for user: {self.user.login}",
-            extra={"username": self.user.login}
+            f"GitHub client initialized for user: {self._user.login}",
+            extra={"username": self._user.login}
         )
     
+    @property
+    def client(self) -> Github:
+        """Get GitHub client (lazy initialization)."""
+        if self._mock_mode:
+            raise RuntimeError("GitHub client not available in mock mode")
+        if self._client is None:
+            self._init_client()
+        return self._client
+    
+    @property
+    def user(self):
+        """Get authenticated user (lazy initialization)."""
+        if self._mock_mode:
+            raise RuntimeError("GitHub user not available in mock mode")
+        if self._user is None:
+            self._init_client()
+        return self._user
+    
+    @handle_rate_limits
     def list_repos(
         self,
         visibility: str = "all",
@@ -58,13 +135,18 @@ class GitHubTools:
             List of repository information dicts
         """
         try:
+            start_time = time.time()
             repos = self.user.get_repos(
                 visibility=visibility,
                 sort=sort
             )
             
+            # Fetch slice immediately to force API call for timing measurement if lazy
             result = []
-            for repo in repos[:limit]:
+            fetched_repos = list(repos[:limit])
+            api_duration = time.time() - start_time
+            
+            for repo in fetched_repos:
                 result.append({
                     "name": repo.name,
                     "full_name": repo.full_name,
@@ -80,12 +162,17 @@ class GitHubTools:
                 })
             
             logger.info(
-                f"Listed {len(result)} repositories",
-                extra={"count": len(result), "visibility": visibility}
+                f"Listed {len(result)} repositories in {api_duration:.2f}s",
+                extra={
+                    "count": len(result), 
+                    "visibility": visibility,
+                    "duration_ms": int(api_duration * 1000)
+                }
             )
             return result
             
         except GithubException as e:
+            # handle_rate_limits decorator will catch rate limits, otherwise re-raise
             logger.error(
                 f"Failed to list repos: {e.status} - {e.data}",
                 extra={"status": e.status, "error": str(e)},
@@ -93,6 +180,7 @@ class GitHubTools:
             )
             raise
     
+    @handle_rate_limits
     def create_repo(
         self,
         name: str,
@@ -116,6 +204,7 @@ class GitHubTools:
             Created repository information
         """
         try:
+            start_time = time.time()
             repo = self.user.create_repo(
                 name=name,
                 description=description or NotSet,
@@ -124,6 +213,7 @@ class GitHubTools:
                 gitignore_template=gitignore_template or NotSet,
                 license_template=license_template or NotSet
             )
+            duration = time.time() - start_time
             
             result = {
                 "name": repo.name,
@@ -136,8 +226,12 @@ class GitHubTools:
             }
             
             logger.info(
-                f"Created repository: {repo.full_name}",
-                extra={"repo": repo.full_name, "private": private}
+                f"Created repository: {repo.full_name} in {duration:.2f}s",
+                extra={
+                    "repo": repo.full_name, 
+                    "private": private,
+                    "duration_ms": int(duration * 1000)
+                }
             )
             return result
             
@@ -149,6 +243,7 @@ class GitHubTools:
             )
             raise
     
+    @handle_rate_limits
     def create_issue(
         self,
         repo_name: str,
@@ -176,12 +271,14 @@ class GitHubTools:
             
             repo = self.client.get_repo(repo_name)
             
+            start_time = time.time()
             issue = repo.create_issue(
                 title=title,
                 body=body or NotSet,
                 labels=labels or NotSet,
                 assignees=assignees or NotSet
             )
+            duration = time.time() - start_time
             
             result = {
                 "number": issue.number,
@@ -195,8 +292,12 @@ class GitHubTools:
             }
             
             logger.info(
-                f"Created issue #{issue.number} in {repo_name}",
-                extra={"repo": repo_name, "issue_number": issue.number}
+                f"Created issue #{issue.number} in {repo_name} in {duration:.2f}s",
+                extra={
+                    "repo": repo_name, 
+                    "issue_number": issue.number,
+                    "duration_ms": int(duration * 1000)
+                }
             )
             return result
             
@@ -208,6 +309,7 @@ class GitHubTools:
             )
             raise
     
+    @handle_rate_limits
     def commit_file(
         self,
         repo_name: str,
@@ -237,6 +339,7 @@ class GitHubTools:
             repo = self.client.get_repo(repo_name)
             
             # Check if file exists
+            start_time = time.time()
             try:
                 existing_file = repo.get_contents(file_path, ref=branch)
                 # File exists - update it
@@ -260,6 +363,7 @@ class GitHubTools:
                     action = "created"
                 else:
                     raise
+            duration = time.time() - start_time
             
             commit_info = {
                 "action": action,
@@ -271,8 +375,13 @@ class GitHubTools:
             }
             
             logger.info(
-                f"{action.capitalize()} file '{file_path}' in {repo_name}",
-                extra={"repo": repo_name, "file": file_path, "action": action}
+                f"{action.capitalize()} file '{file_path}' in {repo_name} in {duration:.2f}s",
+                extra={
+                    "repo": repo_name, 
+                    "file": file_path, 
+                    "action": action,
+                    "duration_ms": int(duration * 1000)
+                }
             )
             return commit_info
             
@@ -284,6 +393,7 @@ class GitHubTools:
             )
             raise
     
+    @handle_rate_limits
     def create_pull_request(
         self,
         repo_name: str,
@@ -312,6 +422,7 @@ class GitHubTools:
             
             repo = self.client.get_repo(repo_name)
             
+            start_time = time.time()
             pr = repo.create_pull(
                 title=title,
                 body=body or NotSet,
@@ -319,6 +430,7 @@ class GitHubTools:
                 base=base,
                 draft=draft
             )
+            duration = time.time() - start_time
             
             result = {
                 "number": pr.number,
@@ -333,8 +445,14 @@ class GitHubTools:
             }
             
             logger.info(
-                f"Created PR #{pr.number} in {repo_name}: {head} -> {base}",
-                extra={"repo": repo_name, "pr_number": pr.number, "head": head, "base": base}
+                f"Created PR #{pr.number} in {repo_name}: {head} -> {base} in {duration:.2f}s",
+                extra={
+                    "repo": repo_name, 
+                    "pr_number": pr.number, 
+                    "head": head, 
+                    "base": base,
+                    "duration_ms": int(duration * 1000)
+                }
             )
             return result
             

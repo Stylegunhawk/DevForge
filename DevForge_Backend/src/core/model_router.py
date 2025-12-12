@@ -287,6 +287,7 @@ class ModelRouter:
             "rag_simple": settings.RAG_LOCAL_MODEL,  # gpt-oss:20b - Local RAG queries
             "rag_complex": settings.RAG_CLOUD_MODEL,  # gpt-oss:120b-cloud - Complex RAG (cloud)
             "code_gen": settings.GITHUB_MODEL,  # qwen3-coder:480b-cloud - GitHub code generation
+            "github": settings.GITHUB_MODEL,  # Alias for code_gen (GitHub operations)
             "premium": settings.PREMIUM_MODEL,  # deepseek-v3.1:671b-cloud - Ultimate reasoning
         }
 

@@ -24,6 +24,14 @@ from src.agents.reranker import rerank_docs_invoke
 from src.agents.prompt_refiner.agent import refine_prompt_invoke
 from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
 
+# Import Phase 2 specialized tools
+from src.tools.changelog import generate_changelog_invoke
+from src.tools.ci_diagnostics import analyze_ci_failure_invoke
+from src.tools.scaffold import scaffold_repository_invoke
+
+# Import job queue for async operations
+from src.core.jobs import get_job_queue
+
 router = APIRouter()
 mcp_router = APIRouter()
 
@@ -35,7 +43,28 @@ SUPPORTED_TOOLS = {
     "rerank_docs": rerank_docs_invoke,
     "refine_prompt": refine_prompt_invoke,
     "generate_cheatsheet": generate_cheatsheet_invoke,
+    # Phase 2: Specialized GitHub Tools
+    "generate_changelog": generate_changelog_invoke,
+    "analyze_ci_failure": analyze_ci_failure_invoke,
+    "scaffold_repository": scaffold_repository_invoke,
 }
+
+
+# Job status endpoint for async operations
+@router.get("/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    """Get status of async job
+    
+    Returns:
+        Job status including progress, result, and ETA
+    """
+    job_queue = get_job_queue()
+    job = await job_queue.get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    
+    return JSONResponse(content=job.to_dict())
 
 
 @router.get("/manifests/devforge.json")
@@ -111,45 +140,24 @@ def _generate_default_manifest() -> dict:
                     "required": ["rows"],
                 },
             }
-        ],
+        ]
     }
 
 
 @router.post("/gateway")
-@track_performance
-async def gateway(gateway_req: GatewayRequest):
-    """
-    Gateway endpoint for MCP tool execution.
-    
-    Returns standardized response format:
-    {
-        "success": true,
-        "data": <actual_result>,
-        "message": "Operation completed successfully"
-    }
-    """
+async def gateway_endpoint(request: GatewayRequest):
+    """Universal gateway for all tools - simplified and cleaner"""
+    tool_name = request.get_tool_name()
+    args = request.arguments or {}
     start_time = time.time()
 
-    # `arguments` is **already a dict** thanks to the validator above
-    args = gateway_req.arguments
-    tool_name = gateway_req.get_tool_name()  # Supports both 'name' and 'apiName'
-
-
-    logging.info(
-        f"Gateway received request for tool: {tool_name}",
-        extra={"tool": tool_name, "arguments": args},
-    )
-
-    # Validate tool name
     if tool_name not in SUPPORTED_TOOLS:
-        error_msg = f"Unsupported tool: {tool_name}"
-        logging.error(error_msg, extra={"tool": tool_name, "available_tools": list(SUPPORTED_TOOLS.keys())})
         return JSONResponse(
             status_code=400,
             content={
                 "success": False,
                 "data": None,
-                "message": error_msg,
+                "message": f"Tool '{tool_name}' not found. Available tools: {list(SUPPORTED_TOOLS.keys())}",
             },
         )
 
@@ -157,7 +165,7 @@ async def gateway(gateway_req: GatewayRequest):
 
     try:
         # ------------------------------------------------------------------- #
-        # Special handling for github_operation (still expects a single string)
+        # Special handling for github_operation (v0.8 with context support)
         # ------------------------------------------------------------------- #
         if tool_name == "github_operation":
             query = args.get("query")
@@ -172,8 +180,12 @@ async def gateway(gateway_req: GatewayRequest):
                         "message": error_msg,
                     },
                 )
+            
+            # v0.8: Support optional context parameter
+            context = args.get("context", {})
+            
             logging.info(f"Calling {tool_name} with query: {query[:100]}...")
-            result = await agent_func(query)
+            result = await agent_func(query=query, context=context)
         else:
             logging.info(f"Calling {tool_name} with args: {args}")
             result = await agent_func(args)          # ← dict, no extra parsing
