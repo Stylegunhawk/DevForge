@@ -63,8 +63,87 @@ async def get_job_status(job_id: str):
     
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    
     return JSONResponse(content=job.to_dict())
+
+
+# Phase 10.1: Async RAG Endpoints
+# ARCHITECTURE COMPLIANCE (see docs/rag_architecture.md):
+# ✅ NO /rag/graph/context endpoint (forbidden)
+# ✅ Delegates to RAGAgent via Celery tasks
+
+@router.post("/rag/ingest-async")
+async def ingest_documents_async(request: "IngestAsyncRequest") -> "IngestAsyncResponse":
+    """
+    Queue documents for async ingestion via Celery.
+    
+    ARCHITECTURE: Calls async_ingest_documents Celery task → RAGAgent.
+    
+    Args:
+        request: IngestAsyncRequest with file_paths and collection_name
+    
+    Returns:
+        IngestAsyncResponse with task_id for tracking
+    """
+    from src.api.rag_models import IngestAsyncRequest, IngestAsyncResponse
+    from src.workers.tasks.rag_tasks import async_ingest_documents
+    
+    logging.info(
+        f"Queueing async ingestion: {len(request.file_paths)} files",
+        extra={"collection": request.collection_name, "files": len(request.file_paths)}
+    )
+    
+    # Queue Celery task
+    task = async_ingest_documents.delay(
+        file_paths=request.file_paths,
+        collection_name=request.collection_name,
+        embed_model=request.embed_model,
+    )
+    
+    logging.info(f"Task queued: {task.id}")
+    
+    return IngestAsyncResponse(
+        task_id=task.id,
+        status="queued",
+        collection=request.collection_name,
+        total_files=len(request.file_paths),
+    )
+
+
+@router.get("/rag/task/{task_id}")
+async def get_task_status(task_id: str) -> "TaskStatusResponse":
+    """
+    Get status of async RAG ingestion task.
+    
+    Args:
+        task_id: Celery task ID
+    
+    Returns:
+        TaskStatusResponse with current status and progress
+    """
+    from src.api.rag_models import TaskStatusResponse
+    from src.workers.celery_app import app
+    
+    # Get task result from Celery backend
+    result = app.AsyncResult(task_id)
+    
+    # Build response based on task state
+    response_data = {
+        "task_id": task_id,
+        "status": result.status,  # PENDING, PROGRESS, SUCCESS, FAILURE
+    }
+    
+    if result.status == "PROGRESS":
+        # Progress metadata from task.update_state()
+        response_data["progress"] = result.info
+    elif result.status == "SUCCESS":
+        response_data["result"] = result.result
+    elif result.status == "FAILURE":
+        response_data["error"] = str(result.info)
+    
+    logging.info(f"Task status: {task_id} → {result.status}")
+    
+    return TaskStatusResponse(**response_data)
+
 
 
 @router.get("/manifests/devforge.json")

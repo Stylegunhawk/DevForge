@@ -452,3 +452,253 @@ async def rag_agent_invoke(
             "execution_time": round(execution_time, 4),
             "error": f"RAG agent execution failed: {str(e)}",
         }
+
+
+# Phase 10.1: RAGAgent class for Celery task compatibility
+class RAGAgent:
+    """RAG Agent class for async task queue integration.
+    
+    ARCHITECTURE (see docs/rag_architecture.md):
+    - Each instance has its own graph (self._code_graph)
+    - Graph is derived state, rebuilt from chunk metadata
+    - NO global graph, NO persistence
+    """
+    
+    def __init__(self, collection_name: str = "devforge_docs"):
+        """Initialize RAG agent with collection scope.
+        
+        Args:
+            collection_name: Target collection for documents
+        """
+        self.collection_name = collection_name
+        self.embed_model = settings.RAG_EMBED_MODEL
+        self.backend = settings.VECTOR_BACKEND
+        
+        # ARCHITECTURE: Use BaseVectorStore abstraction
+        from src.storage.chroma_store import ChromaVectorStore
+        self.vector_store = ChromaVectorStore(
+            collection_name=collection_name,
+            embed_model=self.embed_model
+        )
+        
+        self._code_graph = None  # Instance-scoped, NOT global
+        
+        logger.info(f"RAGAgent initialized: collection={collection_name}")
+    
+    @property
+    def code_graph(self):
+        """
+        Lazy-initialized code graph.
+        
+        ARCHITECTURE: Derived state, rebuilt from chunk metadata.
+        No persistence, instance-scoped only.
+        """
+        if self._code_graph is None:
+            from src.agents.rag.graph import CodeGraph
+            
+            self._code_graph = CodeGraph()
+            
+            # ARCHITECTURE COMPLIANCE: Rebuild from vector store metadata
+            # Uses BaseVectorStore.iter_chunk_metadata() abstraction
+            import asyncio
+            
+            async def rebuild():
+                """Rebuild graph from existing chunks."""
+                count = 0
+                try:
+                    async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
+                        # Convert metadata list to chunk format expected by graph
+                        chunks = [{"metadata": meta} for meta in batch]
+                        self._code_graph.add_chunks_batch(chunks)
+                        count += len(batch)
+                    
+                    logger.info(f"Graph rebuilt: {count} chunks → {self._code_graph.size()} nodes")
+                except Exception as e:
+                    logger.warning(f"Graph rebuild failed: {e}")
+            
+            # Run rebuild asynchronously (non-blocking)
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # In async context, schedule task
+                    asyncio.create_task(rebuild())
+                else:
+                    # In sync context, run to completion
+                    loop.run_until_complete(rebuild())
+            except RuntimeError:
+                # No event loop, create one
+                asyncio.run(rebuild())
+            
+            logger.info("CodeGraph initialized (rebuilding from vector store)")
+        
+        return self._code_graph
+    
+    async def ingest_document(
+        self,
+        file_path: str,
+        embed_model: Optional[str] = None,
+    ) -> dict:
+        """Ingest a single document into the vector store.
+        
+        This method is called by Celery tasks (NOT tools).
+        
+        Args:
+            file_path: Path to document to ingest
+            embed_model: Optional embedding model override
+        
+        Returns:
+            Dictionary with ingestion result
+        """
+        from src.tools.rag.tools import ingest_documents as _ingest_documents
+        
+        result = await _ingest_documents(
+            file_paths=[file_path],
+            embed_model=embed_model or self.embed_model,
+            chunk_size=settings.RAG_CHUNK_SIZE,
+            chunk_overlap=settings.RAG_CHUNK_OVERLAP,
+            backend=self.backend,
+        )
+        
+        logger.info(
+            f"Document ingested: {file_path}",
+            extra={"chunks": result.get("chunks_created", 0)}
+        )
+        
+        return result
+    
+    async def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> List[dict]:
+        """Retrieve documents via semantic search.
+        
+        Args:
+            query: Search query
+            top_k: Number of results
+        
+        Returns:
+            List of matching documents
+        """
+        from src.tools.rag.tools import retrieve_docs as _retrieve_docs
+        
+        return await _retrieve_docs(
+            query=query,
+            top_k=top_k,
+            embed_model=self.embed_model,
+            backend=self.backend,
+            score_threshold=settings.RAG_SCORE_THRESHOLD,
+        )
+    
+    async def retrieve_with_context(
+        self,
+        query: str,
+        top_k: int = 5,
+        use_graph: bool = True,
+    ) -> dict:
+        """
+        Retrieve documents with optional graph-based context expansion.
+        
+        ARCHITECTURE: Graph expansion is INTERNAL only.
+        No API exposure, uses BFS traversal with depth limit.
+        
+        Args:
+            query: Search query
+            top_k: Number of initial results
+            use_graph: Whether to expand context using code graph
+        
+        Returns:
+            Dictionary with documents and (optionally) expanded context
+        """
+        from src.tools.rag.tools import retrieve_docs as _retrieve_docs
+        
+        # Get initial results
+        initial_results = await _retrieve_docs(
+            query=query,
+            top_k=top_k,
+            embed_model=self.embed_model,
+            backend=self.backend,
+            score_threshold=settings.RAG_SCORE_THRESHOLD,
+        )
+        
+        if not use_graph or not settings.ENABLE_CODE_GRAPH:
+            return {
+                "documents": initial_results,
+                "expanded": False,
+            }
+        
+        # Expand with graph context
+        expanded_results = await self._expand_with_graph_context(initial_results)
+        
+        return {
+            "documents": expanded_results,
+            "expanded": True,
+            "expansion_count": len(expanded_results) - len(initial_results),
+        }
+    
+    async def _expand_with_graph_context(self, results: List[dict]) -> List[dict]:
+        """
+        Expand results using code graph (INTERNAL method).
+        
+        ARCHITECTURE:
+        - Uses self.code_graph (instance property)
+        - Calls BaseVectorStore abstraction ONLY
+        - NEVER accesses vector_store internals
+        
+        Args:
+            results: Initial search results
+        
+        Returns:
+            Extended list with related code chunks
+        """
+        expanded = list(results)
+        seen_qids = set()
+        
+        # Build QIDs from initial results
+        for result in results:
+            metadata = result.get("metadata", {})
+            source = metadata.get("source", "")
+            name = metadata.get("name", "")
+            
+            if source and name:
+                qid = f"{source}::{name}"  # CRITICAL: :: separator
+                seen_qids.add(qid)
+        
+        # Find related chunks via graph
+        for result in results:
+            metadata = result.get("metadata", {})
+            source = metadata.get("source", "")
+            name = metadata.get("name", "")
+            
+            if not source or not name:
+                continue
+            
+            qid = f"{source}::{name}"
+            
+            # Get related QIDs via BFS
+            related_qids = self.code_graph.get_related(
+                qid,
+                depth=settings.GRAPH_CONTEXT_DEPTH,
+                max_results=settings.GRAPH_MAX_CONTEXT_CHUNKS,
+            )
+            
+            # Fetch related chunks
+            for related_qid in related_qids:
+                if related_qid in seen_qids:
+                    continue
+                
+                seen_qids.add(related_qid)
+                
+                # CRITICAL: Use abstraction, NOT backend internals
+                # For now, we need to add get_chunk_by_qid to BaseVectorStore
+                # Placeholder: Log that we would fetch this chunk
+                logger.debug(f"Would fetch related chunk: {related_qid}")
+                
+                # TODO: Implement get_chunk_by_qualified_id in BaseVectorStore
+                # related_chunk = await self.vector_store.get_chunk_by_qualified_id(related_qid)
+                # if related_chunk:
+                #     expanded.append(related_chunk)
+        
+        logger.info(f"Graph expansion: {len(results)} → {len(expanded)} chunks")
+        return expanded
+

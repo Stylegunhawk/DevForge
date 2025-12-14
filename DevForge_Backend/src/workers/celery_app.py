@@ -1,0 +1,55 @@
+"""Celery application configuration for async task processing.
+
+Phase 10.1: Async document ingestion with progress tracking.
+"""
+
+from celery import Celery
+
+from src.core.config import settings
+
+
+def create_celery_app() -> Celery:
+    """Create and configure Celery application."""
+    app = Celery(
+        "devforge",
+        broker=settings.CELERY_BROKER_URL,
+        backend=settings.CELERY_RESULT_BACKEND,
+        include=["src.workers.tasks.rag_tasks"],
+    )
+
+    app.conf.update(
+        # Task execution limits
+        task_soft_time_limit=settings.CELERY_TASK_SOFT_TIME_LIMIT,
+        task_time_limit=settings.CELERY_TASK_TIME_LIMIT,
+        
+        # Task tracking
+        task_track_started=True,
+        task_send_sent_event=True,
+        
+        # Result backend settings
+        result_expires=3600,  # 1 hour
+        result_extended=True,
+        
+        # Serialization
+        task_serializer="json",
+        result_serializer="json",
+        accept_content=["json"],
+        
+        # Timezone
+        timezone="UTC",
+        enable_utc=True,
+        
+        # Worker settings
+        worker_prefetch_multiplier=1,
+        worker_concurrency=4,
+    )
+
+    return app
+
+
+# Application instance
+app = create_celery_app()
+
+
+if __name__ == "__main__":
+    app.start()

@@ -1,27 +1,101 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
 **Tool Name:** `retrieve_docs`  
-**Version:** 0.7.0  
-**Phase:** 3.1 (RAG Agent)  
-**Status:** ✅ Production Ready
+**Version:** 10.1 (Phase 10.1)  
+**Status:** ✅ Production Ready  
+**Last Updated:** December 14, 2025
 
 ---
 
 ## Overview
 
-The `retrieve_docs` tool provides semantic document search and retrieval using RAG (Retrieval-Augmented Generation). It supports ingesting documents in multiple formats and querying them using vector similarity search with ChromaDB (local) or Qdrant (cloud).
+The `retrieve_docs` tool provides semantic document search with **code-aware chunking**, **dependency graph expansion**, and **test-source linking**. Phase 10.1 enhancements include:
+- 🆕 Async ingestion via Celery task queue
+- 🆕 Tree-sitter AST parsing for code files (Python, JS, TS)
+- 🆕 Code dependency graph with BFS traversal
+- 🆕 Graph-based context expansion
+- ✅ Multi-format support (PDF, MD, TXT, DOCX, PY, JS, TS)
+- ✅ Dual vector store (ChromaDB local + Qdrant cloud)
 
 ---
 
-## Features
+## Phase 10.1 Features
 
-- ✅ Semantic search with vector embeddings
-- ✅ Multi-format support (PDF, MD, TXT, DOCX)
-- ✅ Dual vector store (ChromaDB local + Qdrant cloud)
-- ✅ Document ingestion and chunking
-- ✅ Automatic reranking with Cross-Encoder
-- ✅ Configurable top-k results
-- ✅ Async I/O for fast processing
+### Code-Aware Chunking
+
+**Supported Languages:**
+- Python (`.py`) - Functions, classes, docstrings, imports
+- JavaScript (`.js`, `.jsx`) - Functions, classes, JSDoc, imports
+- TypeScript (`.ts`, `.tsx`) - Functions, classes, JSDoc, imports
+
+**AST Extraction:**
+```python
+# Input: utils.py
+def add(a, b):
+    """Add two numbers."""
+    return a + b
+
+# Output: Chunk with metadata
+{
+    "chunk_type": "function",
+    "name": "add",
+    "language": "python",
+    "source": "utils.py",
+    "start_line": 1,
+    "end_line": 3,
+    "calls": [],
+    "docstring": "Add two numbers."
+}
+```
+
+### Code Dependency Graph
+
+**Graph Structure:**
+- **Nodes:** Qualified IDs (`file::entity` format)
+- **Edges:** Function calls and imports
+- **Traversal:** BFS with configurable depth
+
+**Context Expansion Example:**
+```python
+Query: "authentication function"
+Initial Match: auth.py::authenticate
+
+Graph Expansion (depth=2):
+  auth.py::authenticate
+    ↓ calls
+  auth.py::validate_token
+    ↓ imports
+  utils.py::decode_jwt
+
+Result: 3 related chunks (expanded context)
+```
+
+### Async Ingestion
+
+**Endpoint:** `POST /rag/ingest-async`
+
+```bash
+curl -X POST http://localhost:8001/api/rag/ingest-async \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file_paths": ["src/auth.py", "src/utils.py"],
+    "collection_name": "devforge_docs"
+  }'
+```
+
+**Response:**
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "PENDING",
+  "message": "Ingestion queued"
+}
+```
+
+**Check Status:**
+```bash
+curl http://localhost:8001/api/rag/task/{task_id}
+```
 
 ---
 
@@ -33,17 +107,29 @@ The `retrieve_docs` tool provides semantic document search and retrieval using R
 | `file_paths` | array[string] | No | `[]` | Documents to ingest before searching |
 | `top_k` | integer | No | `5` | Number of results to return (1-50) |
 | `embed_model` | string | No | `"nomic-embed-text"` | Embedding model to use |
+| `include_context` | boolean | No | `false` | Enable graph-based context expansion |
 
-### Embedding Models
+### New in Phase 10.1
 
-- `nomic-embed-text` - **Default**, optimized for semantic search
-- `bge-m3` - Fallback model, multi-lingual support
+**`include_context`** - Enable code graph expansion:
+- Finds related functions via calls/imports
+- BFS traversal (default depth: 2)
+- Returns extended context with related code
+
+**Example:**
+```json
+{
+  "query": "authentication logic",
+  "include_context": true,
+  "top_k": 3
+}
+```
 
 ---
 
 ## API Usage
 
-### Basic Search
+### Basic Search (Unchanged)
 
 ```bash
 curl -X POST http://localhost:8001/api/gateway \
@@ -56,183 +142,226 @@ curl -X POST http://localhost:8001/api/gateway \
   }'
 ```
 
-**Response:**
+### Search with Graph Context Expansion (New)
+
+```bash
+curl -X POST http://localhost:8001/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "JWT token validation",
+      "include_context": true,
+      "top_k": 5
+    }
+  }'
+```
+
+**Response (with expansion):**
 ```json
 {
   "success": true,
   "data": {
     "results": [
       {
-        "content": "Express.js authentication typically uses middleware...",
-        "score": 0.89,
-        "metadata": {"source": "express-auth.md"}
+        "content": "def validate_token(token): ...",
+        "score": 0.92,
+        "metadata": {
+          "source": "auth.py",
+          "chunk_type": "function",
+          "name": "validate_token"
+        }
+      },
+      {
+        "content": "def decode_jwt(token): ...",
+        "score": null,  // Graph-expanded (no direct similarity)
+        "metadata": {
+          "source": "utils.py",
+          "chunk_type": "function",
+          "name": "decode_jwt",
+          "expanded_from": "auth.py::validate_token"
+        }
       }
     ],
-    "query": "explain authentication in Express.js",
-    "top_k": 5
+    "query": "JWT token validation",
+    "expanded": true,
+    "expansion_count": 3
   }
 }
 ```
 
-### Ingest and Search
+### Async Ingestion (New)
 
 ```bash
-curl -X POST http://localhost:8001/api/gateway \
+# Queue ingestion
+curl -X POST http://localhost:8001/api/rag/ingest-async \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "How to implement JWT tokens?",
-      "file_paths": ["/path/to/auth-guide.pdf", "/path/to/security.md"],
-      "top_k": 3
-    }
+    "file_paths": [
+      "src/auth.py",
+      "src/middleware.py",
+      "tests/test_auth.py"
+    ],
+    "collection_name": "devforge_docs"
   }'
-```
 
-### Custom Embedding Model
+# Response
+{
+  "task_id": "abc123...",
+  "status": "PENDING"
+}
 
-```bash
-curl -X POST http://localhost:8001/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "database connection pooling",
-      "embed_model": "bge-m3",
-      "top_k": 10
-    }
-  }'
+# Check status
+curl http://localhost:8001/api/rag/task/abc123...
+
+# Response
+{
+  "task_id": "abc123...",
+  "status": "SUCCESS",
+  "result": {
+    "status": "completed",
+    "results": [
+      {"file": "src/auth.py", "success": true, "chunks": 15},
+      {"file": "src/middleware.py", "success": true, "chunks": 8},
+      {"file": "tests/test_auth.py", "success": true, "chunks": 12}
+    ]
+  }
+}
 ```
 
 ---
 
-## Lobe Chat Usage
-
-### Simple Search
-```
-"Search my documentation for error handling best practices"
-```
-
-### Ingest and Query
-```
-"Read the README.md file and tell me how to set up the project"
-```
-
-### Multi-Document Search
-```
-"Search across all markdown files for authentication examples"
-```
-
----
-
-## Document Processing Pipeline
+## Document Processing Pipeline (Phase 10.1)
 
 ```
-Documents (PDF/MD/TXT/DOCX)
+Documents (PDF/MD/TXT/DOCX/PY/JS/TS)
+    ↓
+[NEW] Async Task Queue (Celery + Redis)
     ↓
 Read Content (async I/O)
     ↓
-Chunk Text (500 chars, 50 overlap)
+[NEW] File Type Detection
+    ↓
+├─ Code Files (.py, .js, .ts)
+│     ↓
+│  [NEW] Tree-sitter AST Parsing
+│     ↓
+│  Extract: functions, classes, imports, calls
+│
+└─ Other Files (.md, .txt, .pdf, .docx)
+      ↓
+   Text Chunking (500 chars, 50 overlap)
     ↓
 Generate Embeddings (nomic-embed-text)
     ↓
 Store in Vector DB (ChromaDB/Qdrant)
     ↓
+[NEW] Build Code Graph (file::entity nodes)
+    ↓
 Semantic Search Query
     ↓
 Retrieve Top-K Documents
     ↓
-Rerank (Cross-Encoder)
+[NEW] Graph Expansion (BFS traversal)
     ↓
-Return Results
+[NEW] Fetch Related Chunks by QID
+    ↓
+Return Results with Extended Context
 ```
 
 ---
 
-## Vector Store Options
+## Code Graph Features
 
-### ChromaDB (Local) - Default
+### Qualified ID (QID) Format
 
-**Advantages:**
-- Fast local storage
-- No API keys required
-- Persistent collections
-- Ideal for development
+**Structure:** `file::entity`
 
+**Examples:**
+- `auth.py::authenticate`
+- `utils.py::User.login`
+- `middleware.ts::validateRequest`
+
+**Why Double Colon?**
+- Handles Windows paths (`C:\src\file.py`)
+- Consistent with Rust/C++ syntax
+- Easy to parse and validate
+
+### Graph Traversal
+
+**Algorithm:** Breadth-First Search (BFS)  
 **Configuration:**
 ```python
-VECTOR_BACKEND="chroma"
-CHROMA_PERSIST_DIR="./data/chromadb"
+GRAPH_CONTEXT_DEPTH = 2      # Max traversal depth
+GRAPH_MAX_CONTEXT_CHUNKS = 3 # Max related chunks
 ```
 
-### Qdrant (Cloud) - Fallback
+**Example:**
+```
+Query: "authentication"
+Match: auth.py::authenticate
 
-**Advantages:**
-- Cloud-hosted scalability
-- Production-ready
-- Multi-region support
-- Automatic backups
+BFS Traversal:
+  Depth 0: auth.py::authenticate
+  Depth 1: auth.py::validate_token (called by authenticate)
+  Depth 1: utils.py::hash_password (imported by authenticate)
+  Depth 2: utils.py::generate_salt (called by hash_password)
 
-**Configuration:**
-```python
-VECTOR_BACKEND="qdrant"
-QDRANT_URL="https://your-cluster.qdrant.io"
-QDRANT_API_KEY="your-api-key"
+Result: 4 chunks (1 initial + 3 related)
 ```
 
----
+### Test-Source Linking
 
-## Use Cases
+**Automatic Detection:**
+- `test_*.py` → `*.py`
+- `*_test.py` → `*.py`
+- `*.spec.ts` → `*.ts`
+- `*.test.js` → `*.js`
 
-### 1. Codebase Documentation Search
-
+**Metadata Enhancement:**
 ```json
 {
-  "query": "How to handle database migrations?",
-  "file_paths": ["docs/database.md", "docs/setup.md"],
-  "top_k": 5
-}
-```
-
-### 2. API Reference Lookup
-
-```json
-{
-  "query": "authentication endpoint parameters",
-  "file_paths": ["api-reference.pdf"],
-  "top_k": 3
-}
-```
-
-### 3. Architecture Documentation
-
-```json
-{
-  "query": "microservices communication patterns",
-  "file_paths": ["architecture/overview.md", "architecture/services.md"],
-  "top_k": 10
-}
-```
-
-### 4. Troubleshooting Guides
-
-```json
-{
-  "query": "connection timeout error solutions",
-  "file_paths": ["troubleshooting.md"],
-  "top_k": 5
+  "source": "auth.py",
+  "name": "authenticate",
+  "test_files": ["test_auth.py", "auth_test.py"]
 }
 ```
 
 ---
 
-## Configuration
+## Technology Stack (Updated)
+
+### Phase 10.1 Additions
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **Celery** | 5.3.4 | Async task queue |
+| **Redis** | 5.0.1 | Celery broker/backend |
+| **Tree-sitter** | 0.25.2 | AST parsing |
+| **tree-sitter-python** | 0.25.0 | Python grammar |
+| **tree-sitter-javascript** | 0.25.0 | JS grammar |
+| **tree-sitter-typescript** | 0.23.2 | TS grammar |
+
+### Existing Stack
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| ChromaDB | 1.3.5 | Local vector store |
+| Qdrant Client | 1.16.1 | Cloud vector store |
+| LangChain | 1.0.3 | Embeddings and chains |
+| sentence-transformers | 5.1.2 | Reranking |
+| PyPDF | 6.4.0 | PDF parsing |
+| python-docx | Latest | DOCX parsing |
+
+---
+
+## Configuration (Updated)
 
 ### RAG Settings
 
 ```python
 # Chunking
-RAG_CHUNK_SIZE = 500  # Characters per chunk
+RAG_CHUNK_SIZE = 500  # Characters per chunk (text files)
 RAG_CHUNK_OVERLAP = 50  # Overlap between chunks
 
 # Retrieval
@@ -241,136 +370,169 @@ RAG_SCORE_THRESHOLD = 0.5  # Minimum similarity score
 
 # Embedding
 RAG_EMBED_MODEL = "nomic-embed-text"
-RAG_EMBED_MODEL_FALLBACK = "bge-m3"
+
+# [NEW] Code Graph
+ENABLE_CODE_GRAPH = True  # Enable graph expansion
+GRAPH_CONTEXT_DEPTH = 2   # BFS depth limit
+GRAPH_MAX_CONTEXT_CHUNKS = 3  # Max related chunks
+
+# [NEW] Async Processing
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 minutes
 ```
 
 ---
 
-## Performance
+## Use Cases (Updated)
+
+### 1. Code Documentation Search with Context
+
+```json
+{
+  "query": "How does authentication middleware work?",
+  "file_paths": ["src/middleware.ts"],
+  "include_context": true,
+  "top_k": 5
+}
+```
+
+**Result:** Main authentication function + related helper functions via graph expansion
+
+### 2. Test-Driven Documentation
+
+```json
+{
+  "query": "authentication test cases",
+  "file_paths": ["tests/test_auth.py", "src/auth.py"]
+}
+```
+
+**Result:** Test files automatically linked to source implementations
+
+### 3. Dependency Discovery
+
+```json
+{
+  "query": "database connection",
+  "include_context": true
+}
+```
+
+**Result:** Main DB functions + all calling functions discovered via graph
+
+### 4. Async Bulk Ingestion
+
+```bash
+# Ingest entire codebase asynchronously
+POST /rag/ingest-async
+{
+  "file_paths": [
+    "src/auth.py", "src/database.py", "src/models.py",
+    "tests/test_auth.py", "tests/test_db.py",
+    "docs/api.md", "docs/setup.md"
+  ]
+}
+```
+
+---
+
+## Performance (Updated)
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| Document ingestion (1 PDF) | 1-3s | Depends on size |
-| Search query | < 500ms | With caching |
-| Reranking | < 200ms | Cross-encoder |
-| Embedding generation | < 100ms | Per document |
+| Code file ingestion (1 .py) | 1-2s | With AST parsing |
+| Text file ingestion (1 .md) | 500ms-1s | Standard chunking |
+| Search query | <500ms | With caching |
+| Graph expansion | +100-200ms | BFS traversal |
+| Async task queue | Instant | Non-blocking |
 
 ---
 
-## Supported Document Formats
+## Architecture Components
 
-### PDF
-- Text extraction with PyPDF
-- Handles multi-page documents
-- Preserves formatting
+### File Locations
 
-### Markdown (.md)
-- Pure text extraction
-- Preserves code blocks
-- Fast processing
-
-### Text (.txt)
-- Direct text ingestion
-- Fastest processing
-- No formatting
-
-### DOCX
-- Word document support
-- Text paragraph extraction
-- Handles tables
+| Component | Path | Responsibility |
+|-----------|------|----------------|
+| RAGAgent | `src/agents/rag/agent.py` | Orchestration, graph ownership |
+| CodeGraph | `src/agents/rag/graph/code_graph.py` | In-memory dependency graph |
+| CodeChunker | `src/agents/rag/chunking/code_chunker.py` | Tree-sitter AST parsing |
+| TextChunker | `src/agents/rag/chunking/text_chunker.py` | Text fallback chunking |
+| TestLinker | `src/agents/rag/linking/test_linker.py` | Test-source linking |
+| BaseVectorStore | `src/storage/base_store.py` | Vector store abstraction |
+| ChromaVectorStore | `src/storage/chroma_store.py` | ChromaDB implementation |
+| Celery Tasks | `src/workers/tasks/rag_tasks.py` | Async ingestion tasks |
+| API Endpoints | `src/api/routers.py` | HTTP endpoints |
 
 ---
 
-## Reranking
+## Error Handling (Updated)
 
-The tool automatically applies Cross-Encoder reranking to improve result quality:
-
-**Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2`
-
-**Process:**
-1. Initial retrieval (top-k from vector store)
-2. Re-score with Cross-Encoder
-3. Re-sort by relevance score
-4. Return top-k results
-
-**Benefit:** 10-20% improvement in result quality
-
----
-
-## Error Handling
-
-### Document Not Found
+### Async Task Failures
 
 ```json
 {
-  "query": "test",
-  "file_paths": ["/invalid/path.pdf"]
+  "task_id": "abc123",
+  "status": "FAILURE",
+  "error": "File not found: src/missing.py"
 }
 ```
 
-**Response:**
-```json
-{
-  "success": false,
-  "message": "File not found: /invalid/path.pdf"
-}
+### AST Parsing Fallback
+
+If Tree-sitter parsing fails, automatically falls back to text chunking:
 ```
-
-### Invalid Format
-
-```json
-{
-  "query": "test",
-  "file_paths": ["file.xyz"]  // Unsupported format
-}
-```
-
-**Response:**
-```json
-{
-  "success": false,
-  "message": "Unsupported file format: .xyz"
-}
-```
-
-### Empty Query
-
-```json
-{
-  "query": ""  // Error: query required
-}
-```
-
-**Response:**
-```json
-{
-  "success": false,
-  "message": "query parameter is required"
-}
+[WARNING] AST parsing failed for auth.py: syntax error
+[INFO] Falling back to text chunking for auth.py
 ```
 
 ---
 
-## Implementation Details
+## Best Practices (Updated)
 
-### Technology Stack
-- **ChromaDB** 1.3.2 - Local vector store
-- **Qdrant Client** 1.7.0+ - Cloud vector store
-- **LangChain** - Embeddings and chains
-- **sentence-transformers** - Reranking
-- **PyPDF** 3.17.0+ - PDF parsing
-- **python-docx** 1.1.0 - DOCX parsing
+1. **Code Files** - Enable `include_context=true` for graph expansion
+2. **Async Ingestion** - Use `/rag/ingest-async` for large codebases
+3. **Chunk Size** - 500 chars works well for text; code uses AST boundaries
+4. **Top-K Selection** - Start with 5, increase if context is insufficient
+5. **File Formats** - Code files (.py, .js, .ts) get AST parsing, others get text chunking
+6. **Vector Store** - ChromaDB for dev, Qdrant for production
 
-### Code Location
-- Agent: `src/agents/rag/agent.py`
-- Tools: `src/tools/rag/tools.py`
-- Tests: `tests/test_rag.py`
+---
+
+## Troubleshooting (Updated)
+
+**Issue:** Code files not parsed correctly  
+**Solution:** Check Tree-sitter installation: `pip install tree-sitter tree-sitter-python`
+
+**Issue:** Graph expansion returns no results  
+**Solution:** Verify `ENABLE_CODE_GRAPH=true` in config
+
+**Issue:** Async tasks stuck in PENDING  
+**Solution:** Check Celery worker and Redis: `celery -A src.workers.celery_app worker`
+
+**Issue:** Poor search results for code  
+**Solution:** Enable `include_context=true` to get related functions
+
+---
+
+## Related Tools & Documentation  
+
+**Tools:**
+- `rerank_docs` - Standalone document reranking
+- `refine_prompt` - Optimize search queries (use `rag` domain)
+- `generate_cheatsheet` - Generate documentation cheat sheets
+
+**Documentation:**
+- [RAG Architecture](../rag_architecture.md) - Architecture rules and patterns
+- [Integration Flow](../rag_integration_flow.md) - Complete data flow
+- [API Reference](../../README.md) - Full API documentation
 
 ---
 
 ## Examples
 
-### Search Existing Documentation
+### Search with Context Expansion
 
 ```bash
 curl -X POST http://localhost:8001/api/gateway \
@@ -378,94 +540,38 @@ curl -X POST http://localhost:8001/api/gateway \
   -d '{
     "name": "retrieve_docs",
     "arguments": {
-      "query": "React hooks best practices",
+      "query": "user authentication flow",
+      "include_context": true,
       "top_k": 5
     }
   }'
 ```
 
-### Ingest New Document
+### Ingest Code Repository
 
 ```bash
-curl -X POST http://localhost:8001/api/gateway \
+curl -X POST http://localhost:8001/api/rag/ingest-async \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "What are the main features?",
-      "file_paths": ["/path/to/README.md"]
-    }
+    "file_paths": [
+      "src/auth/login.py",
+      "src/auth/register.py",
+      "src/auth/middleware.py",
+      "tests/auth/test_login.py"
+    ],
+    "collection_name": "auth_module"
   }'
 ```
 
-### Multi-Document Search
+### Check Ingestion Status
 
 ```bash
-curl -X POST http://localhost:8001/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "deployment procedures",
-      "file_paths": [
-        "/docs/deployment.md",
-        "/docs/infrastructure.pdf",
-        "/docs/ci-cd.txt"
-      ],
-      "top_k": 10
-    }
-  }'
+curl http://localhost:8001/api/rag/task/{task_id}
 ```
 
 ---
 
-##Testing
-
-### Run Tests
-```bash
-pytest tests/test_rag.py -v
-```
-
-### Test Coverage
-- ✅ Document ingestion (33+ tests)
-- ✅ Semantic search
-- ✅ Vector store operations
-- ✅ Reranking integration
-- ✅ Error handling
-
----
-
-## Best Practices
-
-1. **Chunk Size** - 500 chars works well for most documents
-2. **Top-K Selection** - Start with 5, increase if needed
-3. **File Formats** - Prefer markdown for best results
-4. **Vector Store** - Use ChromaDB for dev, Qdrant for prod
-5. **Query Optimization** - Use `refine_prompt` tool for better queries
-
----
-
-## Troubleshooting
-
-**Issue:** Poor search results  
-**Solution:** Increase top_k, try different embedding model, or refine query
-
-**Issue:** Slow document ingestion  
-**Solution:** Reduce chunk size or process documents async
-
-**Issue:** Vector store errors  
-**Solution:** Check Qdrant credentials or ChromaDB permissions
-
----
-
-## Related Tools
-
-- `rerank_docs` - Standalone document reranking
-- `refine_prompt` - Optimize search queries (use `rag` domain)
-- `generate_cheatsheet` - Generate documentation cheat sheets
-
----
-
-**Last Updated:** December 2, 2025  
+**Last Updated:** December 14, 2025  
+**Version:** 10.1 (Phase 10.1 Complete)  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository

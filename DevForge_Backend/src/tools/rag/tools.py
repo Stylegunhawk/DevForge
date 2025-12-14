@@ -262,16 +262,10 @@ def chunk_document(
     chunk_size: int = 500,
     chunk_overlap: int = 50,
 ) -> List[Document]:
-    """Split a document text into chunks using RecursiveCharacterTextSplitter.
-
-    Args:
-        text: Text content to chunk
-        file_path: Source file path (for metadata)
-        chunk_size: Maximum characters per chunk
-        chunk_overlap: Characters to overlap between chunks
-
-    Returns:
-        List of Document objects with metadata
+    """
+    Split a document using code-aware or text chunking.
+    
+    Phase 10.1: Uses Tree-sitter for code, falls back to text.
     """
     logger.debug(
         f"Chunking document: {file_path}",
@@ -279,28 +273,54 @@ def chunk_document(
     )
 
     try:
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len,
-        )
+        # Phase 10.1: Try code-aware chunking
+        try:
+            from src.agents.rag.chunking import CodeChunker, TextChunker
+            
+            code_chunker = CodeChunker()
+            if code_chunker.is_supported(file_path):
+                chunks_data = code_chunker.chunk(text, file_path)
+            else:
+                text_chunker = TextChunker(chunk_size, chunk_overlap)
+                chunks_data = text_chunker.chunk(text, file_path)
+            
+            # Convert to LangChain Document format
+            documents = []
+            for chunk_data in chunks_data:
+                doc = Document(
+                    page_content=chunk_data["content"],
+                    metadata=chunk_data["metadata"]
+                )
+                documents.append(doc)
+            
+            logger.debug(f"Code-aware chunking: {len(documents)} chunks from {file_path}")
+            return documents
+            
+        except ImportError:
+            logger.warning("Chunkers not available, using RecursiveCharacterTextSplitter")
+            # Legacy fallback
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                length_function=len,
+            )
 
-        # Create documents from text
-        chunks = splitter.create_documents([text])
+            # Create documents from text
+            chunks = splitter.create_documents([text])
 
-        # Add metadata to each chunk
-        for i, chunk in enumerate(chunks):
-            chunk.metadata = {
-                "source": file_path,
-                "chunk_index": i,
-            }
+            # Add metadata to each chunk
+            for i, chunk in enumerate(chunks):
+                chunk.metadata = {
+                    "source": file_path,
+                    "chunk_index": i,
+                }
 
-        logger.debug(
-            f"Document chunked: {file_path} → {len(chunks)} chunks",
-            extra={"file_path": file_path, "chunk_count": len(chunks)},
-        )
+            logger.debug(
+                f"Document chunked: {file_path} → {len(chunks)} chunks",
+                extra={"file_path": file_path, "chunk_count": len(chunks)},
+            )
 
-        return chunks
+            return chunks
 
     except Exception as e:
         logger.error(

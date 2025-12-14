@@ -99,6 +99,23 @@ class Settings(BaseSettings):
     MAX_SYNC_WORK_UNITS: int = 50
     WORK_UNIT_TIMEOUT_SECONDS: int = 10
 
+    # Phase 10.1: Celery Configuration
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    CELERY_TASK_SOFT_TIME_LIMIT: int = 300  # 5 minutes
+    CELERY_TASK_TIME_LIMIT: int = 360  # 6 minutes hard limit
+
+    # Phase 10.1: pgvector Configuration
+    POSTGRES_URL: str = "postgresql://devforge:devforge123@localhost:5432/devforge"
+    PG_VECTOR_DIMENSION: int = 768  # nomic-embed-text dimension
+    USE_PGVECTOR: bool = False  # Feature flag, ChromaDB default
+    PGVECTOR_FALLBACK_TO_CHROMA: bool = True  # Graceful degradation
+
+    # Phase 10.1: Code Graph Configuration
+    ENABLE_CODE_GRAPH: bool = True
+    GRAPH_CONTEXT_DEPTH: int = 2  # BFS depth for related functions
+    GRAPH_MAX_CONTEXT_CHUNKS: int = 3  # Limit per expanded function
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS comma-separated string into list."""
