@@ -1,6 +1,6 @@
-# RAG Golden Path Test Suite (Phase 12A)
+# RAG Golden Path Test Suite (Phase 10.1 → 11 → 12A)
 
-> **Purpose**: Official test suite validating the complete RAG pipeline through Phase 12A  
+> **Purpose**: Official test suite validating the complete RAG pipeline  
 > **Method**: curl-based manual tests (no pytest, no code execution)  
 > **Environment**: Dev mode, no Redis, no Docker
 
@@ -27,12 +27,7 @@ WARNING:src.agents.rag.cache.query_cache:Redis not available, using in-memory LR
 - ✅ No Docker (local dev)
 - ✅ ChromaDB in default persist mode
 - ✅ Ollama running locally (recommended, not required — pseudo-embedding fallback available)
-- ✅ Feature flags enabled by default:
-  - `ENABLE_INTENT_CLASSIFICATION=True`
-  - `ENABLE_QUERY_EXPANSION=True`
-  - `ENABLE_SEMANTIC_CACHE=True`
-  - `ENABLE_HYBRID_SEARCH=True`
-  - `ENABLE_RERANKING=True`
+- ✅ Feature flags enabled by default
 
 ### Verify Server Health
 ```bash
@@ -40,36 +35,45 @@ curl http://localhost:8000/api/rag/health
 ```
 **Expected**: `200 OK` with health status
 
+### Verify Swagger UI
+Open http://localhost:8000/docs — should load without errors
+
 ---
 
-## 1. Ingestion Test
+## 1. Basic Retrieval Test (Gateway)
 
 ### Purpose
-Verify documents can be ingested into ChromaDB.
+Verify `retrieve_docs` tool is registered and responds.
 
 ### Command
 ```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "rag_ingest",
-    "arguments": {
-      "file_paths": ["src/core/config.py"],
-      "collection_name": "devforge_docs"
-    }
-  }'
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"How does authentication work?\", \"top_k\": 3}}"
 ```
 
-> ⚠️ **Note**: This command assumes the `rag_ingest` tool is registered in the gateway router. If ingestion is exposed via a direct endpoint (e.g., `/api/rag/ingest`), use that instead. The goal is to ensure documents are chunked, embeddings are generated, and Chroma receives vectors.
+**PowerShell version:**
+```powershell
+$body = @{
+    name = "retrieve_docs"
+    arguments = @{
+        query = "How does authentication work?"
+        top_k = 3
+    }
+} | ConvertTo-Json -Depth 3
+
+Invoke-WebRequest -Uri "http://localhost:8000/api/gateway" -Method POST -ContentType "application/json" -Body $body
+```
 
 ### Success Criteria
-- Response contains `"status": "success"` or `"chunks_created": N` where N > 0
-- No errors in server logs
+- Response contains `"success": true`
+- Response contains `"data"` with results or empty array
+- No 500 errors
 
-### Expected Logs
+### Expected [RAG-DEBUG] Logs
 ```
-INFO: Ingesting 1 documents
-INFO: Document ingested: src/core/config.py
+[RAG-DEBUG] Pipeline START: query='How does authentication...'
+[RAG-DEBUG] flags(SEMANTIC=True, EXACT=True, EXPAND=True, HYBRID=True, RERANK=True)
 ```
 
 ---
@@ -81,41 +85,30 @@ Verify complete pipeline execution on first query (all caches empty).
 
 ### Command
 ```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "rag_retrieve",
-    "arguments": {
-      "query": "How does the configuration system work?",
-      "top_k": 5
-    }
-  }'
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"explain how the configuration system loads settings\", \"top_k\": 5}}"
 ```
 
-### Expected Execution Order
-1. Intent classification (rule-based)
+### Expected Execution Order (Phase 12A)
+1. Intent classification (rule-based) → `explain`
 2. Semantic cache check → **MISS**
 3. Exact cache check → **MISS**
 4. Query expansion (2-4 variations)
-5. Hybrid search (BM25 + vector)
+5. Hybrid search (BM25 + vector) **[Phase 11.2]**
 6. RRF fusion
-7. Reranking
+7. Reranking **[Phase 11]**
 8. Cache set (semantic + exact)
 
 ### Expected [RAG-DEBUG] Logs
 ```
-[RAG-DEBUG] Pipeline START: query='How does the configuration...'
-[RAG-DEBUG] flags(SEMANTIC=True, EXACT=True, EXPAND=True, HYBRID=True, RERANK=True)
-[RAG-DEBUG] SemanticCache.get() called: query='...', intent=explain
-[RAG-DEBUG] ❌ SEMANTIC CACHE MISS: ...
-[RAG-DEBUG] ❌ EXACT CACHE MISS: ...
-[RAG-DEBUG] SemanticCache.set() called: query='...', intent=explain
+[RAG-DEBUG] ❌ SEMANTIC CACHE MISS
+[RAG-DEBUG] ❌ EXACT CACHE MISS (memory)
 ```
 
 ### Success Criteria
-- Response contains `"documents"` array with results
-- `"reranked": true` in response
-- All [RAG-DEBUG] logs show expected MISS → retrieval → SET flow
+- Response contains `"documents"` array
+- `"reranked": true` if ENABLE_RERANKING=True
 
 ---
 
@@ -126,33 +119,24 @@ Verify cache returns results on repeated query.
 
 ### Command (same as above)
 ```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "rag_retrieve",
-    "arguments": {
-      "query": "How does the configuration system work?",
-      "top_k": 5
-    }
-  }'
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"explain how the configuration system loads settings\", \"top_k\": 5}}"
 ```
 
-### Expected [RAG-DEBUG] Logs
+### Expected [RAG-DEBUG] Logs (one of)
 ```
-[RAG-DEBUG] Pipeline START: query='How does the configuration...'
-[RAG-DEBUG] SemanticCache.get() called: query='...', intent=explain
 [RAG-DEBUG] ✅ SEMANTIC CACHE HIT: similarity=0.xxx
 ```
 **OR**
 ```
-[RAG-DEBUG] ✅ EXACT CACHE HIT (memory): ...
+[RAG-DEBUG] ✅ EXACT CACHE HIT (memory)
 ```
 
 ### Success Criteria
-- Response returns faster than cold query
 - **Exact cache HIT** is guaranteed on identical queries
-- **Semantic cache HIT** is probabilistic (depends on similarity threshold)
-- No expansion/retrieval logs (short-circuited)
+- **Semantic cache HIT** is probabilistic (depends on similarity threshold 0.92)
+- Response returns faster than cold query
 
 ---
 
@@ -161,52 +145,35 @@ curl -X POST http://localhost:8000/api/gateway \
 ### Purpose
 Verify intent classification works for different query types.
 
-### Test Cases
-
-#### 4.1 Code Search Intent
+### 4.1 Code Search Intent
 ```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "rag_retrieve",
-    "arguments": {
-      "query": "find implementation of RAGAgent class",
-      "top_k": 3
-    }
-  }'
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"find the RAGAgent class implementation\", \"top_k\": 3}}"
 ```
-**Expected Intent**: `code_search`
+**Expected Intent**: `code_search`  
+**Keywords matched**: `find`, `implementation`, `class`
 
-#### 4.2 Explain Intent
+### 4.2 Explain Intent
 ```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "rag_retrieve",
-    "arguments": {
-      "query": "explain how reranking works in detail",
-      "top_k": 3
-    }
-  }'
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"explain how reranking works in detail\", \"top_k\": 3}}"
 ```
-**Expected Intent**: `explain`
+**Expected Intent**: `explain`  
+**Keywords matched**: `explain`, `how`, `works`
 
-#### 4.3 Debug Intent
+### 4.3 Debug Intent
 ```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "rag_retrieve",
-    "arguments": {
-      "query": "why does authentication fail with 401 error",
-      "top_k": 3
-    }
-  }'
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"why does authentication fail with 401 error\", \"top_k\": 3}}"
 ```
-**Expected Intent**: `debug`
+**Expected Intent**: `debug`  
+**Keywords matched**: `why`, `fail`, `error`
 
 ### Verification
-Check server logs for:
+Check server logs for intent classification:
 ```
 [RAG-DEBUG] ... intent=code_search
 [RAG-DEBUG] ... intent=explain
@@ -215,48 +182,54 @@ Check server logs for:
 
 ---
 
-## 5. Query Expansion Verification
+## 5. Graph Context Expansion Test (Phase 10.1)
 
 ### Purpose
-Verify query expansion generates additional search variations.
+Verify code graph expansion retrieves related functions.
 
 ### Command
 ```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "rag_retrieve",
-    "arguments": {
-      "query": "explain how the semantic caching mechanism works in detail",
-      "top_k": 5
-    }
-  }'
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"JWT token validation\", \"include_context\": true, \"top_k\": 5}}"
 ```
 
-### Expected Expansion Count by Intent
-| Intent | Expected Expansions |
-|--------|---------------------|
-| debug | 2 |
-| code_search | 3 |
-| explain | 4 |
-
-### Verification via Logs
-Look for expansion-related logs showing:
-- Original query
-- Generated variations
-- RRF fusion of results
-
-### Note
-If LLM is unavailable, keyword fallback is used (still valid expansion).
+### Success Criteria
+- Response may include `"expanded": true`
+- Related functions (via calls/imports graph) included in results
+- `expansion_count` > 0 indicates graph was used
 
 ---
 
-## 6. Analytics Verification
+## 6. Reranking Verification (Phase 11)
+
+### Purpose
+Verify two-stage retrieval (vector → cross-encoder reranking).
+
+### Command
+```bash
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"retrieve_docs\", \"arguments\": {\"query\": \"user authentication flow implementation\", \"top_k\": 5}}"
+```
+
+### Success Criteria
+- Response contains `"reranked": true`
+- Code chunks (functions, classes) may rank higher due to code-aware boosting
+
+### Reranking Disabled Test
+```bash
+# Response should show "reranked": false
+```
+
+---
+
+## 7. Analytics Verification (Phase 12A)
 
 ### Purpose
 Verify analytics endpoints track pipeline metrics.
 
-### 6.1 Intent Distribution
+### 7.1 Intent Distribution
 ```bash
 curl http://localhost:8000/api/rag/analytics/intent-distribution
 ```
@@ -278,7 +251,7 @@ curl http://localhost:8000/api/rag/analytics/intent-distribution
 }
 ```
 
-### 6.2 Expansion Quality
+### 7.2 Expansion Quality
 ```bash
 curl http://localhost:8000/api/rag/analytics/expansion-quality
 ```
@@ -293,7 +266,7 @@ curl http://localhost:8000/api/rag/analytics/expansion-quality
 }
 ```
 
-### 6.3 Cache by Intent
+### 7.3 Cache by Intent
 ```bash
 curl http://localhost:8000/api/rag/analytics/cache-by-intent
 ```
@@ -313,50 +286,63 @@ curl http://localhost:8000/api/rag/analytics/cache-by-intent
 }
 ```
 
+### 7.4 Fallback Usage (Intent Classification)
+```bash
+curl http://localhost:8000/api/rag/analytics/fallback-usage
+```
+
 ### Why Values May Be Empty
 - **First run**: No queries processed yet
 - **Cache sizes = 0**: No successful retrievals cached
 - **hit_rate = 0**: All queries are cold
 
-### Non-Empty Indicates
-- Pipeline is tracking metrics correctly
-- Intent classification is working
-- Cache is storing and retrieving
-
 ---
 
-## 7. Failure-Safety Checks
+## 8. Failure-Safety Checks
 
-### 7.1 Embeddings Unavailable
-**Scenario**: Ollama not running
-
+### 8.1 Embeddings Unavailable (Ollama offline)
 **Expected Behavior**:
 - Semantic cache uses pseudo-embedding fallback
 - Log shows: `[RAG-DEBUG] Using PSEUDO-EMBEDDING fallback`
 - Query still returns results (degraded mode)
 
-### 7.2 Semantic Cache Disabled
+### 8.2 Semantic Cache Disabled
 **Config**: `ENABLE_SEMANTIC_CACHE=False`
+**Expected**: Falls back to exact cache only, pipeline completes
 
-**Expected Behavior**:
-- Falls back to exact cache only
-- No semantic cache logs
-- Pipeline completes normally
+### 8.3 Reranking Disabled
+**Config**: `ENABLE_RERANKING=False`
+**Expected**: Vector-only results, faster response
 
-### 7.3 Expansion Disabled
+### 8.4 Query Expansion Disabled
 **Config**: `ENABLE_QUERY_EXPANSION=False`
-
-**Expected Behavior**:
-- Original query only (no variations)
-- No expansion logs
-- Faster execution (single query)
+**Expected**: Original query only (no variations)
 
 ### Graceful Degradation Principle
 > All Phase 12A features are **additive**. Disabling any feature reduces capability but never breaks the pipeline.
 
 ---
 
-## 8. Pass / Fail Criteria
+## 9. Available Tools Check
+
+### List all registered tools
+```bash
+curl -X POST http://localhost:8000/api/gateway ^
+  -H "Content-Type: application/json" ^
+  -d "{\"name\": \"invalid_tool\", \"arguments\": {}}"
+```
+
+**Expected Response** (shows available tools):
+```json
+{
+  "success": false,
+  "message": "Tool 'invalid_tool' not found. Available tools: ['generate_data', 'retrieve_docs', 'github_operation', 'rerank_docs', 'refine_prompt', 'generate_cheatsheet', 'generate_changelog', 'analyze_ci_failure', 'scaffold_repository']"
+}
+```
+
+---
+
+## 10. Pass / Fail Criteria
 
 ### ✅ PASS Checklist
 
@@ -364,15 +350,16 @@ curl http://localhost:8000/api/rag/analytics/cache-by-intent
 |---|------|-----------------|------|
 | 1 | Server starts | No errors, startup complete | ☐ |
 | 2 | Swagger UI loads | http://localhost:8000/docs works | ☐ |
-| 3 | Ingestion | Documents chunked and stored | ☐ |
-| 4 | Cold retrieval | Full pipeline, cache MISS | ☐ |
+| 3 | `retrieve_docs` responds | Gateway returns success | ☐ |
+| 4 | Cold retrieval | Full pipeline, cache MISS logs | ☐ |
 | 5 | Warm retrieval | Cache HIT (semantic or exact) | ☐ |
-| 6 | Intent: code_search | Classified correctly | ☐ |
-| 7 | Intent: explain | Classified correctly | ☐ |
-| 8 | Intent: debug | Classified correctly | ☐ |
-| 9 | Analytics: intent-distribution | Returns valid JSON | ☐ |
-| 10 | Analytics: expansion-quality | Returns valid JSON | ☐ |
-| 11 | Analytics: cache-by-intent | Returns valid JSON | ☐ |
+| 6 | Intent: code_search | Classified correctly in logs | ☐ |
+| 7 | Intent: explain | Classified correctly in logs | ☐ |
+| 8 | Intent: debug | Classified correctly in logs | ☐ |
+| 9 | Reranking | `"reranked": true` in response | ☐ |
+| 10 | Analytics: intent-distribution | Returns valid JSON | ☐ |
+| 11 | Analytics: expansion-quality | Returns valid JSON | ☐ |
+| 12 | Analytics: cache-by-intent | Returns valid JSON | ☐ |
 
 ### ❌ FAIL Conditions
 - Server fails to start
@@ -381,31 +368,52 @@ curl http://localhost:8000/api/rag/analytics/cache-by-intent
 - Cache never hits on repeated queries
 - Analytics endpoints return `{"enabled": false}`
 
-### Declaration
-
-After completing all tests:
-
-> **If all 11 checks pass**: RAG Pipeline VALID, Phase 12A COMPLETE ✅  
-> **If any check fails**: Investigate logs, identify root cause, re-test
-
 ---
 
-## Appendix: Quick Test Script (PowerShell)
+## 11. Quick Test Script (PowerShell)
 
 ```powershell
-# Run all analytics checks
-Write-Host "=== Intent Distribution ===" -ForegroundColor Cyan
+Write-Host "=== RAG Golden Path Tests ===" -ForegroundColor Cyan
+
+# Test 1: Gateway health
+Write-Host "`n[1] Testing gateway..." -ForegroundColor Yellow
+$body = '{"name": "retrieve_docs", "arguments": {"query": "test query", "top_k": 3}}'
+Invoke-WebRequest -Uri "http://localhost:8000/api/gateway" -Method POST -ContentType "application/json" -Body $body
+
+# Test 2: Analytics
+Write-Host "`n[2] Analytics - Intent Distribution" -ForegroundColor Yellow
 curl http://localhost:8000/api/rag/analytics/intent-distribution
 
-Write-Host "`n=== Expansion Quality ===" -ForegroundColor Cyan
+Write-Host "`n[3] Analytics - Expansion Quality" -ForegroundColor Yellow
 curl http://localhost:8000/api/rag/analytics/expansion-quality
 
-Write-Host "`n=== Cache by Intent ===" -ForegroundColor Cyan
+Write-Host "`n[4] Analytics - Cache by Intent" -ForegroundColor Yellow
 curl http://localhost:8000/api/rag/analytics/cache-by-intent
+
+Write-Host "`n=== Tests Complete ===" -ForegroundColor Green
 ```
 
 ---
 
-**Document Version**: 1.0  
-**Phase Coverage**: Up to Phase 12A  
+## Phase Coverage Summary
+
+| Phase | Feature | Test Section |
+|-------|---------|--------------|
+| 10.1 | Code Chunking (AST) | N/A (ingestion) |
+| 10.1 | Code Graph Expansion | §5 |
+| 10.1 | QID Format (file::entity) | §5 |
+| 11 | Cross-Encoder Reranking | §6 |
+| 11 | Sigmoid Normalization | §6 |
+| 11 | Code-Aware Boosting | §6 |
+| 11.2 | Query Cache (exact) | §3 |
+| 11.2 | Hybrid Search (BM25+Vector) | §2 |
+| 12A | Intent Classification (3-tier) | §4 |
+| 12A | Semantic Cache | §3 |
+| 12A | Query Expansion | §2 |
+| 12A | Analytics Endpoints | §7 |
+
+---
+
+**Document Version**: 2.0  
+**Phase Coverage**: 10.1 → 11 → 11.2 → 12A  
 **Last Updated**: 2025-12-16

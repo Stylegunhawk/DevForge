@@ -479,8 +479,8 @@ async def retrieve_docs(
             - score (float): Similarity score
     """
     logger.info(
-        f"Retrieving documents: query='{query[:50]}...', top_k={top_k}",
-        extra={"query_preview": query[:50], "top_k": top_k, "embed_model": embed_model},
+        f"Retrieving documents: query='{str(query)[:50]}...', top_k={top_k}",
+        extra={"query_preview": str(query)[:50], "top_k": top_k, "embed_model": embed_model},
     )
 
     try:
@@ -533,7 +533,7 @@ async def retrieve_docs(
     except Exception as e:
         logger.error(
             f"Document retrieval failed: {e}",
-            extra={"error": str(e), "query_preview": query[:50]},
+            extra={"error": str(e), "query_preview": str(query)[:50]},
             exc_info=True,
         )
         return []
@@ -560,8 +560,8 @@ async def generate_response(
         Exception: If response generation fails
     """
     logger.info(
-        f"Generating response for query: {query[:50]}...",
-        extra={"query_preview": query[:50], "context_length": len(context)},
+        f"Generating response for query: {str(query)[:50]}...",
+        extra={"query_preview": str(query)[:50], "context_length": len(context)},
     )
 
     try:
@@ -606,7 +606,7 @@ Answer:"""
     except Exception as e:
         logger.error(
             f"Response generation failed: {e}",
-            extra={"error": str(e), "query_preview": query[:50]},
+            extra={"error": str(e), "query_preview": str(query)[:50]},
             exc_info=True,
         )
         raise

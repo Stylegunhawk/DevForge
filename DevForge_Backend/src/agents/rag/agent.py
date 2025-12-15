@@ -121,8 +121,8 @@ async def retrieve_node(state: RAGState) -> RAGState:
     score_threshold = state.get("score_threshold", settings.RAG_SCORE_THRESHOLD)
 
     logger.info(
-        f"Retrieving documents: query='{query[:50]}...', top_k={top_k}",
-        extra={"query_preview": query[:50], "top_k": top_k},
+        f"Retrieving documents: query='{str(query)[:50]}...', top_k={top_k}",
+        extra={"query_preview": str(query)[:50], "top_k": top_k},
     )
 
     try:
@@ -177,7 +177,7 @@ async def retrieve_node(state: RAGState) -> RAGState:
     except Exception as e:
         logger.error(
             f"Retrieve node failed: {e}",
-            extra={"error": str(e), "query_preview": query[:50]},
+            extra={"error": str(e), "query_preview": str(query)[:50]},
             exc_info=True,
         )
         return {
@@ -201,8 +201,8 @@ async def generate_node(state: RAGState) -> RAGState:
     context = state.get("context", "")
 
     logger.info(
-        f"Generating response: query='{query[:50]}...', context_length={len(context)}",
-        extra={"query_preview": query[:50], "context_length": len(context)},
+        f"Generating response: query='{str(query)[:50]}...', context_length={len(context)}",
+        extra={"query_preview": str(query)[:50], "context_length": len(context)},
     )
 
     try:
@@ -230,7 +230,7 @@ async def generate_node(state: RAGState) -> RAGState:
     except Exception as e:
         logger.error(
             f"Generate node failed: {e}",
-            extra={"error": str(e), "query_preview": query[:50]},
+            extra={"error": str(e), "query_preview": str(query)[:50]},
             exc_info=True,
         )
         return {
@@ -397,7 +397,7 @@ async def rag_agent_invoke(
         "error": None,
     }
 
-    logger.info(f"RAG agent invoked: query='{query[:100]}...', file_paths={file_paths}")
+    logger.info(f"RAG agent invoked: query='{str(query)[:100]}...', file_paths={file_paths}")
 
     try:
         final_state = await rag_agent.ainvoke(initial_state)
@@ -772,7 +772,7 @@ class RAGAgent:
             cached = await self._query_cache.get(cache_key)
             
             if cached:
-                logger.info(f"Query cache HIT: {query[:50]}...")
+                logger.info(f"Query cache HIT: {str(query)[:50]}...")
                 return {
                     **cached,
                     "from_cache": True,
