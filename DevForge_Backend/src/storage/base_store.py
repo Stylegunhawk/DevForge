@@ -20,6 +20,7 @@ class ChunkResult:
     content: str
     metadata: Dict
     score: Optional[float] = None
+    rerank_score: Optional[float] = None  # Phase 11: Reranking score
 
 
 class BaseVectorStore(ABC):
@@ -130,4 +131,16 @@ class BaseVectorStore(ABC):
     @abstractmethod
     async def clear(self) -> None:
         """Clear all chunks from the store."""
+        pass
+    
+    @abstractmethod
+    async def health_check(self) -> bool:
+        """
+        Check if vector store is healthy and accessible.
+        
+        Phase 11.2: Used by /rag/health endpoint.
+        
+        Returns:
+            True if store is accessible, False otherwise
+        """
         pass

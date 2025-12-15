@@ -1,6 +1,6 @@
-# RAG Architecture v10.1
+# RAG Architecture v11.0
 
-**Version:** 10.1 (Phase 10.1 Complete)  
+**Version:** 11.0 (Phase 11 Complete - Intelligent Reranking)  
 **Last Updated:** December 14, 2025  
 **Status:** ✅ Production Ready
 
@@ -8,10 +8,16 @@
 
 ## Overview
 
-DevForge RAG system provides code-aware document retrieval with semantic search, dependency graph expansion, and test-source linking. Built with:
-- Async task processing (Celery + Redis)
+DevForge RAG system provides code-aware document retrieval with:
+- **Two-stage retrieval:** Vector search → Cross-encoder reranking
+- Semantic search with dependency graph expansion
 - AST-based code chunking (Tree-sitter)
-- Code dependency graph (BFS traversal)
+- Test-source linking
+- Code-aware score boosting
+
+**Technology Stack:**
+- Async task processing (Celery + Redis)
+- Cross-encoder reranking (ms-marco-MiniLM-L-6-v2)
 - Vector store abstraction (ChromaDB/pgvector)
 
 ---

@@ -29,6 +29,9 @@ from src.tools.changelog import generate_changelog_invoke
 from src.tools.ci_diagnostics import analyze_ci_failure_invoke
 from src.tools.scaffold import scaffold_repository_invoke
 
+# Import RAG models for type hints
+from src.api.rag_models import IngestAsyncRequest, IngestAsyncResponse, TaskStatusResponse
+
 # Import job queue for async operations
 from src.core.jobs import get_job_queue
 
@@ -72,7 +75,7 @@ async def get_job_status(job_id: str):
 # ✅ Delegates to RAGAgent via Celery tasks
 
 @router.post("/rag/ingest-async")
-async def ingest_documents_async(request: "IngestAsyncRequest") -> "IngestAsyncResponse":
+async def ingest_documents_async(request: IngestAsyncRequest) -> IngestAsyncResponse:
     """
     Queue documents for async ingestion via Celery.
     
@@ -84,7 +87,6 @@ async def ingest_documents_async(request: "IngestAsyncRequest") -> "IngestAsyncR
     Returns:
         IngestAsyncResponse with task_id for tracking
     """
-    from src.api.rag_models import IngestAsyncRequest, IngestAsyncResponse
     from src.workers.tasks.rag_tasks import async_ingest_documents
     
     logging.info(
@@ -110,7 +112,7 @@ async def ingest_documents_async(request: "IngestAsyncRequest") -> "IngestAsyncR
 
 
 @router.get("/rag/task/{task_id}")
-async def get_task_status(task_id: str) -> "TaskStatusResponse":
+async def get_task_status(task_id: str) -> TaskStatusResponse:
     """
     Get status of async RAG ingestion task.
     
@@ -120,7 +122,6 @@ async def get_task_status(task_id: str) -> "TaskStatusResponse":
     Returns:
         TaskStatusResponse with current status and progress
     """
-    from src.api.rag_models import TaskStatusResponse
     from src.workers.celery_app import app
     
     # Get task result from Celery backend
@@ -143,6 +144,371 @@ async def get_task_status(task_id: str) -> "TaskStatusResponse":
     logging.info(f"Task status: {task_id} → {result.status}")
     
     return TaskStatusResponse(**response_data)
+
+
+# ============================================================
+# Phase 11.2 Day 4: Observability Endpoints
+# ============================================================
+
+@router.get("/rag/metrics", tags=["rag", "observability"])
+async def get_rag_metrics():
+    """
+    Get RAG system metrics (Prometheus-compatible).
+    
+    CRITICAL: This endpoint MUST NEVER throw exceptions.
+    Missing components return default values (0.0, false, null).
+    
+    Returns:
+        Metrics dictionary with version, cache, hybrid_search, reranking, code_graph
+    """
+    try:
+        from src.agents.rag.agent import RAGAgent
+        from src.core.config import settings
+        
+        # Get or create RAG agent instance
+        try:
+            agent = RAGAgent()
+        except Exception as e:
+            logger.error(f"Failed to get RAGAgent for metrics: {e}")
+            return {
+                "version": "11.2.0",
+                "error": "agent_unavailable",
+                "cache": {"enabled": False},
+                "hybrid_search": {"enabled": False},
+                "reranking": {"enabled": False},
+                "code_graph": {"enabled": False}
+            }
+        
+        # Build metrics with safe defaults
+        metrics = {"version": "11.2.0"}
+        
+        # Cache metrics
+        try:
+            if agent._query_cache:
+                stats = agent._query_cache.get_stats()
+                metrics["cache"] = {
+                    "enabled": settings.ENABLE_QUERY_CACHE,
+                    "hit_rate": stats.get("hit_rate", 0.0),
+                    "hits": stats.get("hits", 0),
+                    "misses": stats.get("misses", 0),
+                    "memory_size": stats.get("memory_size", 0),
+                    "backend": stats.get("backend", "unknown")
+                }
+            else:
+                metrics["cache"] = {
+                    "enabled": settings.ENABLE_QUERY_CACHE,
+                    "hit_rate": 0.0,
+                    "backend": "disabled"
+                }
+        except Exception as e:
+            logging.warning(f"Cache metrics error: {e}")
+            metrics["cache"] = {"enabled": False, "error": str(e)}
+        
+        # Hybrid search metrics
+        try:
+            if agent._bm25_index:
+                bm25_stats = agent._bm25_index.get_stats()
+                metrics["hybrid_search"] = {
+                    "enabled": settings.ENABLE_HYBRID_SEARCH,
+                    "bm25_ready": bm25_stats.get("ready", False),
+                    "documents_indexed": bm25_stats.get("documents_indexed", 0)
+                }
+            else:
+                metrics["hybrid_search"] = {
+                    "enabled": settings.ENABLE_HYBRID_SEARCH,
+                    "bm25_ready": False,
+                    "documents_indexed": 0
+                }
+        except Exception as e:
+            logging.warning(f"Hybrid search metrics error: {e}")
+            metrics["hybrid_search"] = {"enabled": False, "error": str(e)}
+        
+        # Reranking metrics
+        try:
+            metrics["reranking"] = {
+                "enabled": settings.ENABLE_RERANKING,
+                "model": settings.RERANK_MODEL if settings.ENABLE_RERANKING else None,
+                "threshold": settings.RERANK_SCORE_THRESHOLD if settings.ENABLE_RERANKING else None
+            }
+        except Exception as e:
+            logging.warning(f"Reranking metrics error: {e}")
+            metrics["reranking"] = {"enabled": False, "error": str(e)}
+        
+        # Code graph metrics
+        try:
+            if agent._code_graph:
+                metrics["code_graph"] = {
+                    "enabled": True,
+                    "nodes": agent._code_graph.size()
+                }
+            else:
+                metrics["code_graph"] = {"enabled": False, "nodes": 0}
+        except Exception as e:
+            logging.warning(f"Code graph metrics error: {e}")
+            metrics["code_graph"] = {"enabled": False, "error": str(e)}
+        
+        return metrics
+    
+    except Exception as e:
+        # Top-level safety: NEVER throw
+        logging.error(f"Critical error in /rag/metrics: {e}")
+        return {
+            "version": "11.2.0",
+            "error": "metrics_unavailable",
+            "message": str(e)
+        }
+
+
+@router.get("/rag/health", tags=["rag", "observability"])
+async def rag_health_check():
+    """
+    RAG system health check.
+    
+    Returns:
+        200 with status "healthy" if all critical components OK
+        200 with status "degraded" if some components down
+        503 with status "unhealthy" if critical failure
+    """
+    try:
+        from src.agents.rag.agent import RAGAgent
+        from src.core.config import settings
+        
+        try:
+            agent = RAGAgent()
+        except Exception as e:
+            logging.error(f"Failed to get RAGAgent for health check: {e}")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "unhealthy",
+                    "error": "agent_init_failed",
+                    "components": {}
+                }
+            )
+        
+        components = {}
+        
+        # Vector store health (CRITICAL)
+        try:
+            vector_ok = await agent.vector_store.health_check()
+            components["vector_store"] = "ok" if vector_ok else "down"
+        except Exception as e:
+            logging.error(f"Vector store health check failed: {e}")
+            components["vector_store"] = "error"
+            vector_ok = False
+        
+        # Optional components
+        try:
+            if settings.ENABLE_RERANKING:
+                reranker_ok = agent._reranker is not None
+                components["reranker"] = "ok" if reranker_ok else "not_loaded"
+            else:
+                components["reranker"] = "disabled"
+                reranker_ok = True
+        except Exception:
+            components["reranker"] = "error"
+            reranker_ok = True
+        
+        try:
+            if settings.ENABLE_HYBRID_SEARCH:
+                bm25_ok = agent._bm25_index and agent._bm25_index.is_ready()
+                components["bm25_index"] = "ok" if bm25_ok else "not_ready"
+            else:
+                components["bm25_index"] = "disabled"
+        except Exception:
+            components["bm25_index"] = "error"
+        
+        # Determine status
+        if vector_ok:
+            status = "healthy"
+            code = 200
+        else:
+            status = "unhealthy"
+            code = 503
+        
+        return JSONResponse(
+            status_code=code,
+            content={
+                "status": status,
+                "version": "11.2.0",
+                "components": components
+            }
+        )
+    
+    except Exception as e:
+        logging.error(f"Critical error in /rag/health: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "error": "health_check_failed",
+                "message": str(e)
+            }
+        )
+
+
+@router.post("/rag/cache/clear", tags=["rag", "admin"])
+async def clear_query_cache():
+    """
+    Clear RAG query cache (admin endpoint).
+    
+    WARNING: Add authentication in production.
+    """
+    try:
+        from src.agents.rag.agent import RAGAgent
+        
+        agent = RAGAgent()
+        
+        if agent._query_cache:
+            await agent._query_cache.clear()
+            stats = agent._query_cache.get_stats()
+            return {
+                "status": "cleared",
+                "message": "Query cache cleared successfully",
+                "stats": stats
+            }
+        else:
+            return {
+                "status": "disabled",
+                "message": "Query cache is not enabled"
+            }
+    
+    except Exception as e:
+        logging.error(f"Failed to clear cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rag/bm25/rebuild", tags=["rag", "admin"])
+async def rebuild_bm25_index():
+    """
+    Rebuild BM25 index (admin endpoint).
+    
+    Use after large ingestion batches.
+    WARNING: Add authentication in production.
+    """
+    try:
+        from src.agents.rag.agent import RAGAgent
+        from src.core.config import settings
+        
+        if not settings.ENABLE_HYBRID_SEARCH:
+            return {
+                "status": "disabled",
+                "message": "Hybrid search is not enabled"
+            }
+        
+        agent = RAGAgent()
+        
+        if agent._bm25_index:
+            await agent._bm25_index.rebuild(agent.vector_store)
+            stats = agent._bm25_index.get_stats()
+            
+            return {
+                "status": "rebuilt",
+                "message": "BM25 index rebuilt successfully",
+                "stats": stats
+            }
+        else:
+            raise HTTPException(status_code=400, detail="BM25 index is not initialized")
+    
+    except Exception as e:
+        logging.error(f"Failed to rebuild BM25 index: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Phase 12A Day 1: Intent Classification Analytics
+# ============================================================
+
+@router.get("/rag/analytics/fallback-usage", tags=["rag", "analytics"])
+async def get_fallback_usage():
+    """
+    Get intent classification fallback usage statistics.
+    
+    Helps determine when to enable LLM features.
+    
+    Returns:
+        Fallback method breakdown and recommendations
+    """
+    try:
+        from src.agents.rag.agent import RAGAgent
+        
+        agent = RAGAgent()
+        
+        if not hasattr(agent, '_intent_classifier') or not agent._intent_classifier:
+            return {
+                "enabled": False,
+                "message": "Intent classification not initialized"
+            }
+        
+        stats = agent._intent_classifier.get_stats()
+        
+        return {
+            "enabled": True,
+            **stats
+        }
+    
+    except Exception as e:
+        logging.error(f"Failed to get fallback usage: {e}")
+        return {
+            "enabled": False,
+            "error": str(e)
+        }
+
+
+@router.get("/rag/analytics/expansion-quality", tags=["rag", "analytics"])
+async def get_expansion_quality():
+    """Get query expansion quality metrics."""
+    try:
+        from src.agents.rag.agent import RAGAgent
+        agent = RAGAgent()
+        
+        if not hasattr(agent, '_query_expander') or not agent._query_expander:
+            return {"enabled": False, "message": "Query expansion not initialized"}
+        
+        stats = agent._query_expander.get_stats()
+        return {"enabled": True, **stats}
+    except Exception as e:
+        logging.error(f"Failed to get expansion quality: {e}")
+        return {"enabled": False, "error": str(e)}
+
+
+@router.get("/rag/analytics/intent-distribution", tags=["rag", "analytics"])
+async def get_intent_distribution():
+    """Get intent classification distribution."""
+    try:
+        from src.agents.rag.agent import RAGAgent
+        agent = RAGAgent()
+        
+        if not hasattr(agent, '_intent_classifier') or not agent._intent_classifier:
+            return {"enabled": False, "message": "Intent classification not initialized"}
+        
+        stats = agent._intent_classifier.get_stats()
+        return {
+            "enabled": True,
+            "intent_distribution": stats.get("intent_distribution", {}),
+            "method_breakdown": stats.get("method_breakdown", {}),
+            "total_classifications": stats.get("total", 0)
+        }
+    except Exception as e:
+        logging.error(f"Failed to get intent distribution: {e}")
+        return {"enabled": False, "error": str(e)}
+
+
+@router.get("/rag/analytics/cache-by-intent", tags=["rag", "analytics"])
+async def get_cache_by_intent():
+    """Get semantic cache effectiveness by intent."""
+    try:
+        from src.agents.rag.agent import RAGAgent
+        agent = RAGAgent()
+        
+        if not hasattr(agent, '_semantic_cache') or not agent._semantic_cache:
+            return {"enabled": False, "message": "Semantic cache not initialized"}
+        
+        stats = agent._semantic_cache.get_stats()
+        return {"enabled": True, **stats}
+    except Exception as e:
+        logging.error(f"Failed to get cache by intent: {e}")
+        return {"enabled": False, "error": str(e)}
 
 
 

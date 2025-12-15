@@ -235,3 +235,18 @@ class ChromaVectorStore(BaseVectorStore):
         """Clear all chunks from collection."""
         await asyncio.to_thread(self._collection.delete, where={})
         logger.info(f"Cleared collection: {self.collection_name}")
+    
+    async def health_check(self) -> bool:
+        """
+        Check if ChromaDB backend is healthy.
+        
+        Returns:
+            True if healthy, False otherwise
+        """
+        try:
+            # Try to get collection count
+            count = await asyncio.to_thread(self._collection.count)
+            return count is not None
+        except Exception as e:
+            logger.error(f"ChromaDB health check failed: {e}")
+            return False

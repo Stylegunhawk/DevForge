@@ -5,7 +5,7 @@ Loads environment variables and provides settings singleton.
 
 import os
 from functools import lru_cache
-from typing import List
+from typing import List, Optional, Dict
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -114,7 +114,54 @@ class Settings(BaseSettings):
     # Phase 10.1: Code Graph Configuration
     ENABLE_CODE_GRAPH: bool = True
     GRAPH_CONTEXT_DEPTH: int = 2  # BFS depth for related functions
-    GRAPH_MAX_CONTEXT_CHUNKS: int = 3  # Limit per expanded function
+    GRAPH_MAX_CONTEXT_CHUNKS:int = 3  # Limit per expanded function
+    
+    # Phase 11: Reranking
+    ENABLE_RERANKING: bool = True
+    RERANK_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    RERANK_SCORE_THRESHOLD: float = 0.3  # Normalized [0,1] via sigmoid
+    VECTOR_SEARCH_CANDIDATES: int = 30   # Recall stage candidates
+    
+    # Phase 11: Code-aware boosting (Day 3)
+    BOOST_FUNCTION: float = 1.2
+    BOOST_CLASS: float = 1.15
+    BOOST_IMPORT: float = 1.0
+    BOOST_TEXT: float = 0.95
+    
+    # Phase 11.2: Query Cache (Exact-Match)
+    ENABLE_QUERY_CACHE: bool = True
+    QUERY_CACHE_TTL: int = 3600  # 1 hour
+    QUERY_CACHE_MAX_SIZE: int = 1000  # In-memory LRU size
+    REDIS_URL: Optional[str] = None  # Optional: "redis://localhost:6379/0"
+    
+    # Phase 11.2: Hybrid Search (BM25 + Vector)
+    ENABLE_HYBRID_SEARCH: bool = True
+    HYBRID_ALPHA: float = 0.5  # Vector weight (0.5 = 50%vector, 50% BM25)
+    BM25_INDEX_BATCH_SIZE: int = 500
+    
+    # Phase 12A Day 1: Intent Classification
+    ENABLE_INTENT_CLASSIFICATION: bool = True
+    INTENT_RULE_BASED_THRESHOLD: int = 2  # Min keyword matches for confident classification
+    INTENT_LLM_FALLBACK: bool = False  # DISABLED by default (production-safe)
+    INTENT_LLM_TIMEOUT: int = 3  # Hard timeout for LLM calls (seconds)
+    DEFAULT_INTENT: str = "code_search"  # Fallback intent
+    
+    # Phase 12A Day 3-4: Query Expansion
+    ENABLE_QUERY_EXPANSION: bool = True
+    EXPANSION_LLM_MODEL: str = "llama3.2"
+    EXPANSION_TIMEOUT: int = 5  # Hard timeout for LLM calls (seconds)
+    EXPANSION_BY_INTENT: Dict[str, int] = {
+        "debug": 2,
+        "explain": 4,
+        "code_search": 3,
+        "api_reference": 2,
+        "troubleshoot": 3
+    }
+    
+    # Phase 12A Day 5-6: Semantic Cache
+    ENABLE_SEMANTIC_CACHE: bool = True
+    SEMANTIC_CACHE_THRESHOLD: float = 0.92  # Cosine similarity threshold
+    SEMANTIC_CACHE_MAX_SIZE_PER_INTENT: int = 100  # Max cached queries per intent
 
     @property
     def cors_origins_list(self) -> List[str]:

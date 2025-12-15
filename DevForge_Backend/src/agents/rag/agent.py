@@ -482,56 +482,171 @@ class RAGAgent:
         )
         
         self._code_graph = None  # Instance-scoped, NOT global
+        self._reranker = None  # Phase 11: Reranker (lazy load)
+        self._query_cache = None  # Phase 11.2: Query cache
+        self._bm25_index = None  # Phase 11.2 Day 3: BM25 index
+        self._hybrid_retriever = None  # Phase 11.2 Day 3: Hybrid retriever
+        
+        # Phase 11.2: Initialize query cache
+        if settings.ENABLE_QUERY_CACHE:
+            redis_client = self._init_redis() if settings.REDIS_URL else None
+            from src.agents.rag.cache import QueryCache
+            self._query_cache = QueryCache(
+                redis_client=redis_client,
+                ttl=settings.QUERY_CACHE_TTL,
+                max_size=settings.QUERY_CACHE_MAX_SIZE
+            )
+            logger.info("Query cache enabled")
+        
+        # Phase 11.2 Day 3: Initialize BM25 index (will be built on startup)
+        if settings.ENABLE_HYBRID_SEARCH:
+            from src.agents.rag.retrieval import BM25Index
+            self._bm25_index = BM25Index()
+            logger.info("Hybrid search enabled (BM25 index will be built on startup)")
+        
+        # Phase 12A Day 1: Initialize intent classifier
+        self._intent_classifier = None
+        if settings.ENABLE_INTENT_CLASSIFICATION:
+            from src.agents.rag.analytics import IntentClassifier
+            self._intent_classifier = IntentClassifier(
+                rule_threshold=settings.INTENT_RULE_BASED_THRESHOLD,
+                llm_enabled=settings.INTENT_LLM_FALLBACK,
+                llm_timeout=settings.INTENT_LLM_TIMEOUT
+            )
+            logger.info("Intent classification enabled")
         
         logger.info(f"RAGAgent initialized: collection={collection_name}")
     
     @property
     def code_graph(self):
         """
-        Lazy-initialized code graph.
+        Get code graph (must call init_graph() first).
         
         ARCHITECTURE: Derived state, rebuilt from chunk metadata.
         No persistence, instance-scoped only.
+        
+        Raises:
+            RuntimeError: If graph not initialized
         """
         if self._code_graph is None:
-            from src.agents.rag.graph import CodeGraph
-            
-            self._code_graph = CodeGraph()
-            
-            # ARCHITECTURE COMPLIANCE: Rebuild from vector store metadata
-            # Uses BaseVectorStore.iter_chunk_metadata() abstraction
-            import asyncio
-            
-            async def rebuild():
-                """Rebuild graph from existing chunks."""
-                count = 0
-                try:
-                    async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
-                        # Convert metadata list to chunk format expected by graph
-                        chunks = [{"metadata": meta} for meta in batch]
-                        self._code_graph.add_chunks_batch(chunks)
-                        count += len(batch)
-                    
-                    logger.info(f"Graph rebuilt: {count} chunks → {self._code_graph.size()} nodes")
-                except Exception as e:
-                    logger.warning(f"Graph rebuild failed: {e}")
-            
-            # Run rebuild asynchronously (non-blocking)
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # In async context, schedule task
-                    asyncio.create_task(rebuild())
-                else:
-                    # In sync context, run to completion
-                    loop.run_until_complete(rebuild())
-            except RuntimeError:
-                # No event loop, create one
-                asyncio.run(rebuild())
-            
-            logger.info("CodeGraph initialized (rebuilding from vector store)")
-        
+            raise RuntimeError(
+                "Code graph not initialized. Call 'await agent.init_graph()' first."
+            )
         return self._code_graph
+    
+    async def init_graph(self):
+        """
+        Initialize code graph from vector store metadata.
+        
+        ARCHITECTURE (Phase 11.1 Fix):
+        - Proper async pattern (no blocking in property)
+        - Call once at agent startup
+        - Rebuilds from iter_chunk_metadata()
+        
+        Usage:
+            agent = RAGAgent()
+            await agent.init_graph()  # Explicit async init
+            graph = agent.code_graph  # Now safe
+        """
+        if self._code_graph is not None:
+            logger.info("Code graph already initialized")
+            return
+        
+        from src.agents.rag.graph import CodeGraph
+        
+        self._code_graph = CodeGraph()
+        
+        # Proper async rebuild from vector store metadata
+        count = 0
+        try:
+            async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
+                # Convert metadata list to chunk format
+                chunks = [{"metadata": meta} for meta in batch]
+                self._code_graph.add_chunks_batch(chunks)
+                count += len(batch)
+            
+            logger.info(f"Graph initialized: {count} chunks → {self._code_graph.size()} nodes")
+        except Exception as e:
+            logger.warning(f"Graph rebuild failed: {e}, using empty graph")
+            # Fallback: empty graph (graph expansion disabled)
+            self._code_graph = CodeGraph()
+    
+    async def init_bm25(self):
+        """
+        Initialize BM25 index from vector store metadata.
+        
+        ARCHITECTURE (Phase 11.2 Day 3):
+        - Proper async pattern (no blocking)
+        - Called explicitly during startup
+        - Builds from iter_chunk_metadata()
+        - Graceful failure → hybrid search disabled
+        
+        Usage:
+            agent = RAGAgent()
+            await agent.init_bm25()  # Explicit async init
+        """
+        if not settings.ENABLE_HYBRID_SEARCH or not self._bm25_index:
+            logger.info("Hybrid search disabled, skipping BM25 init")
+            return
+        
+        if self._bm25_index.is_ready():
+            logger.info("BM25 index already initialized")
+            return
+        
+        try:
+            # Build BM25 index from vector store
+            await self._bm25_index.build(
+                self.vector_store,
+                batch_size=settings.BM25_INDEX_BATCH_SIZE
+            )
+            
+            # Initialize hybrid retriever if BM25 ready
+            if self._bm25_index.is_ready():
+                from src.agents.rag.retrieval import HybridRetriever
+                self._hybrid_retriever = HybridRetriever(
+                    vector_store=self.vector_store,
+                    bm25_index=self._bm25_index,
+                    embeddings=self.embeddings
+                )
+                logger.info("Hybrid retriever initialized")
+            else:
+                logger.warning("BM25 index build failed, hybrid search disabled")
+        
+        except Exception as e:
+            logger.error(f"BM25 initialization failed: {e}, hybrid search disabled")
+            # Graceful failure: system will use vector-only
+    
+    def _init_redis(self):
+        """
+        Initialize Redis client for cache.
+        
+        Returns:
+            Redis async client or None if initialization fails
+        """
+        try:
+            import redis.asyncio as redis
+            client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+            logger.info(f"Redis client initialized: {settings.REDIS_URL}")
+            return client
+        except Exception as e:
+            logger.warning(f"Redis init failed: {e}, will use in-memory cache")
+            return None
+    
+    @property
+    def reranker(self):
+        """
+        Lazy-load reranker on first use.
+        
+        ARCHITECTURE (Phase 11):
+        - Agent-internal property
+        - Loaded only if ENABLE_RERANKING=true
+        - No persistence, instance-scoped
+        """
+        if self._reranker is None and settings.ENABLE_RERANKING:
+            from src.agents.rag.reranking import CrossEncoderReranker
+            self._reranker = CrossEncoderReranker(model_name=settings.RERANK_MODEL)
+            logger.info("Reranker initialized (lazy)")
+        return self._reranker
     
     async def ingest_document(
         self,
@@ -589,6 +704,222 @@ class RAGAgent:
             backend=self.backend,
             score_threshold=settings.RAG_SCORE_THRESHOLD,
         )
+    
+    async def _vector_search(self, query: str, top_k: int) -> List:
+        """
+        Vector-only search (helper for fallback).
+        
+        Args:
+            query: Search query
+            top_k: Number of results
+        
+        Returns:
+            List of search results
+        """
+        from src.tools.rag.tools import retrieve_docs as _retrieve_docs
+        
+        return await _retrieve_docs(
+            query=query,
+            top_k=top_k,
+            embed_model=self.embed_model,
+            backend=self.backend,
+            score_threshold=settings.RAG_SCORE_THRESHOLD,
+        )
+    
+    async def retrieve_with_reranking(
+        self,
+        query: str,
+        top_k: int = 5,
+        use_reranking: bool = True,
+        use_cache: bool = True,  # Phase 11.2 Day 1
+        use_hybrid: bool = True  # Phase 11.2 Day 3
+    ) -> dict:
+        """
+        Retrieve documents with optional hybrid search, caching, and reranking.
+        
+        ARCHITECTURE (Phase 11 + 11.2):
+        - Optional query cache (exact-match)
+        - Optional hybrid search (BM25 + Vector with RRF)
+        - Two-stage retrieval: Initial search → Reranking
+        - Mandatory fallback: Never returns zero results
+        - Agent-internal: No API changes
+        
+        Args:
+            query: Search query
+            top_k: Number of results to return
+            use_reranking: Enable reranking (respects ENABLE_RERANKING flag)
+            use_cache: Enable cache lookup (respects ENABLE_QUERY_CACHE flag)
+            use_hybrid: Enable hybrid search (respects ENABLE_HYBRID_SEARCH flag)
+        
+        Returns:
+            Dictionary with documents and metadata
+        """
+        # [RAG-DEBUG] Pipeline entry log
+        logger.info(
+            f"[RAG-DEBUG] Pipeline START: query='{query[:60]}...', top_k={top_k}, "
+            f"flags(SEMANTIC={settings.ENABLE_SEMANTIC_CACHE}, "
+            f"EXACT={settings.ENABLE_QUERY_CACHE}, "
+            f"EXPAND={settings.ENABLE_QUERY_EXPANSION}, "
+            f"HYBRID={settings.ENABLE_HYBRID_SEARCH}, "
+            f"RERANK={settings.ENABLE_RERANKING})"
+        )
+        
+        # Phase 11.2 Day 1: Check cache first
+        if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
+            from src.agents.rag.cache import cache_key_from_query
+            
+            cache_key = cache_key_from_query(query, top_k)
+            cached = await self._query_cache.get(cache_key)
+            
+            if cached:
+                logger.info(f"Query cache HIT: {query[:50]}...")
+                return {
+                    **cached,
+                    "from_cache": True,
+                    "cache_key": cache_key
+                }
+        
+        # Cache miss or disabled → proceed with retrieval
+        
+        # Phase 11.2 Day 3: Hybrid search (BM25 + Vector) or vector-only
+        initial_top_k = settings.VECTOR_SEARCH_CANDIDATES if (use_reranking and settings.ENABLE_RERANKING) else top_k
+        
+        if use_hybrid and self._hybrid_retriever and settings.ENABLE_HYBRID_SEARCH:
+            # Ensure BM25 ready (lazy init if needed)
+            if not self._bm25_index.is_ready():
+                logger.warning("BM25 not ready, initializing...")
+                await self.init_bm25()
+            
+            # Hybrid search with RRF fusion
+            if self._hybrid_retriever:
+                try:
+                    initial_results = await self._hybrid_retriever.search(
+                        query,
+                        top_k=initial_top_k,
+                        alpha=settings.HYBRID_ALPHA
+                    )
+                    logger.debug(f"Hybrid search returned {len(initial_results)} results")
+                except Exception as e:
+                    logger.error(f"Hybrid search failed: {e}, falling back to vector-only")
+                    # Graceful fallback to vector search
+                    initial_results = await self._vector_search(query, initial_top_k)
+            else:
+                # Hybrid not available, use vector
+                initial_results = await self._vector_search(query, initial_top_k)
+        else:
+            # Vector-only search
+            initial_results = await self._vector_search(query, initial_top_k)
+        
+        # If reranking disabled, return vector results
+        if not use_reranking or not settings.ENABLE_RERANKING or self.reranker is None:
+            result = {
+                "documents": initial_results[:top_k],
+                "reranked": False,
+                "from_cache": False,
+                "reason": "reranking_disabled" if not settings.ENABLE_RERANKING else "reranking_not_requested"
+            }
+            
+            # Cache the result
+            if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
+                from src.agents.rag.cache import cache_key_from_query
+                await self._query_cache.set(cache_key_from_query(query, top_k), result)
+            
+            return result
+        
+        # Stage 2: Rerank candidates (precision)
+        try:
+            # Convert to ChunkResult format if needed
+            from src.storage.base_store import ChunkResult
+            
+            # Ensure initial_results are ChunkResult objects
+            if initial_results and not isinstance(initial_results[0], ChunkResult):
+                # Convert dict format to ChunkResult
+                chunk_candidates = [
+                    ChunkResult(
+                        id=r.get("id", str(i)),
+                        content=r.get("content", r.get("page_content", "")),
+                        metadata=r.get("metadata", {}),
+                        score=r.get("score")
+                    )
+                    for i, r in enumerate(initial_results)
+                ]
+            else:
+                chunk_candidates = initial_results
+            
+            # Rerank all candidates
+            reranked = await self.reranker.rerank(query, chunk_candidates, top_k=top_k*2)
+            
+            # Phase 11 Day 3: Apply code-aware boosting
+            boosted = self.reranker.apply_code_boost(reranked)
+            # Re-sort after boosting
+            boosted.sort(key=lambda c: c.rerank_score, reverse=True)
+            
+            # Apply threshold filter (after boosting)
+            filtered = [c for c in boosted if c.rerank_score >= settings.RERANK_SCORE_THRESHOLD]
+            
+            # MANDATORY FALLBACK: Never return zero results
+            if len(filtered) >= 3:
+                # Case A: ≥3 pass threshold → return those
+                final_results = filtered[:top_k]
+                logger.info(f"Reranking: {len(filtered)} passed threshold, returning top {len(final_results)}")
+                result = {
+                    "documents": final_results,
+                    "reranked": True,
+                    "threshold_passed": len(filtered),
+                    "fallback_used": False,
+                    "from_cache": False
+                }
+            
+            elif len(filtered) > 0:
+                # Case B: 1-2 pass threshold → blend with vector results
+                logger.warning(f"Only {len(filtered)} results passed threshold, blending with vector")
+                remaining = top_k - len(filtered)
+                fallback = [c for c in chunk_candidates if c not in filtered][:remaining]
+                final_results = filtered + fallback
+                result = {
+                    "documents": final_results,
+                    "reranked": True,
+                    "threshold_passed": len(filtered),
+                    "fallback_used": True,
+                    "fallback_count": len(fallback),
+                    "from_cache": False
+                }
+            
+            else:
+                # Case C: 0 pass threshold → return top vector results (safeguard)
+                logger.warning("No results passed rerank threshold, using vector results")
+                result = {
+                    "documents": chunk_candidates[:top_k],
+                    "reranked": False,
+                    "threshold_passed": 0,
+                    "fallback_used": True,
+                    "reason": "threshold_too_strict",
+                    "from_cache": False
+                }
+            
+            # Phase 11.2: Cache the final result
+            if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
+                from src.agents.rag.cache import cache_key_from_query
+                await self._query_cache.set(cache_key_from_query(query, top_k), result)
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"Reranking failed: {e}, falling back to vector results")
+            result = {
+                "documents": initial_results[:top_k],
+                "reranked": False,
+                "error": str(e),
+                "fallback_used": True,
+                "from_cache": False
+            }
+            
+            # Cache even error fallback results
+            if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
+                from src.agents.rag.cache import cache_key_from_query
+                await self._query_cache.set(cache_key_from_query(query, top_k), result)
+            
+            return result
     
     async def retrieve_with_context(
         self,
