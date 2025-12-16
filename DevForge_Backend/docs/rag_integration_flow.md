@@ -1,8 +1,8 @@
-# RAG Integration Flow - Phase 10.1
+# RAG Integration Flow - Phase 10.1 → 12A
 
-**Version:** 10.1  
-**Last Updated:** December 14, 2025  
-**Purpose:** Document complete data flow through RAG system
+**Version:** 12A  
+**Last Updated:** December 16, 2025  
+**Purpose:** Document complete data flow through RAG system (updated for Phase 12A)
 
 ---
 
@@ -102,7 +102,89 @@ graph TD
 
 ---
 
-## Retrieval Flow
+## Phase 12A Retrieval Flow (Query Intelligence)
+
+### Enhanced Pipeline
+
+```
+1. User Query
+   POST /api/gateway
+   Body: {"name": "retrieve_docs", "arguments": {"query": "...", "top_k": 5}}
+   
+2. Intent Classification (3-tier)
+   IntentClassifier.classify(query)
+   ↓
+   Tier 1: Rule-based keywords (fast, 0ms)
+   Tier 2: LLM classification (if enabled, 100ms)
+   Tier 3: Default fallback → "general"
+   ↓
+   Returns: code_search | explain | debug | general
+   
+3. Query Expansion (intent-aware)
+   QueryExpander.expand(query, intent)
+   ↓
+   Generate 2-3 related queries based on intent
+   ↓
+   e.g., "RAG config" → ["RAG configuration", "RAG_EMBED_MODEL", "RAG settings"]
+   
+4. Semantic Cache Check
+   SemanticCache.get(query, intent)
+   ↓
+   If similarity > 0.95 → Return cached result (10ms)
+   Else → Continue to retrieval
+   
+5. Multi-Query Vector Search
+   For each expanded query:
+     ChromaVectorStore.similarity_search(query, top_k)
+   ↓
+   Returns multiple result sets
+   
+6. Result Fusion (RRF)
+   ResultFusion.fuse(all_results)
+   ↓
+   Reciprocal Rank Fusion + Deduplication
+   ↓
+   Returns merged, ranked results
+   
+7. Cross-Encoder Reranking
+   Reranker.rerank(query, fused_results)
+   ↓
+   Stage 2 precision ranking
+   
+8. Response Generation
+   model_router.select_model("rag_simple", prefer_local=False)
+   ↓
+   Uses cloud model (gpt-oss:120b-cloud) for memory efficiency
+   ↓
+   Generate answer from context
+   
+9. Cache Update
+   SemanticCache.set(query, intent, result)
+   
+10. Return Response
+    {
+      "success": true,
+      "data": {
+        "response": "...",
+        "documents": [...],
+        "backend": "chroma"
+      }
+    }
+```
+
+### Analytics Endpoints (Phase 12A)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/rag/analytics/intent-distribution` | Intent classification stats |
+| `GET /api/rag/analytics/expansion-quality` | Query expansion metrics |
+| `GET /api/rag/analytics/cache-by-intent` | Cache hit rates by intent |
+| `GET /api/rag/analytics/fallback-usage` | Fallback trigger frequency |
+| `GET /api/rag/metrics` | Overall system metrics |
+
+---
+
+## Retrieval Flow (Legacy - Graph Expansion)
 
 ### With Graph Context Expansion
 
@@ -145,7 +227,6 @@ graph TD
    }
 ```
 
----
 
 ## Code Path Details
 

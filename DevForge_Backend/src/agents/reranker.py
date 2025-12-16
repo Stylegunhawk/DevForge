@@ -42,17 +42,35 @@ class Reranker:
             return []
 
         try:
-            # Extract text using key function
-            doc_texts = [key(doc) for doc in documents]
+            # Extract text using key function - ensure strings
+            doc_texts = []
+            for doc in documents:
+                text = key(doc)
+                # Ensure it's a string
+                if text is None:
+                    text = ""
+                elif not isinstance(text, str):
+                    text = str(text)
+                doc_texts.append(text)
             
-            # Create pairs for cross-encoder
-            pairs = [[query, doc_text] for doc_text in doc_texts]
+            # Build pairs with validation
+            pairs = []
+            valid_indices = []
+            for i, (doc_text) in enumerate(doc_texts):
+                if doc_text and isinstance(doc_text, str) and len(doc_text.strip()) > 0:
+                    # CrossEncoder expects [query, doc] pairs
+                    pairs.append([str(query), str(doc_text)])
+                    valid_indices.append(i)
+            
+            if not pairs:
+                logger.warning("No valid document texts for reranking")
+                return documents[:top_k]
 
             # Predict scores
             scores = self.model.predict(pairs)
 
-            # Combine original docs with scores
-            doc_scores = list(zip(documents, scores))
+            # Combine with original documents using valid indices
+            doc_scores = [(documents[i], scores[j]) for j, i in enumerate(valid_indices)]
 
             # Sort by score (descending)
             doc_scores.sort(key=lambda x: x[1], reverse=True)
@@ -62,7 +80,7 @@ class Reranker:
 
             logger.info(
                 f"Reranked {len(documents)} documents, returning top {len(top_docs)}",
-                extra={"query": query[:50], "top_score": float(doc_scores[0][1]) if doc_scores else 0},
+                extra={"query": str(query)[:50], "top_score": float(doc_scores[0][1]) if doc_scores else 0},
             )
 
             return top_docs

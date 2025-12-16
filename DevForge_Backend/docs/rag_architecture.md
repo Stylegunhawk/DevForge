@@ -1,7 +1,7 @@
-# RAG Architecture v11.0
+# RAG Architecture v12A
 
-**Version:** 11.0 (Phase 11 Complete - Intelligent Reranking)  
-**Last Updated:** December 14, 2025  
+**Version:** 12A (Phase 12A Complete - Query Intelligence)  
+**Last Updated:** December 16, 2025  
 **Status:** ✅ Production Ready
 
 ---
@@ -10,15 +10,22 @@
 
 DevForge RAG system provides code-aware document retrieval with:
 - **Two-stage retrieval:** Vector search → Cross-encoder reranking
+- **Phase 12A Query Intelligence:**
+  - 3-tier Intent Classification (rule-based → LLM → default)
+  - Intent-aware Query Expansion
+  - Semantic Caching by Intent
+  - Analytics & Metrics Endpoints
 - Semantic search with dependency graph expansion
 - AST-based code chunking (Tree-sitter)
 - Test-source linking
 - Code-aware score boosting
 
 **Technology Stack:**
-- Async task processing (Celery + Redis)
+- Async task processing (Celery + Redis optional)
 - Cross-encoder reranking (ms-marco-MiniLM-L-6-v2)
 - Vector store abstraction (ChromaDB/pgvector)
+- Cloud LLM models (gpt-oss via Ollama)
+- Local embeddings (nomic-embed-text)
 
 ---
 

@@ -29,15 +29,14 @@ class Settings(BaseSettings):
     # Ollama Configuration
     OLLAMA_HOST: str = "http://localhost:11434"
 
-    # Model Configuration (Exact names from ollama list)
     # Phase 1: Primary model for simple tasks
-    DEFAULT_MODEL: str = "qwen3:4b"
+    DEFAULT_MODEL: str = "gpt-oss:20b-cloud"  # Use cloud to avoid memory issues
 
     # Phase 2: Supervisor router model
-    SUPERVISOR_MODEL: str = "deepseek-r1:8b"
+    SUPERVISOR_MODEL: str = "gpt-oss:20b-cloud"  # Use cloud to avoid memory issues
 
-    # Phase 3: RAG models
-    RAG_LOCAL_MODEL: str = "gpt-oss:20b"
+    # Phase 3: RAG models (both cloud)
+    RAG_LOCAL_MODEL: str = "gpt-oss:20b-cloud"  # Use cloud
     RAG_CLOUD_MODEL: str = "gpt-oss:120b-cloud"
 
     # Phase 3: GitHub operations model
@@ -58,7 +57,7 @@ class Settings(BaseSettings):
     RAG_CHUNK_SIZE: int = 500
     RAG_CHUNK_OVERLAP: int = 50
     RAG_TOP_K: int = 5
-    RAG_SCORE_THRESHOLD: float = 0.5
+    RAG_SCORE_THRESHOLD: float = 0.0  # Set to 0 to accept all results; ChromaDB L2 scores are small
 
     # Phase 3.1b: Qdrant Cloud Configuration
     QDRANT_URL: str | None = None  # e.g., https://xxx.europe-west3-0.gcp.cloud.qdrant.io

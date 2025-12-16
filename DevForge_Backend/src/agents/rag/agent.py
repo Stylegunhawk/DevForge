@@ -515,6 +515,27 @@ class RAGAgent:
             )
             logger.info("Intent classification enabled")
         
+        # Phase 12A Day 2: Initialize query expander
+        self._query_expander = None
+        if settings.ENABLE_QUERY_EXPANSION:
+            from src.agents.rag.expansion import QueryExpander
+            self._query_expander = QueryExpander(
+                model_name=settings.EXPANSION_LLM_MODEL,
+                llm_timeout=settings.EXPANSION_LLM_TIMEOUT
+            )
+            logger.info("Query expansion enabled")
+        
+        # Phase 12A Day 3: Initialize semantic cache
+        self._semantic_cache = None
+        if settings.ENABLE_SEMANTIC_CACHE:
+            from src.agents.rag.cache import SemanticCache
+            self._semantic_cache = SemanticCache(
+                similarity_threshold=settings.SEMANTIC_CACHE_THRESHOLD,
+                max_size_per_intent=settings.SEMANTIC_CACHE_SIZE,
+                embed_model=settings.RAG_EMBED_MODEL
+            )
+            logger.info("Semantic cache enabled")
+        
         logger.info(f"RAGAgent initialized: collection={collection_name}")
     
     @property
@@ -763,7 +784,7 @@ class RAGAgent:
             f"HYBRID={settings.ENABLE_HYBRID_SEARCH}, "
             f"RERANK={settings.ENABLE_RERANKING})"
         )
-        
+    
         # Phase 11.2 Day 1: Check cache first
         if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
             from src.agents.rag.cache import cache_key_from_query

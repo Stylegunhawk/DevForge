@@ -1,8 +1,8 @@
-# Intelligent Reranking Guide - Phase 11
+# Intelligent Reranking Guide - Phase 11 + 12A
 
-**Version:** 11.0  
+**Version:** 12A  
 **Status:** ✅ Production Ready  
-**Last Updated:** December 14, 2025
+**Last Updated:** December 16, 2025
 
 ---
 
@@ -11,6 +11,12 @@
 Phase 11 introduces **two-stage retrieval** to improve RAG quality:
 1. **Stage 1 (Recall):** Vector search retrieves 30 candidates
 2. **Stage 2 (Precision):** Cross-encoder reranks to final top-k
+
+**Phase 12A Enhancements:**
+- Intent-aware reranking (code_search, explain, debug, general)
+- Cloud model support for response generation
+- Improved string handling in reranker
+- Integration with query expansion pipeline
 
 This dramatically improves retrieval quality for code queries while maintaining <200ms latency overhead.
 

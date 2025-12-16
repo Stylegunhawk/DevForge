@@ -284,7 +284,7 @@ class ModelRouter:
         task_model_map = {
             "datagen": settings.DEFAULT_MODEL,  # qwen3:4b - Fast local for data generation
             "routing": settings.SUPERVISOR_MODEL,  # deepseek-r1:8b - Supervisor intent classification
-            "rag_simple": settings.RAG_LOCAL_MODEL,  # gpt-oss:20b - Local RAG queries
+            "rag_simple": settings.RAG_CLOUD_MODEL,  # Use cloud model for RAG (local too large)
             "rag_complex": settings.RAG_CLOUD_MODEL,  # gpt-oss:120b-cloud - Complex RAG (cloud)
             "code_gen": settings.GITHUB_MODEL,  # qwen3-coder:480b-cloud - GitHub code generation
             "github": settings.GITHUB_MODEL,  # Alias for code_gen (GitHub operations)
@@ -351,7 +351,7 @@ class ModelRouter:
 TASK_MODEL_MAP = {
     "datagen": "qwen3:4b",  # Fast local for data generation
     "routing": "deepseek-r1:8b",  # Supervisor intent classification
-    "rag_simple": "gpt-oss:20b",  # Local RAG queries
+    "rag_simple": "gpt-oss:20b-cloud",  # Cloud RAG (local too large)
     "rag_complex": "gpt-oss:120b-cloud",  # Complex RAG (cloud)
     "code_gen": "qwen3-coder:480b-cloud",  # GitHub code generation
     "premium": "deepseek-v3.1:671b-cloud",  # Ultimate reasoning

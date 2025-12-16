@@ -1,19 +1,33 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
 **Tool Name:** `retrieve_docs`  
-**Version:** 10.1 (Phase 10.1)  
+**Version:** 12A (Phase 12A Complete)  
 **Status:** ✅ Production Ready  
-**Last Updated:** December 14, 2025
+**Last Updated:** December 16, 2025
 
 ---
 
 ## Overview
 
-The `retrieve_docs` tool provides semantic document search with **code-aware chunking**, **dependency graph expansion**, and **test-source linking**. Phase 10.1 enhancements include:
-- 🆕 Async ingestion via Celery task queue
-- 🆕 Tree-sitter AST parsing for code files (Python, JS, TS)
-- 🆕 Code dependency graph with BFS traversal
-- 🆕 Graph-based context expansion
+The `retrieve_docs` tool provides intelligent semantic document search with **Phase 12A Query Intelligence** enhancements:
+
+**Phase 12A Features (NEW!):**
+- 🆕 **3-Tier Intent Classification** - Auto-detect code_search, explain, debug, general intents
+- 🆕 **Intent-Aware Query Expansion** - Generate 2-3 related queries per intent
+- 🆕 **Semantic Caching by Intent** - Cache similar queries for 10-50ms responses
+- 🆕 **Cloud Model Support** - Use gpt-oss:120b-cloud for memory-efficient response generation
+- 🆕 **Analytics Endpoints** - Track intent distribution, expansion quality, cache hits
+
+**Phase 11 Features:**
+- ✅ Two-stage retrieval (Vector search → Cross-encoder reranking)
+- ✅ Code-aware score boosting
+- ✅ Sigmoid normalized scores
+
+**Phase 10.1 Features:**
+- ✅ Async ingestion via Celery task queue (optional)
+- ✅ Tree-sitter AST parsing for code files (Python, JS, TS)
+- ✅ Code dependency graph with BFS traversal
+- ✅ Graph-based context expansion
 - ✅ Multi-format support (PDF, MD, TXT, DOCX, PY, JS, TS)
 - ✅ Dual vector store (ChromaDB local + Qdrant cloud)
 

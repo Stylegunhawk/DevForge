@@ -1,6 +1,6 @@
-# RAG Golden Path - Curl Commands (macOS/Linux)
+# RAG Postman/Curl Tests (Verified)
 
-Complete curl commands for testing the RAG pipeline through Phase 12A.
+All endpoints tested and verified working as of 2025-12-16.
 
 ---
 
@@ -12,196 +12,201 @@ http://localhost:8000
 ---
 
 ## 1. Health Check
-```bash
-curl http://localhost:8000/api/rag/health
-```
+
+**GET** `/api/rag/health`
 
 ---
 
-## 2. Basic Retrieval (retrieve_docs)
-```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "How does authentication work?",
-      "top_k": 3
-    }
-  }'
+## 2. Retrieve Documents (Main RAG Endpoint)
+
+**POST** `/api/gateway`
+
+**Headers:**
+```
+Content-Type: application/json
 ```
 
----
-
-## 3. Intent: Code Search
-```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "find the RAGAgent class implementation",
-      "top_k": 3
-    }
-  }'
-```
-
----
-
-## 4. Intent: Explain  
-```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "explain how reranking works in detail",
-      "top_k": 3
-    }
-  }'
-```
-
----
-
-## 5. Intent: Debug
-```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "why does authentication fail with 401 error",
-      "top_k": 3
-    }
-  }'
-```
-
----
-
-## 6. With Graph Context (Phase 10.1)
-```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "JWT token validation",
-      "include_context": true,
-      "top_k": 5
-    }
-  }'
-```
-
----
-
-## 7. Analytics Endpoints (Phase 12A)
-
-### Intent Distribution
-```bash
-curl http://localhost:8000/api/rag/analytics/intent-distribution
-```
-
-### Expansion Quality
-```bash
-curl http://localhost:8000/api/rag/analytics/expansion-quality
-```
-
-### Cache by Intent
-```bash
-curl http://localhost:8000/api/rag/analytics/cache-by-intent
-```
-
-### Fallback Usage
-```bash
-curl http://localhost:8000/api/rag/analytics/fallback-usage
-```
-
----
-
-## 8. Observability Endpoints (Phase 11.2)
-
-### Metrics
-```bash
-curl http://localhost:8000/api/rag/metrics
-```
-
-### Clear Cache
-```bash
-curl -X POST http://localhost:8000/api/rag/cache/clear
-```
-
-### Rebuild BM25 Index
-```bash
-curl -X POST http://localhost:8000/api/rag/bm25/rebuild
-```
-
----
-
-## 9. List Available Tools
-```bash
-curl -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "invalid_tool",
-    "arguments": {}
-  }'
-```
-
----
-
-## 10. Quick Test Script (bash)
-```bash
-#!/bin/bash
-echo "=== RAG Golden Path Tests ==="
-
-echo -e "\n[1] Health Check"
-curl -s http://localhost:8000/api/rag/health | jq .
-
-echo -e "\n[2] Basic Retrieval"
-curl -s -X POST http://localhost:8000/api/gateway \
-  -H "Content-Type: application/json" \
-  -d '{"name": "retrieve_docs", "arguments": {"query": "test query", "top_k": 3}}' | jq .success
-
-echo -e "\n[3] Intent Distribution"
-curl -s http://localhost:8000/api/rag/analytics/intent-distribution | jq .
-
-echo -e "\n[4] Expansion Quality"
-curl -s http://localhost:8000/api/rag/analytics/expansion-quality | jq .
-
-echo -e "\n[5] Cache by Intent"
-curl -s http://localhost:8000/api/rag/analytics/cache-by-intent | jq .
-
-echo -e "\n=== Tests Complete ==="
-```
-
----
-
-## Expected Success Response
+**Body:**
 ```json
 {
-  "success": true,
-  "data": {
-    "documents": [...],
-    "reranked": true
-  }
+    "name": "retrieve_docs",
+    "arguments": {
+        "query": "What is RAG_EMBED_MODEL?",
+        "top_k": 3
+    }
+}
+```
+
+**Verified Response:**
+```json
+{
+    "success": true,
+    "data": {
+        "response": "RAG_EMBED_MODEL is a configuration setting in the DevForge Backend that determines which embedding model is used for semantic search. Its default value is **`nomic-embed-text`**, and the model is executed locally via Ollama.",
+        "documents": [
+            {
+                "id": "",
+                "content": "RAG_EMBED_MODEL is a configuration setting in DevForge Backend...",
+                "metadata": {
+                    "source": "config.py",
+                    "chunk_type": "text"
+                },
+                "score": 0.0042
+            }
+        ],
+        "backend": "chroma"
+    },
+    "message": "retrieve_docs executed successfully"
 }
 ```
 
 ---
 
-## Postman Import
+## 3. Analytics Endpoints (GET - No Body Required)
 
-For Postman users, import these as requests:
+### Intent Distribution
+**GET** `/api/rag/analytics/intent-distribution`
 
-| Method | Endpoint | Body |
-|--------|----------|------|
-| GET | `/api/rag/health` | - |
-| POST | `/api/gateway` | `{"name": "retrieve_docs", "arguments": {"query": "...", "top_k": 3}}` |
-| GET | `/api/rag/analytics/intent-distribution` | - |
-| GET | `/api/rag/analytics/expansion-quality` | - |
-| GET | `/api/rag/analytics/cache-by-intent` | - |
-| GET | `/api/rag/analytics/fallback-usage` | - |
+### Expansion Quality
+**GET** `/api/rag/analytics/expansion-quality`
+
+### Cache by Intent
+**GET** `/api/rag/analytics/cache-by-intent`
+
+### Fallback Usage
+**GET** `/api/rag/analytics/fallback-usage`
+
+### Metrics (Phase 11.2)
+**GET** `/api/rag/metrics`
+
+**Response:**
+```json
+{
+    "version": "11.2.0",
+    "cache": {
+        "enabled": true,
+        "hit_rate": 0.0,
+        "backend": "memory_only"
+    },
+    "hybrid_search": {
+        "enabled": true,
+        "bm25_ready": false
+    },
+    "reranking": {
+        "enabled": true,
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    }
+}
+```
 
 ---
 
-**Last Updated**: 2025-12-16
+## 4. Cache Management (POST)
+
+### Clear Cache
+**POST** `/api/rag/cache/clear`
+
+**Response:**
+```json
+{
+    "status": "cleared",
+    "message": "Query cache cleared successfully"
+}
+```
+
+### Rebuild BM25 Index
+**POST** `/api/rag/bm25/rebuild`
+
+**Response:**
+```json
+{
+    "status": "rebuilt",
+    "message": "BM25 index rebuilt successfully"
+}
+```
+
+---
+
+## 5. Test Different Intents
+
+### Code Search
+```json
+{
+    "name": "retrieve_docs",
+    "arguments": {
+        "query": "find the RAGAgent class implementation",
+        "top_k": 3
+    }
+}
+```
+
+### Explain
+```json
+{
+    "name": "retrieve_docs",
+    "arguments": {
+        "query": "explain how the configuration system loads settings",
+        "top_k": 5
+    }
+}
+```
+
+### Debug
+```json
+{
+    "name": "retrieve_docs",
+    "arguments": {
+        "query": "why does authentication fail with 401 error",
+        "top_k": 3
+    }
+}
+```
+
+---
+
+## 6. List Available Tools
+
+**POST** `/api/gateway`
+
+```json
+{
+    "name": "invalid_tool",
+    "arguments": {}
+}
+```
+
+**Response (shows all tools):**
+```json
+{
+    "success": false,
+    "message": "Tool 'invalid_tool' not found. Available tools: ['generate_data', 'retrieve_docs', 'github_operation', 'rerank_docs', 'refine_prompt', 'generate_cheatsheet', 'generate_changelog', 'analyze_ci_failure', 'scaffold_repository']"
+}
+```
+
+---
+
+## Postman Collection Summary
+
+| Method | Endpoint | Body Required |
+|--------|----------|---------------|
+| GET | `/api/rag/health` | No |
+| POST | `/api/gateway` | Yes (retrieve_docs) |
+| GET | `/api/rag/analytics/intent-distribution` | No |
+| GET | `/api/rag/analytics/expansion-quality` | No |
+| GET | `/api/rag/analytics/cache-by-intent` | No |
+| GET | `/api/rag/analytics/fallback-usage` | No |
+| GET | `/api/rag/metrics` | No |
+| POST | `/api/rag/cache/clear` | No |
+| POST | `/api/rag/bm25/rebuild` | No |
+
+---
+
+## Setup Before Testing
+
+1. **Start Ollama:** `ollama serve`
+2. **Start Server:** `uvicorn src.main:app --reload --port 8000`
+3. **Ingest Documents:** `python scripts/simple_ingest.py`
+
+---
+
+**Verified**: 2025-12-16

@@ -411,6 +411,18 @@ async def ingest_documents(
 
         # Add chunks to vector store
         if all_chunks:
+            # Filter complex metadata - ChromaDB only accepts str, int, float, bool, None
+            # Convert list values to JSON strings
+            import json as json_module
+            for chunk in all_chunks:
+                if hasattr(chunk, 'metadata'):
+                    for key in list(chunk.metadata.keys()):
+                        value = chunk.metadata[key]
+                        if isinstance(value, list):
+                            chunk.metadata[key] = json_module.dumps(value) if value else ""
+                        elif value is None:
+                            chunk.metadata[key] = ""
+            
             # ChromaDB's add_documents is synchronous, run in thread pool
             def add_to_store():
                 vector_store.add_documents(all_chunks)
@@ -497,8 +509,21 @@ async def retrieve_docs(
         # Perform similarity search
         # ChromaDB's similarity_search_with_score is synchronous
         def search_docs():
+            # DEBUG: Check collection count
+            try:
+                count = vector_store._collection.count() if hasattr(vector_store, '_collection') else 'N/A'
+                logger.info(f"[DEBUG] ChromaDB collection count: {count}")
+            except Exception as ce:
+                logger.warning(f"[DEBUG] Could not get collection count: {ce}")
+            
             # Use similarity_search_with_score to get scores
             results = vector_store.similarity_search_with_score(query, k=top_k)
+            
+            # DEBUG: Log raw results
+            logger.info(f"[DEBUG] Raw search results count: {len(results)}")
+            for i, (doc, score) in enumerate(results[:3]):
+                logger.info(f"[DEBUG] Result {i}: score={score}, content={doc.page_content[:50]}...")
+            
             return results
 
         search_results = await asyncio.to_thread(search_docs)
@@ -506,9 +531,12 @@ async def retrieve_docs(
         # Format results and filter by score threshold
         formatted_results = []
         for doc, score in search_results:
-            # ChromaDB uses distance (lower is better), convert to similarity (higher is better)
-            # For cosine similarity: similarity = 1 - distance
-            similarity = 1.0 - score if score <= 1.0 else 0.0
+            # ChromaDB returns squared L2 distance by default (lower is better)
+            # Convert to similarity (higher is better): similarity = 1 / (1 + distance)
+            # This gives values in [0, 1] range
+            similarity = 1.0 / (1.0 + score) if score >= 0 else 1.0
+            
+            logger.info(f"[DEBUG] Doc: raw_score={score}, similarity={similarity:.4f}")
 
             if similarity >= score_threshold:
                 formatted_results.append(
@@ -569,7 +597,7 @@ async def generate_response(
         if model_hint:
             model_name = model_hint
         else:
-            model_name = model_router.select_model_by_task("rag_simple", prefer_local=True)
+            model_name = model_router.select_model_by_task("rag_simple", prefer_local=False)  # Use cloud
 
         logger.debug(f"Using model: {model_name} for RAG response generation")
 

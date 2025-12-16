@@ -1,15 +1,27 @@
 # rerank_docs - Document Reranking Tool
 
 **Tool Name:** `rerank_docs`  
-**Version:** 0.7.0  
-**Phase:** 4 (Reranking)  
-**Status:** ✅ Production Ready
+**Version:** 12A (Phase 11 + 12A Integration)  
+**Status:** ✅ Production Ready  
+**Last Updated:** December 16, 2025
 
 ---
 
 ## Overview
 
-The `rerank_docs` tool improves search result quality by re-scoring retrieved documents using a Cross-Encoder model. It's designed to work standalone or integrated with the RAG pipeline to provide more relevant results based on semantic similarity.
+The `rerank_docs` tool improves search result quality by re-scoring retrieved documents using a Cross-Encoder model. **Phase 12A** integrates reranking into the multi-query expansion pipeline with intent-aware result fusion.
+
+**Phase 12A Integration:**
+- Reranks **fused results** from multiple expanded queries
+- Works with intent-aware query expansion
+- Integrated into `retrieve_docs` two-stage pipeline
+- Improved string handling for robust tokenization
+
+**Phase 11 Features:**
+- Cross-Encoder based reranking (ms-marco-MiniLM-L-6-v2)
+- Sigmoid score normalization [0, 1]
+- Code-aware boosting (functions 1.2x, classes 1.15x)
+- Fallback logic for low-score queries
 
 ---
 
