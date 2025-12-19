@@ -126,15 +126,36 @@ async def retrieve_node(state: RAGState) -> RAGState:
     )
 
     try:
-        documents = await retrieve_docs(
+        # PHASE 12A: Use shared RAGAgent instance for persistent analytics
+        agent = get_shared_rag_agent()
+        
+        retrieval_result = await agent.retrieve_with_reranking(
             query=query,
             top_k=top_k,
-            embed_model=embed_model,
-            backend=backend,
-            score_threshold=score_threshold,
+            use_reranking=True,
+            use_cache=True,
+            use_hybrid=False  # Hybrid requires init_bm25() first
         )
+        
+        # Extract documents from the result
+        documents = retrieval_result.get("documents", [])
+        
+        # Convert ChunkResult objects to dict format if needed
+        formatted_documents = []
+        for doc in documents:
+            if hasattr(doc, 'content'):
+                # ChunkResult object
+                formatted_documents.append({
+                    "id": doc.id,
+                    "content": doc.content,
+                    "metadata": doc.metadata,
+                    "score": getattr(doc, 'rerank_score', getattr(doc, 'score', 0.0))
+                })
+            else:
+                # Already a dict
+                formatted_documents.append(doc)
 
-        if not documents:
+        if not formatted_documents:
             logger.warning("No documents retrieved (empty result or below threshold)")
             return {
                 **state,
@@ -143,33 +164,17 @@ async def retrieve_node(state: RAGState) -> RAGState:
                 "error": None,
             }
 
-        # Rerank documents if reranker is available
-        if reranker:
-            try:
-                # Rerank and take top_k (retrieval might return more, or we refine the order)
-                # Note: retrieve_docs already limits to top_k, but we might want to retrieve more then rerank?
-                # For now, we just re-order the retrieved docs.
-                documents = await reranker.rerank(
-                    query=query,
-                    documents=documents,
-                    top_k=top_k,
-                    key=lambda x: x.get("content", "")
-                )
-                logger.info("Documents reranked successfully")
-            except Exception as e:
-                logger.error(f"Reranking failed, using original order: {e}")
-
         # Concatenate document content into context
-        context = "\n\n".join([f"[{i+1}] {doc['content']}" for i, doc in enumerate(documents)])
+        context = "\n\n".join([f"[{i+1}] {doc['content']}" for i, doc in enumerate(formatted_documents)])
 
         logger.info(
-            f"Retrieved {len(documents)} documents ({len(context)} characters)",
-            extra={"documents_count": len(documents), "context_length": len(context)},
+            f"Retrieved {len(formatted_documents)} documents ({len(context)} characters)",
+            extra={"documents_count": len(formatted_documents), "context_length": len(context)},
         )
 
         return {
             **state,
-            "documents": documents,
+            "documents": formatted_documents,
             "context": context,
             "error": None,
         }
@@ -520,8 +525,8 @@ class RAGAgent:
         if settings.ENABLE_QUERY_EXPANSION:
             from src.agents.rag.expansion import QueryExpander
             self._query_expander = QueryExpander(
-                model_name=settings.EXPANSION_LLM_MODEL,
-                llm_timeout=settings.EXPANSION_LLM_TIMEOUT
+                llm_model=settings.EXPANSION_LLM_MODEL,  # Fixed: was model_name
+                llm_timeout=settings.EXPANSION_TIMEOUT
             )
             logger.info("Query expansion enabled")
         
@@ -529,10 +534,15 @@ class RAGAgent:
         self._semantic_cache = None
         if settings.ENABLE_SEMANTIC_CACHE:
             from src.agents.rag.cache import SemanticCache
+            from src.tools.rag.tools import get_embedding_model
+            
+            # Get actual embeddings object, not just the string name
+            embeddings = get_embedding_model(settings.RAG_EMBED_MODEL)
+            
             self._semantic_cache = SemanticCache(
                 similarity_threshold=settings.SEMANTIC_CACHE_THRESHOLD,
-                max_size_per_intent=settings.SEMANTIC_CACHE_SIZE,
-                embed_model=settings.RAG_EMBED_MODEL
+                max_size_per_intent=settings.SEMANTIC_CACHE_MAX_SIZE_PER_INTENT,
+                embed_model=embeddings  # Pass embeddings object
             )
             logger.info("Semantic cache enabled")
         
@@ -775,6 +785,9 @@ class RAGAgent:
         Returns:
             Dictionary with documents and metadata
         """
+        # Ensure query is a string
+        query = str(query) if query else ""
+        
         # [RAG-DEBUG] Pipeline entry log
         logger.info(
             f"[RAG-DEBUG] Pipeline START: query='{query[:60]}...', top_k={top_k}, "
@@ -784,6 +797,56 @@ class RAGAgent:
             f"HYBRID={settings.ENABLE_HYBRID_SEARCH}, "
             f"RERANK={settings.ENABLE_RERANKING})"
         )
+    
+        # ========================================
+        # PHASE 12A: Query Intelligence Pipeline
+        # ========================================
+        
+        # Step 1: Intent Classification
+        intent = "general"  # default
+        if self._intent_classifier and settings.ENABLE_INTENT_CLASSIFICATION:
+            try:
+                classification_result = await self._intent_classifier.classify(query)
+                # IntentResult is a dataclass, use attribute access
+                intent = classification_result.intent if hasattr(classification_result, 'intent') else "general"
+                confidence = classification_result.confidence if hasattr(classification_result, 'confidence') else 0.0
+                logger.info(f"[PHASE 12A] Intent: {intent} (confidence: {confidence:.2f})")
+            except Exception as e:
+                logger.warning(f"Intent classification failed: {e}, using default='general'")
+        
+        # Step 2: Semantic Cache Check (intent-aware)
+        if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
+            try:
+                cached_result = await self._semantic_cache.get(query, intent)
+                if cached_result:
+                    logger.info(f"[PHASE 12A] ✅ SEMANTIC CACHE HIT (intent={intent})")
+                    return {
+                        **cached_result,
+                        "from_semantic_cache": True,
+                        "intent": intent,
+                        "cache_type": "semantic"
+                    }
+                logger.debug(f"[PHASE 12A] Semantic cache miss (intent={intent})")
+            except Exception as e:
+                logger.warning(f"Semantic cache check failed: {e}")
+        
+        # Step 3: Query Expansion (intent-aware)
+        expanded_queries = [query]  # default: just original query
+        if self._query_expander and settings.ENABLE_QUERY_EXPANSION:
+            try:
+                expansion_result = await self._query_expander.expand(query, intent)
+                # ExpansionResult is a dataclass, use attribute access
+                if hasattr(expansion_result, 'success') and expansion_result.success:
+                    expanded_queries = expansion_result.expanded_queries if hasattr(expansion_result, 'expanded_queries') else [query]
+                    logger.info(f"[PHASE 12A] Query expanded: {len(expanded_queries)} queries")
+                    for i, eq in enumerate(expanded_queries):
+                        logger.debug(f"  [{i}] {eq[:60]}...")
+            except Exception as e:
+                logger.warning(f"Query expansion failed: {e}, using original query only")
+        
+        # ========================================
+        # End of Phase 12A Query Intelligence
+        # ========================================
     
         # Phase 11.2 Day 1: Check cache first
         if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
@@ -802,10 +865,26 @@ class RAGAgent:
         
         # Cache miss or disabled → proceed with retrieval
         
-        # Phase 11.2 Day 3: Hybrid search (BM25 + Vector) or vector-only
+        # Phase 12A Step 4: Multi-Query Retrieval + Fusion (for expanded queries)
         initial_top_k = settings.VECTOR_SEARCH_CANDIDATES if (use_reranking and settings.ENABLE_RERANKING) else top_k
         
-        if use_hybrid and self._hybrid_retriever and settings.ENABLE_HYBRID_SEARCH:
+        if len(expanded_queries) > 1:
+            # Multiple queries → retrieve for each and fuse
+            from src.agents.rag.expansion import ResultFusion
+            fusion = ResultFusion()
+            
+            all_results = []
+            for eq in expanded_queries:
+                # Use vector search for each expanded query
+                eq_results = await self._vector_search(eq, initial_top_k)
+                all_results.append(eq_results)
+            
+            # Fuse results using Reciprocal Rank Fusion
+            initial_results = fusion.fuse(all_results, top_k=initial_top_k)
+            logger.info(f"[PHASE 12A] Fused {len(expanded_queries)} result sets → {len(initial_results)} docs")
+        
+        # Phase 11.2 Day 3: Hybrid search (BM25 + Vector) or vector-only
+        elif use_hybrid and self._hybrid_retriever and settings.ENABLE_HYBRID_SEARCH:
             # Ensure BM25 ready (lazy init if needed)
             if not self._bm25_index.is_ready():
                 logger.warning("BM25 not ready, initializing...")
@@ -840,10 +919,18 @@ class RAGAgent:
                 "reason": "reranking_disabled" if not settings.ENABLE_RERANKING else "reranking_not_requested"
             }
             
-            # Cache the result
+            # Cache the result (exact-match cache)
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
                 await self._query_cache.set(cache_key_from_query(query, top_k), result)
+            
+            # Phase 12A: Update semantic cache
+            if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
+                try:
+                    await self._semantic_cache.set(query, intent, result)
+                    logger.debug(f"[PHASE 12A] Cached result for intent={intent}")
+                except Exception as e:
+                    logger.warning(f"Failed to update semantic cache: {e}")
             
             return result
         
@@ -918,10 +1005,18 @@ class RAGAgent:
                     "from_cache": False
                 }
             
-            # Phase 11.2: Cache the final result
+            # Phase 11.2: Cache the final result (exact-match)
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
                 await self._query_cache.set(cache_key_from_query(query, top_k), result)
+            
+            # Phase 12A: Update semantic cache
+            if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
+                try:
+                    await self._semantic_cache.set(query, intent, result)
+                    logger.debug(f"[PHASE 12A] Cached reranked result for intent={intent}")
+                except Exception as e:
+                    logger.warning(f"Failed to update semantic cache: {e}")
             
             return result
         
@@ -1054,3 +1149,24 @@ class RAGAgent:
         logger.info(f"Graph expansion: {len(results)} → {len(expanded)} chunks")
         return expanded
 
+
+# ========================================
+# PHASE 12A: Shared Global RAGAgent Instance
+# ========================================
+# This single instance persists across all API requests,
+# allowing analytics counters to accumulate properly
+_shared_rag_agent: Optional[RAGAgent] = None
+
+
+def get_shared_rag_agent() -> RAGAgent:
+    """
+    Get or create the shared RAGAgent instance.
+    
+    Returns:
+        Shared RAGAgent instance with persistent analytics
+    """
+    global _shared_rag_agent
+    if _shared_rag_agent is None:
+        _shared_rag_agent = RAGAgent(collection_name=settings.CHROMA_COLLECTION)
+        logger.info("[PHASE 12A] Created shared RAGAgent instance for analytics persistence")
+    return _shared_rag_agent

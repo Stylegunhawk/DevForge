@@ -1,8 +1,11 @@
-# RAG Architecture v12A
+# DevForge RAG Architecture
 
-**Version:** 12A (Phase 12A Complete - Query Intelligence)  
-**Last Updated:** December 16, 2025  
-**Status:** ✅ Production Ready
+**Version:** 12A Complete ✅  
+**Phase:** Phase 12A Query Intelligence  
+**Date:** 2025-12-17  
+**Status:** Production Ready
+
+This document outlines the architecture of the Retrieval-Augmented Generation (RAG) system in DevForge Backend, covering ingestion, retrieval, reranking, and query intelligence.
 
 ---
 

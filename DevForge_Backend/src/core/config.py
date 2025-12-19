@@ -140,15 +140,15 @@ class Settings(BaseSettings):
     
     # Phase 12A Day 1: Intent Classification
     ENABLE_INTENT_CLASSIFICATION: bool = True
-    INTENT_RULE_BASED_THRESHOLD: int = 2  # Min keyword matches for confident classification
+    INTENT_RULE_BASED_THRESHOLD: int = 1  # Lowered from 2 for better detection
     INTENT_LLM_FALLBACK: bool = False  # DISABLED by default (production-safe)
     INTENT_LLM_TIMEOUT: int = 3  # Hard timeout for LLM calls (seconds)
     DEFAULT_INTENT: str = "code_search"  # Fallback intent
     
     # Phase 12A Day 3-4: Query Expansion
     ENABLE_QUERY_EXPANSION: bool = True
-    EXPANSION_LLM_MODEL: str = "llama3.2"
-    EXPANSION_TIMEOUT: int = 5  # Hard timeout for LLM calls (seconds)
+    EXPANSION_LLM_MODEL: str = "gpt-oss:20b-cloud"  # Use cloud model for expansion
+    EXPANSION_TIMEOUT: int = 5  # Reduced for faster fallback to keywords
     EXPANSION_BY_INTENT: Dict[str, int] = {
         "debug": 2,
         "explain": 4,

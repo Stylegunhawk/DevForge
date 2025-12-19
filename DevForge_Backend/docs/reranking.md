@@ -1,14 +1,12 @@
-# Intelligent Reranking Guide - Phase 11 + 12A
+# Intelligent Reranking in DevForge RAG
 
-**Version:** 12A  
-**Status:** ✅ Production Ready  
-**Last Updated:** December 16, 2025
+**Version:** 12A Complete ✅  
+**Phase:** Phase 12A Query Intelligence  
+**Date:** 2025-12-17  
+**Status:** Production Ready
 
----
-
-## Overview
-
-Phase 11 introduces **two-stage retrieval** to improve RAG quality:
+This document explains the intelligent reranking system implemented in Phase 11 and enhanced in Phase 12A.
+**two-stage retrieval** to improve RAG quality:
 1. **Stage 1 (Recall):** Vector search retrieves 30 candidates
 2. **Stage 2 (Precision):** Cross-encoder reranks to final top-k
 

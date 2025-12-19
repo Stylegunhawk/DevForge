@@ -219,9 +219,10 @@ class SemanticCache:
         """
         try:
             if self.embed_model:
-                # Use provided embedding model
+                # Use provided embedding model (sync method, run in thread pool)
                 logger.info(f"[RAG-DEBUG] Using REAL embedding model for query: '{query[:50]}...'")
-                embedding = await self.embed_model.embed_query(query)
+                import asyncio
+                embedding = await asyncio.to_thread(self.embed_model.embed_query, query)
                 return np.array(embedding)
             else:
                 # Fallback: simple hash-based pseudo-embedding (for testing)

@@ -236,6 +236,177 @@ curl http://localhost:8000/api/rag/health
 
 ---
 
+## Section 4A: Phase 12A Query Intelligence Tests
+
+### 4A.1 Intent Classification - Code Search
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "find the implementation of QueryExpander class",
+      "top_k": 5
+    }
+  }'
+```
+**Expected Intent:** `code_search`
+
+### 4A.2 Intent Classification - Explain
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "explain how semantic caching works in Phase 12A",
+      "top_k": 5
+    }
+  }'
+```
+**Expected Intent:** `explain`
+
+### 4A.3 Intent Classification - Debug
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "why does rerank_docs fail with empty documents list",
+      "top_k": 3
+    }
+  }'
+```
+**Expected Intent:** `debug`
+
+### 4A.4 Query Expansion Test
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "RAG configuration settings",
+      "top_k": 5
+    }
+  }'
+```
+**Expected:** Server logs show `[PHASE 12A] Query expanded: 2-3 queries`
+
+### 4A.5 Semantic Cache Test (First Call)
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "What is the default embedding model for RAG?",
+      "top_k": 3
+    }
+  }'
+```
+**Expected:** Server logs show `[PHASE 12A] Semantic cache miss`
+
+### 4A.6 Semantic Cache Test (Second Call - Similar Query)
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "What embedding model does RAG use by default?",
+      "top_k": 3
+    }
+  }'
+```
+**Expected:** Server logs show `[PHASE 12A] ✅ SEMANTIC CACHE HIT`
+
+### 4A.7 Multi-Query Fusion Test
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "How does hybrid search combine BM25 and vector results?",
+      "top_k": 7
+    }
+  }'
+```
+**Expected:** Server logs show `[PHASE 12A] Fused N result sets → M docs`
+
+### 4A.8 Complete Phase 12A Pipeline
+```bash
+curl -X POST http://localhost:8000/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "retrieve_docs",
+    "arguments": {
+      "query": "Compare ChromaDB and Qdrant vector stores for RAG",
+      "top_k": 5
+    }
+  }'
+```
+**Expected Logs:**
+- `[PHASE 12A] Intent: explain (confidence: X.XX)`
+- `[PHASE 12A] Semantic cache miss`
+- `[PHASE 12A] Query expanded: 3-4 queries`
+- `[PHASE 12A] Fused X result sets → Y docs`
+- `[PHASE 12A] Cached result for intent=explain`
+
+### 4A.9 Check Phase 12A Analytics
+```bash
+# Run after executing 4A.1-4A.8
+curl http://localhost:8000/api/rag/analytics/intent-distribution
+```
+**Expected:**
+```json
+{
+  "enabled": true,
+  "total_classifications": 8,
+  "intent_distribution": {
+    "code_search": 1,
+    "explain": 3,
+    "debug": 1,
+    "general": 3
+  }
+}
+```
+
+```bash
+curl http://localhost:8000/api/rag/analytics/expansion-quality
+```
+**Expected:**
+```json
+{
+  "enabled": true,
+  "total": 8,
+  "llm_success_rate": 1.0,
+  "avg_expansions_per_query": 2.5
+}
+```
+
+```bash
+curl http://localhost:8000/api/rag/analytics/cache-by-intent
+```
+**Expected:**
+```json
+{
+  "enabled": true,
+  "hits": 1,
+  "misses": 7,
+  "hit_rate": 0.125,
+  "cache_sizes": {
+    "explain": 3,
+    "code_search": 1,
+    "debug": 1
+  }
+}
+```
+
+---
+
 ## Section 5: Cache & Index Operations
 
 ### 5.1 Clear Query Cache
