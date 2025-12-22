@@ -84,7 +84,7 @@ async def parse_github_request(state: GitHubState) -> GitHubState:
     try:
         # Use model router to get appropriate model
         router = ModelRouter()
-        model = router.select_model_by_task("github")
+        model = router.select_model_by_task("github", prefer_local=False)
         
         # Enhanced classification prompt
         classification_prompt = f"""Analyze this GitHub-related request and extract the operation and parameters.
