@@ -1,27 +1,35 @@
 # generate_cheatsheet - Dynamic Cheat Sheet Generator
 
 **Tool Name:** `generate_cheatsheet`  
-**Version:** 0.7.0  
-**Phase:** 7 (Cheat Sheets)  
-**Status:** ✅ Production Ready
+**Version:** 0.8.0  
+**Phase:** 13 (Cheat Sheets)  
+**Status:** ✅ Production Ready (Context-Aware)
 
 ---
 
 ## Overview
 
-The `generate_cheatsheet` tool creates dynamic, skill-level appropriate programming language cheat sheets. It auto-detects languages from code context and generates markdown-formatted quick references tailored to beginner, intermediate, or expert developers.
+The `generate_cheatsheet` tool creates **context-aware**, skill-level appropriate programming cheatsheets. It analyzes your code to detect libraries, calculate complexity, and generates highly relevant markdown-formatted quick references with real-world examples.
+
+**Currently Fully Supported:**
+- ✅ **Python** - All skill levels (beginner fully implemented, intermediate/expert in development)
+- ✅ **Library detection** - 15+ libraries (pandas, fastapi, asyncio have dedicated templates)
+- ✅ **Other languages** - Quick reference tables only (no full templates yet)
 
 ---
 
 ## Features
 
+- ✅ **Context-aware**: Analyzes code to detect libraries and complexity
+- ✅ **Library detection**: 15+ libraries (pandas, fastapi, asyncio, etc.)
+- ✅ **Complexity scoring**: Auto-suggests skill level based on code features
+- ✅ **Library-specific sections**: Dedicated content for detected libraries
 - ✅ Auto-detect language from code context
 - ✅ Skill-level based content generation
-- ✅ Support for 15+ programming languages
-- ✅ Markdown-formatted output
-- ✅ Quick reference sections
-- ✅ Code examples included
-- ✅ Best practices and common patterns
+- ✅ Markdown-formatted output with real code examples
+- ✅ Quick reference tables (skill-level specific)
+- ✅ Best practices and common pitfalls
+- ✅ Fast response (<500ms, rule-based)
 
 ---
 
@@ -30,19 +38,25 @@ The `generate_cheatsheet` tool creates dynamic, skill-level appropriate programm
 ```
 src/agents/cheatsheet/
 ├── __init__.py
-├── agent.py              # Main CheatsheetAgent class
-├── generator.py          # Content generation logic
-├── formatter.py          # Markdown formatting utilities
-└── language_profiles.py  # Language configurations (LANGUAGE_PROFILES)
+├── agent.py                 # Main CheatsheetAgent class (context-aware pipeline)
+├── context_parser.py        # Parse multi-block code from frontend
+├── library_detector.py      # Detect 15+ libraries with regex
+├── complexity_scorer.py     # Score code complexity (10 features)
+├── section_selector.py      # Smart section selection (library-first)
+├── quick_reference.py       # Skill-level specific quick ref tables
+├── enhanced_templates.py    # Real code examples (pandas, fastapi, asyncio)
+├── generator.py             # Legacy content generation (fallback)
+├── formatter.py             # Markdown formatting utilities
+└── language_profiles.py     # Language configurations
 
 src/tools/cheatsheet/
 ├── __init__.py
-└── tools.py             # Language detection and template helpers
+└── tools.py                 # Language detection helpers
 
 Related Files:
-├── src/api/routers.py    # Gateway endpoint registration
-├── tests/test_cheatsheet.py  # Unit tests
-└── manifests/devforge.json   # Tool definition (lines 176-204)
+├── src/api/routers.py       # Gateway endpoint registration
+├── tests/test_cheatsheet.py # Unit tests (58 total)
+└── manifests/devforge.json  # Tool definition (lines 240-267)
 ```
 
 ---
@@ -59,27 +73,20 @@ Related Files:
 
 ### Supported Languages
 
-**Popular:**
+**Fully Supported (Enhanced Templates):**
 - `python` - Python 3.x
-- `javascript` - JavaScript ES6+
-- `typescript` - TypeScript
-- `java` - Java 17+
-- `go` - Go 1.20+
-- `rust` - Rust 1.70+
+  - Beginner: ✅ Complete
+  - Intermediate: ⚠️ In development
+  - Expert: ⚠️ In development
+  - Libraries: pandas, fastapi, asyncio
 
-**Web:**
-- `html` - HTML5
-- `css` - CSS3
-- `react` - React.js
-- `vue` - Vue.js
+**Basic Support (Quick Reference Only):**
+- `javascript`, `typescript`, `java`, `go`, `rust`
+- `c`, `cpp`, `csharp`, `html`, `css`
+- `react`, `vue`, `ruby`, `php`, `swift`, `kotlin`, `bash`, `sql`
 
-**Systems:**
-- `c` - C programming
-- `cpp` - C++
-- `csharp` - C#
-
-**Others:**
-- `ruby`, `php`, `swift`, `kotlin`, `bash`, `sql`
+> [!NOTE]
+> Basic support languages will return quick reference tables and detected libraries, but without full cheatsheet sections. Full template support planned for future versions.
 
 ### Skill Levels
 
@@ -112,9 +119,17 @@ curl -X POST http://localhost:8001/api/gateway \
 {
   "success": true,
   "data": {
-    "cheatsheet": "# Python Cheat Sheet - Beginner\n\n## Basic Syntax\n...",
+    "markdown": "# Python Cheat Sheet - Beginner\n\n## Variables & Types\n...",
     "language": "python",
-    "skill_level": "beginner"
+    "skill_level": "beginner",
+    "detected_libraries": [],
+    "supported_libraries": [],
+    "complexity_score": 3,
+    "sections": [
+      {"title": "Variables & Types"},
+      {"title": "Control Flow"},
+      {"title": "Functions"}
+    ]
   }
 }
 ```
@@ -184,6 +199,72 @@ LANGUAGE_PATTERNS = {
     # ... more languages
 }
 ```
+
+---
+
+## Library Detection (New in v0.8.0)
+
+The tool automatically detects 15+ libraries from your code:
+
+**Supported Libraries:**
+- **Data Science**: pandas, numpy, matplotlib, scikit-learn
+- **Web Frameworks**: fastapi, flask, django
+- **Data Validation**: pydantic
+- **Async**: asyncio, aiohttp
+- **Database**: sqlalchemy
+- **HTTP Clients**: requests, httpx
+- **Testing**: pytest
+
+**Example:**
+```python
+import pandas as pd
+from fastapi import FastAPI
+
+df = pd.read_csv('data.csv')
+```
+→ Detects: `["pandas", "fastapi"]`  
+→ Generates: Pandas-specific + FastAPI-specific sections
+
+---
+
+## Complexity Scoring (New in v0.8.0)
+
+The tool analyzes code complexity to suggest appropriate skill levels:
+
+**Features Analyzed:**
+- Imports, functions, classes
+- Async functions, decorators
+- Comprehensions, context managers
+- Type hints, lambdas, generators
+
+**Scoring Thresholds:**
+- `<10` → Beginner
+- `<30` → Intermediate
+- `≥30` → Expert
+
+**Example:**
+```python
+# Simple code (score: 3)
+def add(a, b):
+    return a + b
+```
+→ Suggested level: **Beginner**
+
+```python
+# Complex code (score: 45)
+import asyncio
+import aiohttp
+
+async def fetch(session, url):
+    async with session.get(url) as response:
+        return await response.text()
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch(session, url) for url in urls]
+        results = await asyncio.gather(*tasks)
+```
+→ Suggested level: **Expert**
 
 ---
 
@@ -607,6 +688,6 @@ custom_topics = {
 
 ---
 
-**Last Updated:** December 2, 2025  
+**Last Updated:** December 23, 2025  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
