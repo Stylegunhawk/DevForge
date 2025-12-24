@@ -1,5 +1,11 @@
 """Enhanced templates with real code examples"""
 
+from src.agents.cheatsheet.enhanced_templates_js import (
+    JAVASCRIPT_BASE,
+    TYPESCRIPT_BASE,
+    JS_LIBRARY_SECTIONS
+)
+
 # Base templates for beginner level
 PYTHON_BEGINNER_BASE = {
     'variables': {
@@ -543,10 +549,12 @@ print(v3[0])  # Calls __getitem__'''
 }
 
 # Library-specific sections
+# NEW: Added 'source_library' metadata for Enrichment targeting
 LIBRARY_SECTIONS = {
     'pandas': {
         'intermediate': {
             'title': 'Pandas DataFrames',
+            'source_library': 'pandas',  # Metadata for targeting
             'explanation': 'Efficiently manipulate tabular data',
             'examples': [
                 {
@@ -603,6 +611,7 @@ summary = summary.reset_index()'''
     'fastapi': {
         'intermediate': {
             'title': 'FastAPI Routes & Dependencies',
+            'source_library': 'fastapi',
             'explanation': 'Build high-performance async APIs',
             'examples': [
                 {
@@ -659,6 +668,7 @@ async def read_users(db = Depends(get_db)):
     'asyncio': {
         'expert': {
             'title': 'Async/Await Patterns',
+            'source_library': 'asyncio',
             'explanation': 'Concurrent execution with coroutines',
             'examples': [
                 {
@@ -705,13 +715,55 @@ results = await asyncio.gather(
                 "Always `await` coroutines or they won't run"
             ]
         }
+    },
+    # Minimal template for fast-evolving libraries to allow section selection and subsequent enrichment
+    'langchain': {
+        'intermediate': {
+            'title': 'LangChain Basics',
+            'source_library': 'langchain',
+            'explanation': 'Build LLM-powered applications (Enriched by AI)',
+            'examples': [
+                {
+                    'title': 'Basic Chain',
+                    'code': '''# This section will be enriched with latest examples'''
+                }
+            ],
+            'pitfalls': []
+        }
+    },
+    'langgraph': {
+        'intermediate': {
+            'title': 'LangGraph Workflows',
+            'source_library': 'langgraph',
+            'explanation': 'Build stateful, multi-actor applications (Enriched by AI)',
+            'examples': [
+                {
+                    'title': 'State Graph',
+                    'code': '''# This section will be enriched with latest examples'''
+                }
+            ],
+            'pitfalls': []
+        }
     }
 }
+
+# Merge JavaScript Ecosystem Libraries
+LIBRARY_SECTIONS.update(JS_LIBRARY_SECTIONS)
 
 BASE_TEMPLATES = {
     'python': {
         'beginner': PYTHON_BEGINNER_BASE,
         'intermediate': PYTHON_INTERMEDIATE_BASE,
         'expert': PYTHON_EXPERT_BASE
+    },
+    'javascript': {
+        'beginner': JAVASCRIPT_BASE,
+        'intermediate': JAVASCRIPT_BASE, # Expand later
+        'expert': JAVASCRIPT_BASE
+    },
+    'typescript': {
+        'beginner': {**JAVASCRIPT_BASE, **TYPESCRIPT_BASE},
+        'intermediate': {**JAVASCRIPT_BASE, **TYPESCRIPT_BASE},
+        'expert': {**JAVASCRIPT_BASE, **TYPESCRIPT_BASE}
     }
 }

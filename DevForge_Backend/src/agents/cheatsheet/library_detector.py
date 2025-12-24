@@ -33,6 +33,19 @@ LIBRARY_SIGNATURES = {
     
     # Testing
     'pytest': ['import pytest', '@pytest.fixture', '@pytest.mark'],
+
+    # AI & Agents (Phase 6 Enrichment Targets)
+    'langchain': ['import langchain', 'from langchain', 'LangChain', 'LLMChain', 'PromptTemplate'],
+    'langgraph': ['import langgraph', 'from langgraph', 'StateGraph', 'MessageGraph'],
+    'autogen': ['import autogen', 'UserProxyAgent', 'AssistantAgent'],
+    'crewai': ['import crewai', 'from crewai', 'Agent(', 'Task(', 'Crew('],
+    'llama-index': ['import llama_index', 'from llama_index', 'VectorStoreIndex'],
+
+    # JavaScript / Node
+    'react': ['import React', 'from "react"', 'useState', 'useEffect', 'className=', 'jsx', 'tsx'],
+    'express': ['require("express")', "require('express')", 'import express', 'express()', 'app.listen'],
+    'axios': ['import axios', 'require("axios")', 'axios.get', 'axios.post'],
+    'node': ['require("fs")', 'process.env', 'module.exports', 'global.'],
 }
 
 

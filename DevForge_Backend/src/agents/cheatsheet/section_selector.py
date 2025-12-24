@@ -53,11 +53,17 @@ def select_sections(
             # Simple: fundamentals only
             priority = ['variables', 'control_flow', 'functions', 'basic_io']
         elif skill_level == 'intermediate':
-            # Medium: data structures and I/O
-            priority = ['data_structures', 'file_io', 'error_handling', 'modules']
+            if language in ['javascript', 'typescript']:
+                priority = ['async_flow', 'data_structures', 'modules', 'error_handling']
+            else: # python default
+                priority = ['data_structures', 'file_io', 'error_handling', 'modules']
         else:  # expert
-            # Complex: advanced topics
-            priority = ['decorators', 'generators', 'context_managers', 'classes']
+            if language == 'typescript':
+                priority = ['typing', 'decorators', 'generators', 'classes']
+            elif language == 'javascript':
+                priority = ['async_flow', 'classes', 'closures', 'event_loop']
+            else: # python default
+                priority = ['decorators', 'generators', 'context_managers', 'classes']
         
         # Add base sections until we have 5-7 total
         for topic in priority:
@@ -70,13 +76,18 @@ def select_sections(
         logger.warning(f"No sections found for {language}/{skill_level}. "
                       f"Using fallback to Python beginner basics.")
         
-        # Emergency fallback: Python beginner basics
-        fallback_sections = BASE_TEMPLATES.get('python', {}).get('beginner', {})
-        if fallback_sections:
+        # Emergency fallback: Try requested language beginner first, then Python
+        fallback_base = BASE_TEMPLATES.get(language, {}).get('beginner', {})
+        if not fallback_base:
+            fallback_base = BASE_TEMPLATES.get('python', {}).get('beginner', {})
+            
+        if fallback_base:
             # Take first 3 sections as minimal fallback
-            for key in ['variables', 'control_flow', 'functions']:
-                if key in fallback_sections:
-                    sections.append(fallback_sections[key])
+            # Generic keys often shared
+            common_keys = ['variables', 'control_flow', 'functions']
+            for key in common_keys:
+                if key in fallback_base:
+                    sections.append(fallback_base[key])
                     if len(sections) >= 3:
                         break
     

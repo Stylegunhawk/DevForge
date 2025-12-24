@@ -66,6 +66,13 @@ async def health_check():
     return {"status": "ok", "uptime": round(uptime, 2)}
 
 
+@app.get("/api/admin/promotions")
+async def get_promotions():
+    """Phase B: Review candidates for template promotion."""
+    from src.agents.cheatsheet.promotion_tracker import get_promotion_stats
+    return get_promotion_stats()
+
+
 @app.get("/")
 async def root():
     """Root endpoint with API information.
