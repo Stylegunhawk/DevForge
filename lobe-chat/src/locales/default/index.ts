@@ -29,11 +29,13 @@ import thread from './thread';
 import tool from './tool';
 import topic from './topic';
 import welcome from './welcome';
+import cheatsheet from './cheatsheet';
 
 const resources = {
   auth,
   changelog,
   chat,
+  cheatsheet,
   clerk,
   color,
   common,

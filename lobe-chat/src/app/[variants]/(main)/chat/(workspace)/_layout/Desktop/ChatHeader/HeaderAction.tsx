@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { DESKTOP_HEADER_ICON_SIZE } from '@/const/layoutTokens';
+import { CheatsheetButton } from '@/features/Cheatsheet';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
@@ -45,6 +46,7 @@ const HeaderAction = memo<{ className?: string }>(({ className }) => {
           placement: 'bottom',
         }}
       />
+      <CheatsheetButton />
       <ShareButton />
       <ActionIcon
         icon={showAgentSettings ? PanelRightClose : PanelRightOpen}

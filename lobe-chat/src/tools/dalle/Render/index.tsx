@@ -41,7 +41,7 @@ const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }
             currentRef.current = current;
           },
           toolbarAddon: <ActionIcon color={'#fff'} icon={Download} onClick={handleDownload} />,
-        }}
+        } as any}
       >
         <GalleyGrid items={content.map((c) => ({ ...c, messageId }))} renderItem={ImageItem} />
       </PreviewGroup>
