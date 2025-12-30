@@ -1,3 +1,5 @@
+const DEVFORGE_MARKET_DISABLED = true;
+
 import { Schema, ValidationResult } from '@cfworker/json-schema';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
@@ -34,19 +36,19 @@ export const createPluginSlice: StateCreator<
   PluginAction
 > = (set, get) => ({
   checkPluginsIsInstalled: async (plugins) => {
-    // if there is no plugins, just skip.
+    if (DEVFORGE_MARKET_DISABLED) return;
+
     if (plugins.length === 0) return;
 
     const { loadPluginStore, installPlugins } = get();
 
-    // check if the store is empty
-    // if it is, we need to load the plugin store
     if (pluginStoreSelectors.onlinePluginStore(get()).length === 0) {
       await loadPluginStore();
     }
 
     await installPlugins(plugins);
   },
+
   removeAllPlugins: async () => {
     await pluginService.removeAllPlugins();
     await get().refreshPlugins();
@@ -78,8 +80,10 @@ export const createPluginSlice: StateCreator<
 
     await get().refreshPlugins();
   },
-  useCheckPluginsIsInstalled: (enable, plugins) =>
-    useClientDataSWR(enable ? plugins : null, get().checkPluginsIsInstalled),
+  useCheckPluginsIsInstalled: (enable, plugins) => {
+    if (DEVFORGE_MARKET_DISABLED) return {} as SWRResponse;
+    return useClientDataSWR(enable ? plugins : null, get().checkPluginsIsInstalled);
+  },
   validatePluginSettings: async (identifier) => {
     const manifest = pluginSelectors.getToolManifestById(identifier)(get());
     if (!manifest || !manifest.settings) return;

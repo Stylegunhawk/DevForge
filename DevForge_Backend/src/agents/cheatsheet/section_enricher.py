@@ -3,7 +3,7 @@
 import os
 import logging
 from typing import Dict, Optional, Any
-from anthropic import Anthropic
+from src.llm.ollama_client import generate_text
 from .config import config
 
 logger = logging.getLogger(__name__)
@@ -12,20 +12,9 @@ class SectionEnricher:
     """Enrich template sections with LLM-generated contextual tips."""
     
     def __init__(self):
-        """Initialize Anthropic client using KEY from global config."""
-        # Note: We prefer loading from env directly or through src.core.config
-        # But for now we stick to env var as per plan.
-        api_key = os.getenv('ANTHROPIC_API_KEY')
-        if not api_key:
-            # We don't raise error here to allow lazy failure or graceful limits
-            logger.warning("ANTHROPIC_API_KEY not set. Enrichment will fail gracefully.")
-            self.client = None
-        else:
-            self.client = Anthropic(api_key=api_key)
-            
-        self.model = "claude-3-5-sonnet-20241022" # Using latest stable Sonnet
+        self.model = config.OLLAMA_MODEL
     
-    def enrich_section(
+    async def enrich_section(
         self,
         base_section: Dict[str, Any],
         user_code: str,
@@ -47,29 +36,21 @@ class SectionEnricher:
         Returns:
             Original section dict + {'llm_enrichment': str} added.
         """
-        if not self.client:
-            logger.debug("Enrichment skipped: No API key.")
-            return base_section
+        # if not self.client:
+        #     logger.debug("Enrichment skipped: No API key.")
+        #     return base_section
 
         try:
             logger.info(f"Enriching section: title='{base_section.get('title')}' lib='{library}'")
             
             prompt = self._build_prompt(base_section, user_code, library, conversation)
             
-            # Call Anthropic
-            # We set a strict token limit to control costs and latency
-            response = self.client.messages.create(
+            # Call Ollama
+            enrichment_text = await generate_text(
+                prompt=prompt,
                 model=self.model,
-                max_tokens=config.MAX_ENRICHMENT_TOKENS,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }],
-                # Optional: Add temperature=0 for stability? 
-                # Default is usually fine for creative tips.
+                max_tokens=config.MAX_ENRICHMENT_TOKENS
             )
-            
-            enrichment_text = self._extract_text(response)
             
             if not enrichment_text:
                 return base_section
@@ -84,7 +65,7 @@ class SectionEnricher:
                 **base_section,
                 'llm_enrichment': enrichment_text,
                 'enrichment_metadata': {
-                    'tokens_used': response.usage.output_tokens,
+                    'tokens_used': 0, # Not available in simple generate_text
                     'library': library,
                     'model': self.model
                 }
@@ -153,11 +134,4 @@ OUTPUT FORMAT:
 """
         return prompt
 
-    def _extract_text(self, response: Any) -> str:
-        """Extract text from Anthropic response object."""
-        # Response content is a list of blocks.
-        text_blocks = [
-            block.text for block in response.content
-            if hasattr(block, 'text')
-        ]
-        return '\n'.join(text_blocks).strip()
+

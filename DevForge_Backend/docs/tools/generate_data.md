@@ -525,18 +525,19 @@ The tool has been rigorously verified against complex production scenarios.
 The following complex prompt verifies multi-entity logic, regex patterns, context classification, and new semantic types in a single request:
 
 ```bash
-curl -X POST "http://localhost:8001/api/gateway" \
+curl -X POST http://localhost:8001/api/gateway \
   -H "Content-Type: application/json" \
   -d '{
     "name": "generate_data",
     "arguments": {
       "rows": 20,
       "format": "json",
-      "prompt": "Generate a digital library and HR system. Entities: \n1. employees (employee_id pattern: \"^EMP-[0-9]{5}$\", name, title, email, job_title, ip_v6, mac_address)\n2. books (isbn pattern: \"^978-[0-9]{10}$\", title, author, genre enum:[\"Fiction\",\"Non-Fiction\",\"Sci-Fi\"])\n3. libraries (name, city, street_address, zip_code)\n4. checkouts (id, employee_id FK, book_id FK, library_id FK, status enum:[\"active\",\"returned\",\"overdue\"], checkout_date). \nEnsure employees have unique IPs and checkouts link correctly.",
+      "prompt": "Generate a digital library and HR system. Entities:\n1. employees (employee_id pattern: \"^EMP-[0-9]{5}$\", name, title, email, job_title, ip_v6, mac_address)\n2. books (isbn pattern: \"^978-[0-9]{10}$\", title, author, genre enum:[\"Fiction\",\"Non-Fiction\",\"Sci-Fi\"])\n3. libraries (name, city, street_address, zip_code)\n4. checkouts (id, employee_id FK, book_id FK, library_id FK, status enum:[\"active\",\"returned\",\"overdue\"], checkout_date).\nEnsure employees have unique IPs and checkouts link correctly.",
       "realism_level": "high",
       "enable_semantic_generation": true
     }
   }'
+
 ```
 
 **Verified Capabilities:**

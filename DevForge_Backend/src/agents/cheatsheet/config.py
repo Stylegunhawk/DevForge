@@ -48,4 +48,17 @@ class EnrichmentConfig:
     # Timeout for LLM calls (seconds) (converted to ms for internal logic if needed)
     ENRICHMENT_TIMEOUT_SECONDS: int = 5
 
+    # --- Phase E: Hybrid LLM Configuration ---
+    ENABLE_LLM_FALLBACK: bool = os.getenv('ENABLE_LLM_FALLBACK', 'true').lower() == 'true'
+    ENABLE_WEB_SEARCH: bool = os.getenv('ENABLE_WEB_SEARCH', 'true').lower() == 'true'
+    
+    # LLM Settings
+    OLLAMA_MODEL: str = os.getenv('OLLAMA_MODEL', 'gpt-oss:20b-cloud')
+    LLM_CHEATSHEET_MAX_TOKENS: int = 4000
+    LLM_CHEATSHEET_TEMPERATURE: float = 0.3
+    
+    # Validation Rules
+    VALIDATION_MIN_LENGTH: int = 200
+    VALIDATION_MIN_CODE_BLOCKS: int = 2
+
 config = EnrichmentConfig()

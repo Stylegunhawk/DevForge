@@ -1,9 +1,16 @@
 import { Markdown, Modal, Segmented } from '@lobehub/ui';
-import { Alert, Badge, Button, Input, Select, message } from 'antd';
+import { Alert, Badge, Button, Input, Select, Spin, message } from 'antd';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 import { UIChatMessage } from '@lobechat/types';
+
+import type { CheatsheetAPIResponse, CheatsheetResponse, SupportedLanguage } from '@/features/Cheatsheet/types/cheatsheet';
+import CheatsheetMetadataPanel from '@/features/Cheatsheet/components/CheatsheetMetadataPanel';
+import ComplexityScoreBadge from '@/features/Cheatsheet/components/ComplexityScoreBadge';
+import LibraryDetectionPanel from '@/features/Cheatsheet/components/LibraryDetectionPanel';
+import MethodBadge from '@/features/Cheatsheet/components/MethodBadge';
+import PromotionSignalBanner from '@/features/Cheatsheet/components/PromotionSignalBanner';
 
 import { useStyles } from '@/features/Cheatsheet/style';
 
@@ -15,24 +22,27 @@ interface CheatsheetModalProps {
     recentMessages?: UIChatMessage[];
 }
 
-const LANGUAGES = [
-    'python',
-    'javascript',
-    'typescript',
-    'java',
-    'go',
-    'rust',
-    'html',
-    'css',
-    'cpp',
-    'csharp',
-    'ruby',
-    'php',
-    'swift',
-    'kotlin',
-    'bash',
-    'sql',
-].map((lang) => ({ label: lang.charAt(0).toUpperCase() + lang.slice(1), value: lang }));
+const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
+    // Full Support - Backend has comprehensive templates
+    { label: 'Python ✅', value: 'python', maturity: 'full' },
+    { label: 'JavaScript ✅', value: 'javascript', maturity: 'full' },
+    { label: 'TypeScript ✅', value: 'typescript', maturity: 'full' },
+
+    // Coming Soon - Planned but not yet supported
+    { label: 'Java (Coming Soon)', value: 'java', maturity: 'coming_soon', disabled: true },
+    { label: 'Go (Coming Soon)', value: 'go', maturity: 'coming_soon', disabled: true },
+    { label: 'Rust (Coming Soon)', value: 'rust', maturity: 'coming_soon', disabled: true },
+    { label: 'C++ (Coming Soon)', value: 'cpp', maturity: 'coming_soon', disabled: true },
+    { label: 'C# (Coming Soon)', value: 'csharp', maturity: 'coming_soon', disabled: true },
+    { label: 'Ruby (Coming Soon)', value: 'ruby', maturity: 'coming_soon', disabled: true },
+    { label: 'PHP (Coming Soon)', value: 'php', maturity: 'coming_soon', disabled: true },
+    { label: 'Swift (Coming Soon)', value: 'swift', maturity: 'coming_soon', disabled: true },
+    { label: 'Kotlin (Coming Soon)', value: 'kotlin', maturity: 'coming_soon', disabled: true },
+    { label: 'Bash (Coming Soon)', value: 'bash', maturity: 'coming_soon', disabled: true },
+    { label: 'SQL (Coming Soon)', value: 'sql', maturity: 'coming_soon', disabled: true },
+    { label: 'HTML (Coming Soon)', value: 'html', maturity: 'coming_soon', disabled: true },
+    { label: 'CSS (Coming Soon)', value: 'css', maturity: 'coming_soon', disabled: true },
+];
 
 // Helper to extract code blocks from markdown content
 const extractCodeBlocks = (messages: UIChatMessage[]) => {
@@ -77,6 +87,7 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
     const { styles } = useStyles();
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState('');
+    const [responseData, setResponseData] = useState<CheatsheetResponse | null>(null);
 
     // Form State
     const [language, setLanguage] = useState<string | undefined>(undefined);
@@ -95,7 +106,9 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
                     const firstBlockMatch = /^\/\/ (\w+)/.exec(extracted);
                     if (firstBlockMatch && firstBlockMatch[1]) {
                         const detected = firstBlockMatch[1].toLowerCase();
-                        if (LANGUAGES.some(l => l.value === detected)) {
+                        // Only set if it's a supported language
+                        const supportedLang = SUPPORTED_LANGUAGES.find(l => l.value === detected && l.maturity === 'full');
+                        if (supportedLang) {
                             setLanguage(detected);
                         }
                     }
@@ -117,6 +130,7 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
 
         setLoading(true);
         setResult('');
+        setResponseData(null);
 
         try {
             const response = await fetch('http://localhost:8001/api/gateway', {
@@ -138,12 +152,25 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
                 throw new Error('Network response was not ok');
             }
 
-            const data = await response.json();
-            // Backend returns: { success: true, data: { markdown: "...", ... } }
-            setResult(data.data.markdown || data.data.cheatsheet || JSON.stringify(data.data, null, 2));
+            const apiResponse: CheatsheetAPIResponse = await response.json();
+
+            if (apiResponse.success && apiResponse.data) {
+                // Store full response data for metadata components
+                setResponseData(apiResponse.data);
+
+                // Extract markdown for display (with JSON fallback for debugging)
+                const markdown = apiResponse.data.markdown ||
+                    JSON.stringify(apiResponse.data, null, 2);
+                setResult(markdown);
+            } else {
+                throw new Error(apiResponse.error || 'Unknown error');
+            }
         } catch (error) {
             console.error('Failed to generate cheatsheet:', error);
             message.error(t('error.generateFailed'));
+            // Clear state on error
+            setResponseData(null);
+            setResult('');
         } finally {
             setLoading(false);
         }
@@ -164,9 +191,18 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
                         <Select
                             allowClear
                             onChange={setLanguage}
-                            options={LANGUAGES}
+                            options={[
+                                {
+                                    label: '✅ Full Support',
+                                    options: SUPPORTED_LANGUAGES.filter(l => l.maturity === 'full'),
+                                },
+                                {
+                                    label: '🔜 Coming Soon',
+                                    options: SUPPORTED_LANGUAGES.filter(l => l.maturity === 'coming_soon'),
+                                },
+                            ]}
                             placeholder={t('placeholders.language')}
-                            style={{ width: 200 }}
+                            style={{ width: 250 }}
                             value={language}
                         />
                         <Segmented
@@ -224,7 +260,45 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
                             {t('action.generate')}
                         </Button>
                     </Flexbox>
+
+                    {loading && (
+                        <Flexbox align="center" style={{ marginTop: 16 }}>
+                            <Spin tip="Generating cheatsheet..." />
+                        </Flexbox>
+                    )}
                 </Flexbox>
+
+                {/* Metadata Dashboard - Only renders if responseData exists */}
+                {responseData && (
+                    <Flexbox gap={12} style={{ marginTop: 16 }}>
+                        {/* Badge Row */}
+                        <Flexbox gap={8} horizontal style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                            <MethodBadge method={responseData.method} enrichmentEnabled={responseData.enrichment?.enabled} />
+                            <ComplexityScoreBadge
+                                score={responseData.complexity_score}
+                                suggestedLevel={responseData.skill_level}
+                                validationScore={responseData.validation_score}
+                            />
+                        </Flexbox>
+
+                        {/* Library Detection */}
+                        <LibraryDetectionPanel
+                            detectedLibraries={responseData.detected_libraries}
+                            supportedLibraries={responseData.supported_libraries}
+                            webSearchUsed={responseData.web_search_used}
+                            sources={responseData.sources}
+                        />
+
+                        {/* Collapsible Metadata Panel */}
+                        <CheatsheetMetadataPanel data={responseData} />
+
+                        {/* Promotion Signal Banner */}
+                        <PromotionSignalBanner
+                            enrichedSections={responseData.enrichment?.enriched_sections}
+                            promotable={responseData.enrichment?.promotable}
+                        />
+                    </Flexbox>
+                )}
 
                 {result && (
                     <>

@@ -1,7 +1,7 @@
 # Cheatsheet LLM Enrichment
 
 ## Overview
-The `generate_cheatsheet` tool now supports **Scoped LLM Enrichment** (Phase 6). This feature selectively uses an LLM (Anthropic Claude) to add contextual "Debugging Tips" and "Latest API Changes" to template sections for fast-evolving libraries (like LangChain, LangGraph) where static templates might be outdated.
+The `generate_cheatsheet` tool now supports **Scoped LLM Enrichment** (Phase 6). This feature selectively uses an LLM (**Ollama gpt-oss:20b-cloud**) to add contextual "Debugging Tips" and "Latest API Changes" to template sections for fast-evolving libraries (like LangChain, LangGraph) where static templates might be outdated.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ The system uses a **Rule-Based Core with Optional Enrichment**:
 
 1.  **Core Pipeline (<200ms)**: Rules detect libraries, score complexity, and select static templates (Pandas, FastAPI, Python Basics).
 2.  **Enrichment Gate**: A smart detector decides if enrichment is needed.
-3.  **Scoped Enricher**: If approved, the agent makes a targeted LLM call to *append* tips to specific sections. It does NOT rewrite the entire cheat sheet.
+3.  **Scoped Enricher**: If approved, the agent makes a targeted **Async Ollama call** to *append* tips to specific sections. It does NOT rewrite the entire cheat sheet.
 
 ## When Enrichment Triggers
 
@@ -29,7 +29,7 @@ To enable enrichment, set the following environment variables:
 ```bash
 # .env
 ENABLE_LLM_ENRICHMENT=true
-ANTHROPIC_API_KEY=sk-ant-...  # Required for enrichment
+OLLAMA_MODEL=gpt-oss:20b-cloud  # Default model
 ```
 
 ## Response Format

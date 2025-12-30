@@ -1,375 +1,386 @@
-import { CategoryItem, CategoryListQuery, PluginManifest } from '@lobehub/market-sdk';
-import { CallReportRequest, InstallReportRequest } from '@lobehub/market-types';
+/**
+ * Phase-2: Marketplace / Discover disabled
+ * Client-side noop to prevent lambda + SSR calls
+ */
 
-import { lambdaClient } from '@/libs/trpc/client';
-import { globalHelpers } from '@/store/global/helpers';
-import { useUserStore } from '@/store/user';
-import { preferenceSelectors } from '@/store/user/selectors';
-import {
-  AssistantListResponse,
-  AssistantQueryParams,
-  DiscoverAssistantDetail,
-  DiscoverMcpDetail,
-  DiscoverModelDetail,
-  DiscoverPluginDetail,
-  DiscoverProviderDetail,
-  IdentifiersResponse,
-  McpListResponse,
-  McpQueryParams,
-  ModelListResponse,
-  ModelQueryParams,
-  PluginListResponse,
-  PluginQueryParams,
-  ProviderListResponse,
-  ProviderQueryParams,
-} from '@/types/discover';
-import { MCPPluginListParams } from '@/types/plugins';
-import { cleanObject } from '@/utils/object';
+export const discoverService = null as any;
 
-class DiscoverService {
-  private _isRetrying = false;
 
-  // ============================== Assistant Market ==============================
-  getAssistantCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getAssistantCategories.query({
-      ...params,
-      locale,
-    });
-  };
 
-  getAssistantDetail = async (params: {
-    identifier: string;
-    locale?: string;
-  }): Promise<DiscoverAssistantDetail | undefined> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getAssistantDetail.query({
-      ...params,
-      locale,
-    });
-  };
 
-  getAssistantIdentifiers = async (): Promise<IdentifiersResponse> => {
-    return lambdaClient.market.getAssistantIdentifiers.query();
-  };
+// import { CategoryItem, CategoryListQuery, PluginManifest } from '@lobehub/market-sdk';
+// import { CallReportRequest, InstallReportRequest } from '@lobehub/market-types';
 
-  getAssistantList = async (params: AssistantQueryParams = {}): Promise<AssistantListResponse> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getAssistantList.query(
-      {
-        ...params,
-        locale,
-        page: params.page ? Number(params.page) : 1,
-        pageSize: params.pageSize ? Number(params.pageSize) : 20,
-      },
-      { context: { showNotification: false } },
-    );
-  };
+// import { lambdaClient } from '@/libs/trpc/client';
+// import { globalHelpers } from '@/store/global/helpers';
+// import { useUserStore } from '@/store/user';
+// import { preferenceSelectors } from '@/store/user/selectors';
+// import {
+//   AssistantListResponse,
+//   AssistantQueryParams,
+//   DiscoverAssistantDetail,
+//   DiscoverMcpDetail,
+//   DiscoverModelDetail,
+//   DiscoverPluginDetail,
+//   DiscoverProviderDetail,
+//   IdentifiersResponse,
+//   McpListResponse,
+//   McpQueryParams,
+//   ModelListResponse,
+//   ModelQueryParams,
+//   PluginListResponse,
+//   PluginQueryParams,
+//   ProviderListResponse,
+//   ProviderQueryParams,
+// } from '@/types/discover';
+// import { MCPPluginListParams } from '@/types/plugins';
+// import { cleanObject } from '@/utils/object';
 
-  // ============================== MCP Market ==============================
+// class DiscoverService {
+//   private _isRetrying = false;
 
-  getMcpCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getMcpCategories.query({
-      ...params,
-      locale,
-    });
-  };
+//   // ============================== Assistant Market ==============================
+//   getAssistantCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getAssistantCategories.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-  getMcpDetail = async (params: {
-    identifier: string;
-    locale?: string;
-    version?: string;
-  }): Promise<DiscoverMcpDetail> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getMcpDetail.query({
-      ...params,
-      locale,
-    });
-  };
+//   getAssistantDetail = async (params: {
+//     identifier: string;
+//     locale?: string;
+//   }): Promise<DiscoverAssistantDetail | undefined> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getAssistantDetail.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-  getMcpList = async (params: McpQueryParams = {}): Promise<McpListResponse> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getMcpList.query({
-      ...params,
-      locale,
-      page: params.page ? Number(params.page) : 1,
-      pageSize: params.pageSize ? Number(params.pageSize) : 20,
-    });
-  };
+//   getAssistantIdentifiers = async (): Promise<IdentifiersResponse> => {
+//     return lambdaClient.market.getAssistantIdentifiers.query();
+//   };
 
-  getMCPPluginList = async (params: MCPPluginListParams): Promise<McpListResponse> => {
-    await this.injectMPToken();
+//   getAssistantList = async (params: AssistantQueryParams = {}): Promise<AssistantListResponse> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getAssistantList.query(
+//       {
+//         ...params,
+//         locale,
+//         page: params.page ? Number(params.page) : 1,
+//         pageSize: params.pageSize ? Number(params.pageSize) : 20,
+//       },
+//       { context: { showNotification: false } },
+//     );
+//   };
 
-    const locale = globalHelpers.getCurrentLanguage();
+//   // ============================== MCP Market ==============================
 
-    return lambdaClient.market.getMcpList.query({
-      ...params,
-      locale,
-      page: params.page ? Number(params.page) : 1,
-      pageSize: params.pageSize ? Number(params.pageSize) : 21,
-    });
-  };
+//   getMcpCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getMcpCategories.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-  getMcpManifest = async (params: { identifier: string; locale?: string; version?: string }) => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getMcpManifest.query({
-      ...params,
-      locale,
-    });
-  };
+//   getMcpDetail = async (params: {
+//     identifier: string;
+//     locale?: string;
+//     version?: string;
+//   }): Promise<DiscoverMcpDetail> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getMcpDetail.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-  getMCPPluginManifest = async (
-    identifier: string,
-    options: { install?: boolean } = {},
-  ): Promise<PluginManifest> => {
-    const locale = globalHelpers.getCurrentLanguage();
+//   getMcpList = async (params: McpQueryParams = {}): Promise<McpListResponse> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getMcpList.query({
+//       ...params,
+//       locale,
+//       page: params.page ? Number(params.page) : 1,
+//       pageSize: params.pageSize ? Number(params.pageSize) : 20,
+//     });
+//   };
 
-    return lambdaClient.market.getMcpManifest.query({
-      identifier,
-      install: options.install,
-      locale,
-    });
-  };
+//   getMCPPluginList = async (params: MCPPluginListParams): Promise<McpListResponse> => {
+//     await this.injectMPToken();
 
-  registerClient = () => {
-    return lambdaClient.market.registerClientInMarketplace.mutate({});
-  };
+//     const locale = globalHelpers.getCurrentLanguage();
 
-  /**
-   * 上报 MCP 插件安装结果
-   */
-  reportMcpInstallResult = async ({
-    success,
-    manifest,
-    errorMessage,
-    errorCode,
-    ...params
-  }: InstallReportRequest) => {
-    // if user don't allow tracing, just not report installation
-    const allow = preferenceSelectors.userAllowTrace(useUserStore.getState());
+//     return lambdaClient.market.getMcpList.query({
+//       ...params,
+//       locale,
+//       page: params.page ? Number(params.page) : 1,
+//       pageSize: params.pageSize ? Number(params.pageSize) : 21,
+//     });
+//   };
 
-    if (!allow) return;
-    await this.injectMPToken();
+//   getMcpManifest = async (params: { identifier: string; locale?: string; version?: string }) => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getMcpManifest.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-    const reportData = {
-      errorCode: success ? undefined : errorCode,
-      errorMessage: success ? undefined : errorMessage,
-      manifest: success ? manifest : undefined,
-      success,
-      ...params,
-    };
+//   getMCPPluginManifest = async (
+//     identifier: string,
+//     options: { install?: boolean } = {},
+//   ): Promise<PluginManifest> => {
+//     const locale = globalHelpers.getCurrentLanguage();
 
-    lambdaClient.market.reportMcpInstallResult
-      .mutate(cleanObject(reportData))
-      .catch((reportError) => {
-        console.warn('Failed to report MCP installation result:', reportError);
-      });
-  };
+//     return lambdaClient.market.getMcpManifest.query({
+//       identifier,
+//       install: options.install,
+//       locale,
+//     });
+//   };
 
-  /**
-   * 上报插件调用结果
-   */
-  reportPluginCall = async (reportData: CallReportRequest) => {
-    // if user don't allow tracing , just not report calling
-    const allow = preferenceSelectors.userAllowTrace(useUserStore.getState());
+//   registerClient = () => {
+//     return lambdaClient.market.registerClientInMarketplace.mutate({});
+//   };
 
-    if (!allow) return;
+//   /**
+//    * 上报 MCP 插件安装结果
+//    */
+//   reportMcpInstallResult = async ({
+//     success,
+//     manifest,
+//     errorMessage,
+//     errorCode,
+//     ...params
+//   }: InstallReportRequest) => {
+//     // if user don't allow tracing, just not report installation
+//     const allow = preferenceSelectors.userAllowTrace(useUserStore.getState());
 
-    await this.injectMPToken();
+//     if (!allow) return;
+//     await this.injectMPToken();
 
-    lambdaClient.market.reportCall.mutate(cleanObject(reportData)).catch((reportError) => {
-      console.warn('Failed to report call:', reportError);
-    });
-  };
+//     const reportData = {
+//       errorCode: success ? undefined : errorCode,
+//       errorMessage: success ? undefined : errorMessage,
+//       manifest: success ? manifest : undefined,
+//       success,
+//       ...params,
+//     };
 
-  // ============================== Models ==============================
+//     lambdaClient.market.reportMcpInstallResult
+//       .mutate(cleanObject(reportData))
+//       .catch((reportError) => {
+//         console.warn('Failed to report MCP installation result:', reportError);
+//       });
+//   };
 
-  getModelCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
-    return lambdaClient.market.getModelCategories.query(params);
-  };
+//   /**
+//    * 上报插件调用结果
+//    */
+//   reportPluginCall = async (reportData: CallReportRequest) => {
+//     // if user don't allow tracing , just not report calling
+//     const allow = preferenceSelectors.userAllowTrace(useUserStore.getState());
 
-  getModelDetail = async (params: {
-    identifier: string;
-    locale?: string;
-  }): Promise<DiscoverModelDetail | undefined> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getModelDetail.query({
-      ...params,
-      locale,
-    });
-  };
+//     if (!allow) return;
 
-  getModelIdentifiers = async (): Promise<IdentifiersResponse> => {
-    return lambdaClient.market.getModelIdentifiers.query();
-  };
+//     await this.injectMPToken();
 
-  getModelList = async (params: ModelQueryParams = {}): Promise<ModelListResponse> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getModelList.query({
-      ...params,
-      locale,
-      page: params.page ? Number(params.page) : 1,
-      pageSize: params.pageSize ? Number(params.pageSize) : 20,
-    });
-  };
+//     lambdaClient.market.reportCall.mutate(cleanObject(reportData)).catch((reportError) => {
+//       console.warn('Failed to report call:', reportError);
+//     });
+//   };
 
-  // ============================== Plugin Market ==============================
+//   // ============================== Models ==============================
 
-  getPluginCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getPluginCategories.query({
-      ...params,
-      locale,
-    });
-  };
+//   getModelCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
+//     return lambdaClient.market.getModelCategories.query(params);
+//   };
 
-  getPluginDetail = async (params: {
-    identifier: string;
-    locale?: string;
-    withManifest?: boolean;
-  }): Promise<DiscoverPluginDetail | undefined> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getPluginDetail.query({
-      ...params,
-      locale,
-    });
-  };
+//   getModelDetail = async (params: {
+//     identifier: string;
+//     locale?: string;
+//   }): Promise<DiscoverModelDetail | undefined> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getModelDetail.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-  getPluginIdentifiers = async (): Promise<IdentifiersResponse> => {
-    return lambdaClient.market.getPluginIdentifiers.query();
-  };
+//   getModelIdentifiers = async (): Promise<IdentifiersResponse> => {
+//     return lambdaClient.market.getModelIdentifiers.query();
+//   };
 
-  getPluginList = async (params: PluginQueryParams = {}): Promise<PluginListResponse> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getPluginList.query({
-      ...params,
-      locale,
-      page: params.page ? Number(params.page) : 1,
-      pageSize: params.pageSize ? Number(params.pageSize) : 20,
-    });
-  };
+//   getModelList = async (params: ModelQueryParams = {}): Promise<ModelListResponse> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getModelList.query({
+//       ...params,
+//       locale,
+//       page: params.page ? Number(params.page) : 1,
+//       pageSize: params.pageSize ? Number(params.pageSize) : 20,
+//     });
+//   };
 
-  // ============================== Providers ==============================
+//   // ============================== Plugin Market ==============================
 
-  getProviderDetail = async (params: {
-    identifier: string;
-    locale?: string;
-    withReadme?: boolean;
-  }): Promise<DiscoverProviderDetail | undefined> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getProviderDetail.query({
-      ...params,
-      locale,
-    });
-  };
+//   getPluginCategories = async (params: CategoryListQuery = {}): Promise<CategoryItem[]> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getPluginCategories.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-  getProviderIdentifiers = async (): Promise<IdentifiersResponse> => {
-    return lambdaClient.market.getProviderIdentifiers.query();
-  };
+//   getPluginDetail = async (params: {
+//     identifier: string;
+//     locale?: string;
+//     withManifest?: boolean;
+//   }): Promise<DiscoverPluginDetail | undefined> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getPluginDetail.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-  getProviderList = async (params: ProviderQueryParams = {}): Promise<ProviderListResponse> => {
-    const locale = globalHelpers.getCurrentLanguage();
-    return lambdaClient.market.getProviderList.query({
-      ...params,
-      locale,
-      page: params.page ? Number(params.page) : 1,
-      pageSize: params.pageSize ? Number(params.pageSize) : 20,
-    });
-  };
+//   getPluginIdentifiers = async (): Promise<IdentifiersResponse> => {
+//     return lambdaClient.market.getPluginIdentifiers.query();
+//   };
 
-  // ============================== Helpers ==============================
+//   getPluginList = async (params: PluginQueryParams = {}): Promise<PluginListResponse> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getPluginList.query({
+//       ...params,
+//       locale,
+//       page: params.page ? Number(params.page) : 1,
+//       pageSize: params.pageSize ? Number(params.pageSize) : 20,
+//     });
+//   };
 
-  private async injectMPToken() {
-    if (typeof localStorage === 'undefined') return;
+//   // ============================== Providers ==============================
 
-    // 检查服务端设置的状态标记 cookie
-    const tokenStatus = this.getTokenStatusFromCookie();
-    if (tokenStatus === 'active') return;
+//   getProviderDetail = async (params: {
+//     identifier: string;
+//     locale?: string;
+//     withReadme?: boolean;
+//   }): Promise<DiscoverProviderDetail | undefined> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getProviderDetail.query({
+//       ...params,
+//       locale,
+//     });
+//   };
 
-    let clientId: string;
-    let clientSecret: string;
+//   getProviderIdentifiers = async (): Promise<IdentifiersResponse> => {
+//     return lambdaClient.market.getProviderIdentifiers.query();
+//   };
 
-    // 1. 从 localStorage 获取客户端信息
-    const item = localStorage.getItem('_mpc');
-    if (!item) {
-      // 2. 如果没有，则注册客户端
-      const clientInfo = await this.registerClient();
-      clientId = clientInfo.clientId;
-      clientSecret = clientInfo.clientSecret;
+//   getProviderList = async (params: ProviderQueryParams = {}): Promise<ProviderListResponse> => {
+//     const locale = globalHelpers.getCurrentLanguage();
+//     return lambdaClient.market.getProviderList.query({
+//       ...params,
+//       locale,
+//       page: params.page ? Number(params.page) : 1,
+//       pageSize: params.pageSize ? Number(params.pageSize) : 20,
+//     });
+//   };
 
-      // 3. Base64 编码并保存到 localStorage
-      const clientData = JSON.stringify({ clientId, clientSecret });
-      const encodedData = btoa(clientData);
-      localStorage.setItem('_mpc', encodedData);
-    } else {
-      // 4. 如果有，则解码获取客户端信息
-      try {
-        const decodedData = atob(item);
-        const clientData = JSON.parse(decodedData);
-        clientId = clientData.clientId;
-        clientSecret = clientData.clientSecret;
-      } catch (error) {
-        console.error('Failed to decode client data:', error);
-        // 如果解码失败，重新注册
-        const clientInfo = await this.registerClient();
-        clientId = clientInfo.clientId;
-        clientSecret = clientInfo.clientSecret;
+//   // ============================== Helpers ==============================
 
-        const clientData = JSON.stringify({ clientId, clientSecret });
-        const encodedData = btoa(clientData);
-        localStorage.setItem('_mpc', encodedData);
-      }
-    }
+//   private async injectMPToken() {
+//     if (typeof localStorage === 'undefined') return;
 
-    // 5. 获取访问令牌（服务端会自动设置 HTTP-Only cookie）
-    try {
-      const result = await lambdaClient.market.registerM2MToken.query({
-        clientId,
-        clientSecret,
-      });
+//     // 检查服务端设置的状态标记 cookie
+//     const tokenStatus = this.getTokenStatusFromCookie();
+//     if (tokenStatus === 'active') return;
 
-      // 检查服务端返回的结果
-      if (!result.success) {
-        console.warn(
-          'Token registration failed, client credentials may be invalid. Clearing and retrying...',
-        );
+//     let clientId: string;
+//     let clientSecret: string;
 
-        // 清空相关的本地存储数据
-        localStorage.removeItem('_mpc');
+//     // 1. 从 localStorage 获取客户端信息
+//     const item = localStorage.getItem('_mpc');
+//     if (!item) {
+//       // 2. 如果没有，则注册客户端
+//       const clientInfo = await this.registerClient();
+//       clientId = clientInfo.clientId;
+//       clientSecret = clientInfo.clientSecret;
 
-        // 重新执行完整的注册流程（但只重试一次）
-        if (!this._isRetrying) {
-          this._isRetrying = true;
-          try {
-            await this.injectMPToken();
-          } finally {
-            this._isRetrying = false;
-          }
-        } else {
-          console.error('Failed to re-register after credential invalidation');
-        }
+//       // 3. Base64 编码并保存到 localStorage
+//       const clientData = JSON.stringify({ clientId, clientSecret });
+//       const encodedData = btoa(clientData);
+//       localStorage.setItem('_mpc', encodedData);
+//     } else {
+//       // 4. 如果有，则解码获取客户端信息
+//       try {
+//         const decodedData = atob(item);
+//         const clientData = JSON.parse(decodedData);
+//         clientId = clientData.clientId;
+//         clientSecret = clientData.clientSecret;
+//       } catch (error) {
+//         console.error('Failed to decode client data:', error);
+//         // 如果解码失败，重新注册
+//         const clientInfo = await this.registerClient();
+//         clientId = clientInfo.clientId;
+//         clientSecret = clientInfo.clientSecret;
 
-        return;
-      }
-    } catch (error) {
-      console.error('Failed to register M2M token:', error);
-      return null;
-    }
-  }
+//         const clientData = JSON.stringify({ clientId, clientSecret });
+//         const encodedData = btoa(clientData);
+//         localStorage.setItem('_mpc', encodedData);
+//       }
+//     }
 
-  private getTokenStatusFromCookie(): string | null {
-    if (typeof document === 'undefined') return null;
+//     // 5. 获取访问令牌（服务端会自动设置 HTTP-Only cookie）
+//     try {
+//       const result = await lambdaClient.market.registerM2MToken.query({
+//         clientId,
+//         clientSecret,
+//       });
 
-    const cookies = document.cookie.split(';');
-    for (const cookie of cookies) {
-      const [name, value] = cookie.trim().split('=');
-      if (name === 'mp_token_status') {
-        return value;
-      }
-    }
-    return null;
-  }
-}
+//       // 检查服务端返回的结果
+//       if (!result.success) {
+//         console.warn(
+//           'Token registration failed, client credentials may be invalid. Clearing and retrying...',
+//         );
 
-export const discoverService = new DiscoverService();
+//         // 清空相关的本地存储数据
+//         localStorage.removeItem('_mpc');
+
+//         // 重新执行完整的注册流程（但只重试一次）
+//         if (!this._isRetrying) {
+//           this._isRetrying = true;
+//           try {
+//             await this.injectMPToken();
+//           } finally {
+//             this._isRetrying = false;
+//           }
+//         } else {
+//           console.error('Failed to re-register after credential invalidation');
+//         }
+
+//         return;
+//       }
+//     } catch (error) {
+//       console.error('Failed to register M2M token:', error);
+//       return null;
+//     }
+//   }
+
+//   private getTokenStatusFromCookie(): string | null {
+//     if (typeof document === 'undefined') return null;
+
+//     const cookies = document.cookie.split(';');
+//     for (const cookie of cookies) {
+//       const [name, value] = cookie.trim().split('=');
+//       if (name === 'mp_token_status') {
+//         return value;
+//       }
+//     }
+//     return null;
+//   }
+// }
+
+// export const discoverService = new DiscoverService();
+

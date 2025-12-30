@@ -1,128 +1,123 @@
 # generate_cheatsheet - Context-Aware Cheat Sheet Generator
 
 **Tool Name:** `generate_cheatsheet`  
-**Version:** 0.9.0 (Phase 13)  
+**Version:** 1.0.0 (Hybrid Phase)  
 **Status:** ✅ Production Ready  
-**Architecture:** Rule-Based / Context-Aware Pipeline  
-**Response Time:** <200ms (Benchmark Average)
+**Architecture:** Hybrid (Rule-Based + LLM Fallback)  
+**Response Time:** 
+- Template Path: <200ms
+- LLM Path: <5s
 
 ---
 
 ## 1. Overview
 
-The `generate_cheatsheet` tool has been upgraded from a static template generator to a **context-aware intelligence system**. It analyzes input code to detect libraries, architectural patterns, and code complexity, generating highly relevant cheat sheets tailored to the user's actual context.
+The `generate_cheatsheet` tool generates high-quality programming cheatsheets tailored to the user's code context. It uses a **Hybrid Architecture** that combines the speed of static templates for popular libraries (Pandas, React) with the flexibility of **Ollama-powered LLM generation** for unsupported languages (SQL, Rust) or fast-evolving libraries (LangChain).
 
 ### Key Capabilities
-- **Context Analysis**: Parses multi-block code to understand what the user is working on.
-- **Library Intelligence**: Detects 20+ libraries (e.g., `pandas`, `fastapi`, `asyncio`, `react`, `express`) and provides specialized templates for supported ones.
-- **Language Support**: Full support for **Python**, **JavaScript**, and **TypeScript**.
-- **Complexity Scoring**: Mathematically scores code complexity (0-100) to auto-suggest skill levels (Beginner/Intermediate/Expert).
-- **Adaptive Content**: Prioritizes library-specific sections over generic language syntax when libraries are present.
+- **Hybrid Routing**: Intelligently routes requests to either:
+    - **Template Engine**: For stable libraries (Zero cost, <200ms).
+    - **LLM Generator**: For unsupported languages or complex queries (High coverage, <5s).
+- **Hard-Fail Validation**: LLM output is strictly validated for syntax and structure. Invalid output is never shown.
+- **Web Search Integration**: Fetches real-time documentation for "latest" queries (e.g., "latest langchain").
+- **Context Analysis**: Parses multi-block code to understand usage patterns.
+- **Complexity Scoring**: Auto-suggests skill levels (Beginner/Intermediate/Expert).
 
 ---
 
-## 2. Detailed Workflow (The 8-Step Pipeline)
+## 2. Detailed Workflow (The Hybrid Pipeline)
 
-The tool follows a strict synchronous pipeline to ensure performance (<200ms) and reliability (no LLM hallucinations).
+The tool follows a branched pipeline to ensure the best balance of speed and coverage.
 
 ```mermaid
 graph TD
-    A[Request] --> B{Has Code Context?}
-    B -- Yes --> C[Context Parser]
-    B -- No --> H[Language/Skill Resolver]
+    A[Request] --> B[Domain Detector]
+    B -- "Stable Lib / Simple" --> C[Template Path]
+    B -- "Unsupported / Complex" --> D[LLM Path]
     
-    C --> D[Library Detector]
-    C --> E[Complexity Scorer]
+    subgraph "Template Path (<200ms)"
+    C --> C1[Library Detector]
+    C1 --> C2[Section Selector]
+    C2 --> C3[Enricher (Optional)]
+    C3 --> E[Final Response]
+    end
     
-    D --> F[Detected Libraries]
-    E --> G[Complexity Score & Suggested Level]
-    
-    F --> H
-    G --> H
-    
-    H --> I[Section Selector]
-    I --> J[Content Assember]
-    J --> K[Quick Reference Generator]
-    K --> L[Final Response]
+    subgraph "LLM Path (<5s)"
+    D --> D1{Need Search?}
+    D1 -- Yes --> D2[Brave Search]
+    D1 -- No --> D3[Ollama Generation]
+    D2 --> D3
+    D3 --> D4[Syntactic Validator]
+    D4 -- Pass --> E
+    D4 -- Fail --> D5[Retry w/ Feedback]
+    D5 --> E
+    end
 ```
 
 ### Step-by-Step Logic
 
-1.  **Parse Context**: `context_parser.py` splits input into analyzeable blocks, removing Markdown fences.
-2.  **Detect Libraries**: `library_detector.py` scans blocks against 15+ regex signatures.
-3.  **Score Complexity**: `complexity_scorer.py` counts features (decorators, classes, async) to compute a score.
-4.  **Resolve Strategy**:
-    *   **Language**: Explicit argument > Auto-detected language.
-    *   **Skill Level**: Explicit argument > Complexity-suggested level.
-5.  **Select Sections**: `section_selector.py` picks the top 5-7 most relevant topics:
-    *   *Priority 1*: Detected Library Guides (e.g., "Pandas DataFrames").
-    *   *Priority 2*: Skill-appropriate Core Topics (e.g., "Advanced IO" for Expert).
-6.  **Assemble**: Merges templates from `enhanced_templates.py`.
-7.  **Quick Ref**: Generates a skill-specific lookup table.
-8.  **Return**: JSON response with metadata and Markdown.
+1.  **Domain Detection**: `domain_detector.py` analyzes the request.
+    - If language is fully supported (Python, JS) AND libraries are stable (Pandas, React) -> **Template Path**.
+    - If language is unsupported (SQL, Go) OR library is fast-evolving (LangChain) -> **LLM Path**.
+2.  **Template Path (Legacy)**:
+    - Selects static templates from `enhanced_templates.py`.
+    - Optionally enriches specific sections using `section_enricher.py`.
+3.  **LLM Path (New)**:
+    - **Search**: `brave_search.py` fetches docs if "latest" keywords found.
+    - **Generate**: `llm_generator.py` calls **Ollama (gpt-oss:20b-cloud)**.
+    - **Validate**: `validators.py` checks AST syntax and structure.
+    - **Retry**: If validation fails, retries once with error feedback.
+4.  **Return**: Unified JSON response with metadata.
 
 ---
 
-## 3. Component Architecture (Actual Flows)
+## 3. Project Structure
 
-### A. Context Parser (`context_parser.py`)
-*   **Input**: Raw string from frontend (often contains `// language` headers or tripple backticks).
-*   **Logic**: 
-    1.  Normalize newlines.
-    2.  Split by `---` or markdown block boundaries.
-    3.  Strip language identifiers (`// python`, ````python`).
+```
+src/agents/cheatsheet/
+├── agent.py               # Main entry point (CheatsheetAgent)
+├── config.py              # Settings (OLLAMA_MODEL, Feature Flags)
+├── domain_detector.py     # Routing Logic (Template vs LLM)
+├── llm_generator.py       # Async Ollama Orchestrator
+├── validators.py          # Hard-Fail Safety Checks
+├── section_enricher.py    # Async Scope-Limited Enricher
+├── brave_search.py        # Web Search Client
+├── search_strategy.py     # Query Builder
+├── enhanced_templates.py  # Static Templates Database
+├── library_detector.py    # Regex-based Detector
+├── context_parser.py      # Code Block Extractor
+└── tools/                 # Tool Definitions
+```
+
+## 4. Component Architecture (Actual Flows)
+
+### A. Domain Detector (`domain_detector.py`)
+- **Input**: Query, Detected Language, Libraries.
+- **Logic**: Decides routing.
+    - **LLM Path**: If unsupported language (SQL) or fast-evolving lib (LangChain).
+    - **Template Path**: Default for Python/JS + Stable Libs.
+
+### B. LLM Cheatsheet Generator (`llm_generator.py`)
+- **Key Features**:
+    - **Ollama Client**: Uses standard `src.llm.ollama_client`.
+    - **Search Strategy**: Uses `brave_search.py` for "latest" queries.
+    - **Validators**: `validators.py` ensures output safety.
+
+### C. Context Parser (`context_parser.py`)
+*   **Input**: Raw string from frontend.
+*   **Logic**: Splits into blocks, strips fences.
 *   **Output**: Structured `{'blocks': [...], 'total_lines': N}`.
 
-### B. Library Detector (`library_detector.py`)
+### D. Library Detector (`library_detector.py`)
 *   **Input**: Code blocks.
-*   **Logic**: Uses pre-compiled Regex for high performace.
-    *   *Python*: `import pandas`, `from fastapi import`, `sqlalchemy.orm`.
-    *   *JS/TS*: `import ... from 'react'`, `require('express')`.
-*   **Supported Detection**:
-    *   **Data**: `pandas`, `numpy`, `matplotlib`, `scikit-learn`
-    *   **Web**: `fastapi`, `flask`, `django`, `react`, `axum` (Rust)
-    *   **System**: `asyncio`, `aiohttp`, `pydantic`, `sqlalchemy`, `pytest`
-*   **Output**: List of unique library names (sorted).
+*   **Output**: List of unique library names (e.g., `pandas`, `react`).
 
-### C. Complexity Scorer (`complexity_scorer.py`)
-*   **Input**: Code blocks.
-*   **Features Tracked**:
-    *   `imports` (weight 1)
-    *   `classes` (weight 2)
-    *   `decorators` (weight 3)
-    *   `async_functions` (weight 3)
-    *   `context_managers` (weight 3)
-    *   `generators` (weight 3)
-*   **Algorithm**: `Score = sum(count * weight)`. Cap at 100.
-*   **Thresholds**:
-    *   0-9: **Beginner**
-    *   10-29: **Intermediate**
-    *   30+: **Expert**
-*   **Output**: `{'score': int, 'suggested_level': str}`.
-
-### D. Section Selector (`section_selector.py`)
-*   **Input**: Language, Skill Level, Detected Libraries.
-*   **Safety Net**: If no templates match, defaults to Base Language Beginner templates (Guaranteed non-empty response).
-*   **Selection Logic**:
-    1.  Initialize list with strictly relevant Library Sections (max 3).
-    2.  Fill remaining slots (up to 7) with Core Language Sections tailored to Skill Level.
-        *   e.g. `python/expert` -> Decorators, Generators, Metaclasses.
-
-### E. Enhanced Templates (`enhanced_templates.py`)
-*   **Storage**: Nested Dictionary Structure.
-*   **Coverage (Python)**:
-    *   **Beginner**: Variables, Control Flow, Functions.
-    *   **Intermediate**: Data Structures, File I/O, Error Handling, Modules.
-    *   **Expert**: Decorators, Generators, Context Managers, Advanced Classes.
-    *   **Libraries**: Pandas (DataFrame ops), FastAPI (Routes/Pydantic), Asyncio (Loops/Tasks).
-    *   **JavaScript/TypeScript**:
-    *   **Beginner**: Variables (let/const), Arrow Functions, Promises.
-    *   **Intermediate**: Async/Await, Modules, Error Handling (try/catch).
-    *   **Libraries**: React (Hooks), Express (Middleware), Axios.
+### E. Section Selector (`section_selector.py`)
+*   **Role**: Template Path logic. Safe fallback.
 
 ---
 
-## 4. API Specification
+## 5. API Specification
 
 ### Endpoint
 `POST /api/gateway`
@@ -133,9 +128,9 @@ graph TD
 {
   "name": "generate_cheatsheet",
   "arguments": {
-    "language": "python",          // Optional (Auto-detected if omitted)
-    "skill_level": "intermediate", // Optional (Defaults to "beginner" or auto-scored)
-    "code_context": "import pandas as pd..." // Optional (Source for detection)
+    "language": "python",          // Optional
+    "skill_level": "intermediate", // Optional
+    "code_context": "import pandas..." // Optional
   }
 }
 ```
@@ -149,21 +144,26 @@ graph TD
     "language": "python",
     "skill_level": "intermediate",
     "detected_libraries": ["pandas"],
-    "supported_libraries": ["pandas"], // Subset of detected that have full templates
-    "complexity_score": 15,
-    "sections": [
-      { "title": "Pandas DataFrames" },
-      { "title": "Data Structures" },
-      { "title": "File I/O" }
-    ],
-    "markdown": "# Python Cheat Sheet...\n## Pandas DataFrames\n..."
+    "markdown": "# Python Cheat Sheet...",
+    
+    // Metadata (Universal)
+    "method": "llm_with_search", // "template" | "llm_primary" | "llm_with_search" | "enriched"
+    "generation_method": "llm_with_search",
+    "web_search_used": true,
+    "sources": ["https://docs.langchain.com/..."],
+    "validation_score": 95.0,
+    "routing_reason": "fast_evolving_lib:langchain",
+    
+    // Legacy Fields (For backward compatibility in Template Path)
+    "sections": [{ "title": "..." }],
+    "complexity_score": 45
   }
 }
 ```
 
 ---
 
-## 5. Usage Examples
+## 6. Usage Examples
 
 ### Scenario 1: The Learner (Beginner)
 **Input**:

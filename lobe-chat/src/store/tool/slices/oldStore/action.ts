@@ -1,3 +1,6 @@
+const DEVFORGE_MARKET_DISABLED = true;
+
+
 import { LobeTool } from '@lobechat/types';
 import { t } from 'i18next';
 import { produce } from 'immer';
@@ -159,6 +162,11 @@ export const createPluginStoreSlice: StateCreator<
     }
   },
   loadPluginStore: async () => {
+    if (DEVFORGE_MARKET_DISABLED) {
+      set({ oldPluginItems: [] }, false, n('loadPluginList/devforge-disabled'));
+      return [];
+    }
+
     const locale = globalHelpers.getCurrentLanguage();
 
     const data = await toolService.getOldPluginList({
@@ -171,6 +179,7 @@ export const createPluginStoreSlice: StateCreator<
 
     return data.items;
   },
+
   refreshPlugins: async () => {
     await mutate(INSTALLED_PLUGINS);
   },
@@ -222,46 +231,27 @@ export const createPluginStoreSlice: StateCreator<
       suspense: true,
     }),
   useFetchPluginList: (params) => {
+    if (DEVFORGE_MARKET_DISABLED) {
+      return {} as SWRResponse<PluginListResponse>;
+    }
+
     const locale = globalHelpers.getCurrentLanguage();
 
     return useSWR<PluginListResponse>(
       ['useFetchPluginList', locale, ...Object.values(params)].filter(Boolean).join('-'),
       async () => toolService.getOldPluginList(params),
-      {
-        onSuccess(data) {
-          set(
-            produce((draft: PluginStoreState) => {
-              draft.pluginSearchLoading = false;
-
-              // 设置基础信息
-              if (!draft.isPluginListInit) {
-                draft.activePluginIdentifier = data.items?.[0]?.identifier;
-                draft.isPluginListInit = true;
-                draft.pluginTotalCount = data.totalCount;
-              }
-
-              // 累积数据逻辑
-              if (params.page === 1) {
-                // 第一页，直接设置
-                draft.oldPluginItems = uniqBy(data.items, 'identifier');
-              } else {
-                // 后续页面，累积数据
-                draft.oldPluginItems = uniqBy(
-                  [...draft.oldPluginItems, ...data.items],
-                  'identifier',
-                );
-              }
-            }),
-            false,
-            n('useFetchPluginList/onSuccess'),
-          );
-        },
-        revalidateOnFocus: false,
-      },
+      { revalidateOnFocus: false },
     );
   },
-  useFetchPluginStore: () =>
-    useSWR<DiscoverPluginItem[]>('loadPluginStore', get().loadPluginStore, {
+
+  useFetchPluginStore: () => {
+    if (DEVFORGE_MARKET_DISABLED) {
+      return {} as SWRResponse<DiscoverPluginItem[]>;
+    }
+
+    return useSWR<DiscoverPluginItem[]>('loadPluginStore', get().loadPluginStore, {
       revalidateOnFocus: false,
-    }),
+    });
+  },
+
 });
