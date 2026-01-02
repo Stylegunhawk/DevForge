@@ -79,7 +79,8 @@ class CheatsheetValidator:
         self, 
         markdown: str, 
         original_query: str,
-        expected_language: str = None
+        expected_language: str = None,
+        allowed_secondary_languages: List[str] = None
     ) -> ValidationResult:
         """
         Validate markdown content with checks for structure, syntax, and hallucinations.
@@ -108,6 +109,17 @@ class CheatsheetValidator:
         
         if len(code_blocks) < self.MIN_CODE_BLOCKS:
             errors.append(f"Insufficient code examples ({len(code_blocks)} < {self.MIN_CODE_BLOCKS})")
+        
+        # 2b. CRITICAL: Language Mismatch Detection
+        if expected_language:
+            language_errors = self._validate_language_contract(
+                code_blocks, expected_language, original_query, allowed_secondary_languages
+            )
+            if language_errors:
+                errors.extend(language_errors)
+                indicators["language_contract_honored"] = False
+            else:
+                indicators["language_contract_honored"] = True
             
         # 3. Structure (Headings)
         headings = re.findall(r'^#{1,3}\s+(.+)$', markdown, re.MULTILINE)
@@ -162,6 +174,103 @@ class CheatsheetValidator:
             quality_indicators=indicators
         )
 
+    
+    def _validate_language_contract(
+        self,
+        code_blocks: List[Tuple[str, str]],
+        expected_language: str,
+        query: str,
+        allowed_secondary_languages: List[str] = None
+    ) -> List[str]:
+        """Validate that generated code matches the requested language logic.
+        
+        Rules:
+        1. Primary Language must be present.
+        2. Primary Context Ratio: (Primary Blocks / Meaningful Blocks) >= 0.6.
+           - Meaningful = Primary + Secondary + Wrong (Ignored: Bash, JSON, Text).
+        3. All non-primary blocks MUST be in allowed_secondary_languages or auxiliary.
+        """
+        errors = []
+        allowed_secondary_languages = allowed_secondary_languages or []
+        expected_lower = expected_language.lower()
+        
+        # Normalize language aliases
+        language_aliases = {
+            "py": "python", "js": "javascript", "ts": "typescript", "rs": "rust",
+            "go": "go", "golang": "go", "sh": "bash", "shell": "bash", "zsh": "bash"
+        }
+        
+        def normalize(lang):
+            return language_aliases.get(lang.lower().strip(), lang.lower().strip())
+            
+        expected_norm = normalize(expected_lower)
+        secondary_norm = {normalize(l) for l in allowed_secondary_languages}
+        
+        # Auxiliary languages (Never count towards dominance checks)
+        auxiliary_languages = {
+            "bash", "shell", "sh", "zsh", "fish",
+            "json", "yaml", "yml", "toml", "xml",
+            "text", "txt", "markdown", "md", "",
+            "html", "css", "scss", "ini", "cfg", "dockerfile"
+        }
+        
+        # Counters
+        primary_count = 0
+        secondary_count = 0
+        wrong_count = 0
+        meaningful_blocks = 0
+        wrong_languages_found = {}
+        
+        for lang, _ in code_blocks:
+            norm_lang = normalize(lang)
+            
+            # Is it auxiliary?
+            if norm_lang in auxiliary_languages:
+                continue
+                
+            meaningful_blocks += 1
+            
+            if norm_lang == expected_norm:
+                primary_count += 1
+            elif norm_lang in secondary_norm:
+                secondary_count += 1
+            else:
+                wrong_count += 1
+                wrong_languages_found[norm_lang] = wrong_languages_found.get(norm_lang, 0) + 1
+
+        # Check 1: Primary Presence
+        # If there are meaningful blocks, we expect at least one primary block
+        if meaningful_blocks > 0 and primary_count == 0:
+             errors.append(
+                f"❌ Language Contract Violation: No {expected_language} code blocks found. "
+                f"Requested {expected_language}."
+            )
+            
+        # Check 2: Unauthorized Languages
+        if wrong_count > 0:
+            errors.append(
+                f"❌ Unauthorized Language Detected: found {', '.join(wrong_languages_found.keys())}. "
+                f"Allowed: {expected_language} + {list(secondary_norm)}."
+            )
+            
+        # Check 3: Primary Dominance (60% Rule)
+        # Assert: Primary_Blocks / Meaningful_Blocks >= 0.60
+        # 
+        # Why skip for single-block inputs (meaningful_blocks < 2)?
+        # - Single-block cheatsheets are often valid (e.g., "show me Rust basics")
+        # - Enforcing 60% on 1 block would always pass (1/1 = 100%) or always fail (0/1 = 0%)
+        # - The ratio is only meaningful when there are multiple blocks to compare
+        # - This avoids false positives for legitimate single-language cheatsheets
+        if meaningful_blocks >= 2:
+            ratio = primary_count / meaningful_blocks
+            if ratio < 0.6:
+                errors.append(
+                    f"❌ Primary Language Diluted: {expected_language} makes up only {ratio:.0%} of code examples. "
+                    f"Must be at least 60% (found {primary_count}/{meaningful_blocks} primary blocks)."
+                )
+        
+        return errors
+    
     def _extract_code_blocks(self, markdown: str) -> List[Tuple[str, str]]:
         """Extract code blocks as (language, code) tuples."""
         pattern = r'```(\w+)?\n(.*?)```'
@@ -173,28 +282,104 @@ class CheatsheetValidator:
         code_blocks: List[Tuple[str, str]],
         expected_language: Optional[str]
     ) -> List[str]:
-        """Validate syntax of code blocks. Currently supports Python."""
+        """Validate syntax of code blocks. Supports multiple languages."""
         errors = []
         
         for i, (lang, code) in enumerate(code_blocks):
             # Normalize language tag
             lang_lower = (lang or "").lower()
             
-            # Check if block matches expected language (if provided)
-            # We don't fail if language doesn't match, as cheatsheets might include bash/json etc.
-            
+            # Route to appropriate validator
             if lang_lower in ["python", "py"]:
                 try:
                     ast.parse(code)
                 except SyntaxError as e:
-                    # Line number in error is relative to the code block
                     errors.append(
-                        f"Syntax error in code block {i+1} (line {e.lineno}): {e.msg}"
+                        f"Syntax error in Python code block {i+1} (line {e.lineno}): {e.msg}"
                     )
                 except Exception as e:
-                    errors.append(f"Validation error in code block {i+1}: {str(e)}")
+                    errors.append(f"Validation error in Python code block {i+1}: {str(e)}")
+            
+            elif lang_lower == "sql":
+                if not self._has_sql_syntax(code):
+                    errors.append(
+                        f"Code block {i+1} marked as SQL but contains no SQL keywords. "
+                        f"Expected SELECT, INSERT, UPDATE, DELETE, CREATE, etc."
+                    )
+            
+            elif lang_lower in ["rust", "rs"]:
+                if not self._has_rust_syntax(code):
+                    errors.append(
+                        f"Code block {i+1} marked as Rust but contains no Rust syntax. "
+                        f"Expected fn, impl, struct, enum, pub, etc."
+                    )
+            
+            elif lang_lower in ["go", "golang"]:
+                if not self._has_go_syntax(code):
+                    errors.append(
+                        f"Code block {i+1} marked as Go but contains no Go syntax. "
+                        f"Expected func, package, import, type, etc."
+                    )
+            
+            # For other languages, skip syntax validation (graceful degradation)
+            # We still enforce language presence via _validate_language_contract
                     
         return errors
+    
+    def _has_sql_syntax(self, code: str) -> bool:
+        """Check for SQL syntax markers (case-insensitive)."""
+        sql_keywords = [
+            "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", 
+            "CREATE", "DROP", "ALTER", "JOIN", "GROUP BY", "ORDER BY",
+            "HAVING", "UNION", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN"
+        ]
+        upper_code = code.upper()
+        # Require at least one SQL keyword
+        return any(keyword in upper_code for keyword in sql_keywords)
+    
+    def _has_rust_syntax(self, code: str) -> bool:
+        """Check for Rust syntax patterns."""
+        rust_patterns = [
+            r'\bfn\s+\w+',          # Function declarations
+            r'\bimpl\s+\w+',        # Implementations
+            r'\bstruct\s+\w+',      # Struct definitions
+            r'\benum\s+\w+',        # Enum definitions
+            r'\bpub\s+',            # Public visibility
+            r'\blet\s+mut\s+',      # Mutable variables
+            r'\buse\s+\w+',         # Use statements
+            r'->',                   # Return type syntax
+            r'\bimpl\b',            # Trait implementations
+            r'println!',            # Macros
+            r'\blet\s+\w+',         # Variable declaration
+            r'\bmatch\s+',          # Match expressions
+            r'::',                  # Path separator
+            r'&[a-zA-Z_]',          # References
+            r'\bString\b',          # String type
+            r'\bVec\b',             # Vec type
+        ]
+        # Require at least one Rust pattern
+        return any(re.search(pattern, code) for pattern in rust_patterns)
+    
+    def _has_go_syntax(self, code: str) -> bool:
+        """Check for Go syntax patterns."""
+        go_patterns = [
+            r'\bfunc\s+\w+',        # Function declarations
+            r'\bpackage\s+\w+',     # Package declarations
+            r'\bimport\s+["(]',     # Import statements
+            r'\btype\s+\w+',        # Type definitions
+            r'\bstruct\s*{',        # Struct literals
+            r'\binterface\s*{',     # Interfaces
+            r':=',                   # Short variable declaration
+            r'\bgo\s+\w+',          # Goroutines
+            r'\bchan\s+',           # Channels
+            r'\bdefer\s+',          # Defer statements
+            r'fmt\.',               # Standard library fmt
+            r'\bmap\[',             # Map types
+            r'\bslice\b',           # Slice mentions
+            r'\bif\s+err\s*!=',     # Error handling pattern
+        ]
+        # Require at least one Go pattern
+        return any(re.search(pattern, code) for pattern in go_patterns)
 
     def _check_hallucinated_imports(self, markdown: str) -> List[str]:
         """Check for potentially hallucinated Python imports."""

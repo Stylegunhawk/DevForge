@@ -2,8 +2,7 @@
 
 import logging
 import time
-from typing import Dict, Any, Optional, List
-import logging
+from typing import Dict, Any, Optional, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +42,99 @@ class CheatsheetAgent:
                 validator=self.validator,
                 web_search_enabled=config.ENABLE_WEB_SEARCH
             )
+            logger.info("✅ LLM Generator initialized successfully")
         except Exception as e:
-            logger.warning(f"Failed to initialize LLM Generator: {e}")
+            logger.error(f"❌ CRITICAL: Failed to initialize LLM Generator: {e}", exc_info=True)
             self.llm_generator = None
+
+    def _identify_context(self, parsed_blocks: List[str]) -> Dict[str, Any]:
+        """
+        AUTHORITATIVE METHOD.
+
+        Identify primary and secondary languages from parsed code blocks.
+
+        This is the single source of truth for language context detection.
+        All other methods MUST delegate to this method.
+
+        Core Definitions:
+        - Primary Language: The single subject of the cheatsheet. Must populate >60% of code blocks.
+          Selection: First meaningful language detected (ignoring auxiliary).
+        - Secondary Languages: Explicitly allowed contexts for specific sections (Interop, Setup).
+          Rule: Must be detected in input. Limit: Max 2 secondary languages.
+        - Auxiliary Languages: Infrastructure/Config languages that are always allowed but never dominant.
+          List: bash, shell, json, yaml, toml, text.
+
+        Args:
+            parsed_blocks: List of code block strings from parsed context
+
+        Returns:
+            Dictionary with 'primary' (str) and 'secondary' (List[str]) keys
+        """
+        # Defensive assertion to prevent silent failures if parser output changes
+        assert isinstance(parsed_blocks, list), "parsed_blocks must be a list"
+        
+        if not parsed_blocks:
+            return {'primary': None, 'secondary': []}
+        
+        # Auxiliary languages (infrastructure/config - always allowed but never dominant)
+        auxiliary_languages = {
+            'bash', 'shell', 'sh', 'zsh', 'fish',
+            'json', 'yaml', 'yml', 'toml', 'xml',
+            'text', 'txt', 'markdown', 'md',
+            'html', 'css', 'scss', 'ini', 'cfg', 'dockerfile'
+        }
+        
+        detected_candidates = []
+        
+        # Detect language for each block
+        for block in parsed_blocks:
+            detected = detect_language_from_code(block)
+            if detected:
+                detected_lower = detected.lower()
+                detected_candidates.append(detected_lower)
+        
+        # 1. Identify Primary: First meaningful language (ignoring auxiliary)
+        primary = None
+        for lang in detected_candidates:
+            if lang not in auxiliary_languages:
+                primary = lang
+                break
+        
+        # Fallback: If no meaningful language found, use first candidate
+        if not primary and detected_candidates:
+            primary = detected_candidates[0]
+        
+        # 2. Identify Secondary: Any other meaningful languages found (max 2)
+        secondary_languages = []
+        if primary:
+            seen_secondary = set()
+            for lang in detected_candidates:
+                if lang != primary and lang not in auxiliary_languages:
+                    if lang not in seen_secondary and len(secondary_languages) < 2:
+                        secondary_languages.append(lang)
+                        seen_secondary.add(lang)
+        
+        return {
+            'primary': primary,
+            'secondary': secondary_languages
+        }
+    
+    def _determine_language_context(self, parsed_context: dict) -> Tuple[Optional[str], List[str]]:
+        """
+        Backward-compatibility wrapper for _identify_context.
+
+        This is a thin wrapper that delegates to the authoritative _identify_context method.
+        All real logic is in _identify_context.
+
+        Returns:
+            (primary_language, [secondary_languages])
+        """
+        if not parsed_context or not parsed_context.get('blocks'):
+            return None, []
+        
+        # Delegate to authoritative method
+        context = self._identify_context(parsed_context['blocks'])
+        return context['primary'], context['secondary']
     
     async def generate(self, arguments: dict) -> dict:
         """
@@ -82,13 +171,55 @@ class CheatsheetAgent:
         if parsed and parsed['blocks']:
             complexity = calculate_complexity(parsed['blocks'])
         
-        # 4. Determine language
+        # 4. Determine language context
+        # CRITICAL: Backend is the single source of truth for language detection
         language = None
-        if explicit_language:
+        secondary_languages = []
+        detected_language = None
+        
+        # Always detect from code if available (authoritative)
+        if parsed:
+            context_result = self._identify_context(parsed['blocks'])
+            detected_language = context_result['primary']
+            secondary_languages = context_result['secondary']
+            
+            # Use language hints from frontend comments as fallback if detection failed
+            # Frontend explicitly marks code blocks with "// language" comments
+            language_hints = parsed.get('language_hints', [])
+            if not detected_language and language_hints:
+                # Count most common language hint (frontend's explicit declaration)
+                from collections import Counter
+                hint_counts = Counter([h for h in language_hints if h])
+                if hint_counts:
+                    most_common_hint = hint_counts.most_common(1)[0][0]
+                    logger.info(f"Using language hint from frontend: '{most_common_hint}' (detection failed)")
+                    detected_language = most_common_hint
+        
+        # Language Contract Guard: Validate explicit_language against detected
+        if explicit_language and detected_language:
+            explicit_lower = explicit_language.lower()
+            detected_lower = detected_language.lower()
+            
+            if explicit_lower != detected_lower:
+                # CONTRACT VIOLATION: Frontend language differs from detected
+                logger.warning(
+                    f"⚠️ LANGUAGE CONTRACT VIOLATION: Frontend sent '{explicit_language}' "
+                    f"but code context detected '{detected_language}'. "
+                    f"Using detected language '{detected_language}' as authoritative."
+                )
+                # Override: Use detected language (backend is source of truth)
+                language = detected_language
+            else:
+                # Contract honored: Use explicit language
+                language = explicit_language
+        elif explicit_language:
+            # No code context, trust explicit language
             language = explicit_language
-        elif parsed and parsed['blocks']:
-            language = detect_language_from_code(parsed['blocks'][0])
+        elif detected_language:
+            # No explicit language, use detected
+            language = detected_language
         else:
+            # No language source available
             return {
                 'success': False,
                 'message': 'Must provide language or code_context',
@@ -104,6 +235,12 @@ class CheatsheetAgent:
             
         language_key = language.lower()
         
+        # Log final language decision for debugging
+        logger.info(
+            f"🔍 Language Decision: explicit='{explicit_language}', "
+            f"detected='{detected_language}', final='{language_key}'"
+        )
+        
         # --- NEW: Hybrid Routing Logic ---
         should_use_llm = False
         routing_reason = "template_default"
@@ -115,11 +252,27 @@ class CheatsheetAgent:
                 detected_libraries=detected_libraries,
                 language=language_key
             )
+            logger.info(
+                f"🔀 Routing Decision: should_use_llm={should_use_llm}, "
+                f"reason={routing_reason}, language={language_key}"
+            )
             
-        llm_response = None
+        # CRITICAL GUARD: If we determined we MUST use LLM, but generator is missing
+        if should_use_llm and not self.llm_generator:
+            msg = f"HARD FAIL: {routing_reason} requires LLM but generator is None/Failed. Language={language_key}"
+            logger.error(msg)
+            return {
+                'success': False,
+                'message': f'LLM generation required for {language_key} but LLM service unavailable',
+                'error': 'llm_generator_not_initialized',
+                'routing_reason': routing_reason
+            }
+            
         if should_use_llm:
             try:
                 logger.info(f"Routing to LLM Path. Reason: {routing_reason}")
+                logger.info(f"🚀 Entering LLM path for {language_key}")
+                
                 arguments_query = arguments.get('query', '') or f"{language} {skill_level} cheatsheet"
                 
                 llm_response = await self.llm_generator.generate(
@@ -127,8 +280,23 @@ class CheatsheetAgent:
                     code_context=code_context,
                     detected_language=language,
                     skill_level=skill_level,
-                    detected_libraries=detected_libraries
+                    detected_libraries=detected_libraries,
+                    secondary_languages=secondary_languages
                 )
+                
+                logger.info(f"✅ LLM generation completed: Score={llm_response.validation_score}/100")
+                
+                # Final sanity check: Verify response language matches request
+                if llm_response.language.lower() != language_key:
+                    logger.critical(
+                        f"⚠️ LANGUAGE CONTRACT VIOLATION IN RESPONSE: "
+                        f"Requested {language_key} but response claims {llm_response.language}"
+                    )
+                    return {
+                        'success': False,
+                        'message': f'Language mismatch: requested {language}, got {llm_response.language}',
+                        'error': 'language_contract_violation_in_response'
+                    }
                 
                 # Success! Return LLM response structure
                 elapsed_ms = int((time.time() - start_time) * 1000)
@@ -176,9 +344,7 @@ class CheatsheetAgent:
             detected_libraries=detected_libraries,
             complexity_score=complexity['score']
         )
-        
-        
-        logger.info(f"Selected {len(sections)} sections")
+        logger.info(f"📋 Using Template path: {len(sections)} sections selected")
         
         # 6. LLM Enrichment (Optional)
         enrichment_decision = should_enrich_sections(

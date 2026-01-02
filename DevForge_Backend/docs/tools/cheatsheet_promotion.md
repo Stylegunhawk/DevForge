@@ -28,3 +28,14 @@ The API response now includes promotion signals in `data.enrichment`:
 
 ## Tracker Logic
 See `src/agents/cheatsheet/promotion_tracker.py` for the in-memory counting logic.
+
+## Language-Specific Notes
+
+**Template Path Languages** (Python, JavaScript, TypeScript):
+- Enrichments can be promoted to static templates
+- Tracked via `promotion_tracker.py`
+
+**LLM Path Languages** (Ruby, SQL, Rust, Go):
+- Full cheatsheets are generated via LLM (not enrichments)
+- No promotion workflow needed (content is always LLM-generated)
+- Quality is validated via `validators.py` (60% language dominance rule)

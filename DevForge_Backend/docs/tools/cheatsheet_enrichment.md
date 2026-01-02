@@ -3,6 +3,8 @@
 ## Overview
 The `generate_cheatsheet` tool now supports **Scoped LLM Enrichment** (Phase 6). This feature selectively uses an LLM (**Ollama gpt-oss:20b-cloud**) to add contextual "Debugging Tips" and "Latest API Changes" to template sections for fast-evolving libraries (like LangChain, LangGraph) where static templates might be outdated.
 
+**Note**: Enrichment is part of the Template Path. For unsupported languages (Ruby, SQL, Rust, Go), the system uses the full LLM Path instead of enrichment.
+
 ## Architecture
 
 The system uses a **Rule-Based Core with Optional Enrichment**:
@@ -66,6 +68,10 @@ To manage costs, high-frequency enrichments should be converted into permanent s
 
 *   **Telemetry**: Look for `"promotable": true` in the API response.
 *   **Workflow**: See [Template Promotion Guide](./cheatsheet_promotion.md) for instructions on how to graduate content.
+
+## Language Support
+
+Enrichment works with **Template Path** languages (Python, JavaScript, TypeScript). For unsupported languages (Ruby, SQL, Rust, Go), the system uses the **LLM Path** instead, which generates complete cheatsheets rather than enriching templates.
 
 ## Testing
 

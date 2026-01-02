@@ -24,6 +24,7 @@ class DomainDetector:
         "sql": ["select", "join", "where", "insert", "update", "delete", "from", "group by"],
         "rust": ["fn ", "impl ", "trait ", "cargo", "struct ", "enum ", "mut ", "pub "],
         "go": ["func ", "package ", "import ", "go ", "defer ", "chan ", "goroutine"],
+        "ruby": ["puts ", "require ", ".each", ".map", ".select", "def ", "end", "class ", "module ", "do ", "end"],
         "toml": ["[package]", "[dependencies]", "name =", "version =", "[tool]"],
         "yaml": ["apiversion:", "kind:", "metadata:", "spec:", "deployment:", "service:"],
         "dockerfile": ["from ", "run ", "cmd ", "expose ", "env ", "workdir"],
@@ -113,9 +114,11 @@ class DomainDetector:
             language_lower
         )
         
-        if unsupported_lang and confidence >= 2:
+        # Route to LLM if unsupported language detected
+        # Lower threshold to 1 for explicit language match (confidence=10) or keyword match
+        if unsupported_lang and (confidence >= 1 or language_lower in self.UNSUPPORTED_LANGUAGES):
             logger.info(f"Routing to LLM: Unsupported language '{unsupported_lang}' "
-                       f"(confidence: {confidence} keyword matches)")
+                       f"(confidence: {confidence}, explicit: {language_lower in self.UNSUPPORTED_LANGUAGES})")
             return True, f"unsupported_language:{unsupported_lang}"
         
         # Check 2: Fast-evolving library with code context

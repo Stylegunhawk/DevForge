@@ -28,18 +28,20 @@ const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
     { label: 'JavaScript ✅', value: 'javascript', maturity: 'full' },
     { label: 'TypeScript ✅', value: 'typescript', maturity: 'full' },
 
+    // Experimental - LLM-supported (no templates yet)
+    { label: 'Ruby 🧪', value: 'ruby', maturity: 'experimental' },
+    { label: 'SQL 🧪', value: 'sql', maturity: 'experimental' },
+    { label: 'Rust 🧪', value: 'rust', maturity: 'experimental' },
+    { label: 'Go 🧪', value: 'go', maturity: 'experimental' },
+
     // Coming Soon - Planned but not yet supported
     { label: 'Java (Coming Soon)', value: 'java', maturity: 'coming_soon', disabled: true },
-    { label: 'Go (Coming Soon)', value: 'go', maturity: 'coming_soon', disabled: true },
-    { label: 'Rust (Coming Soon)', value: 'rust', maturity: 'coming_soon', disabled: true },
     { label: 'C++ (Coming Soon)', value: 'cpp', maturity: 'coming_soon', disabled: true },
     { label: 'C# (Coming Soon)', value: 'csharp', maturity: 'coming_soon', disabled: true },
-    { label: 'Ruby (Coming Soon)', value: 'ruby', maturity: 'coming_soon', disabled: true },
     { label: 'PHP (Coming Soon)', value: 'php', maturity: 'coming_soon', disabled: true },
     { label: 'Swift (Coming Soon)', value: 'swift', maturity: 'coming_soon', disabled: true },
     { label: 'Kotlin (Coming Soon)', value: 'kotlin', maturity: 'coming_soon', disabled: true },
     { label: 'Bash (Coming Soon)', value: 'bash', maturity: 'coming_soon', disabled: true },
-    { label: 'SQL (Coming Soon)', value: 'sql', maturity: 'coming_soon', disabled: true },
     { label: 'HTML (Coming Soon)', value: 'html', maturity: 'coming_soon', disabled: true },
     { label: 'CSS (Coming Soon)', value: 'css', maturity: 'coming_soon', disabled: true },
 ];
@@ -106,8 +108,12 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
                     const firstBlockMatch = /^\/\/ (\w+)/.exec(extracted);
                     if (firstBlockMatch && firstBlockMatch[1]) {
                         const detected = firstBlockMatch[1].toLowerCase();
-                        // Only set if it's a supported language
-                        const supportedLang = SUPPORTED_LANGUAGES.find(l => l.value === detected && l.maturity === 'full');
+                        // Set if it's a supported language (full or experimental)
+                        const supportedLang = SUPPORTED_LANGUAGES.find(
+                            l => l.value === detected && 
+                            (l.maturity === 'full' || l.maturity === 'experimental') &&
+                            !l.disabled
+                        );
                         if (supportedLang) {
                             setLanguage(detected);
                         }
@@ -137,7 +143,9 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
                 body: JSON.stringify({
                     arguments: {
                         code_context: codeContext || undefined,
-                        language,
+                        // Only send language if explicitly set by user
+                        // Backend is authoritative for language detection from code_context
+                        ...(language ? { language } : {}),
                         skill_level: skillLevel,
                     },
                     name: 'generate_cheatsheet',
@@ -195,6 +203,10 @@ const CheatsheetModal = memo<CheatsheetModalProps>(({ open, onCancel, recentMess
                                 {
                                     label: '✅ Full Support',
                                     options: SUPPORTED_LANGUAGES.filter(l => l.maturity === 'full'),
+                                },
+                                {
+                                    label: '🧪 Experimental (LLM)',
+                                    options: SUPPORTED_LANGUAGES.filter(l => l.maturity === 'experimental'),
                                 },
                                 {
                                     label: '🔜 Coming Soon',
