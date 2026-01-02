@@ -1,0 +1,541 @@
+# src/tools/github/tools.py
+"""
+GitHub operations tools using PyGithub.
+Phase 3.3 implementation with lazy initialization for test safety.
+"""
+
+import logging
+import os
+import time
+from functools import wraps
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+
+from github import Github, GithubException, Auth, RateLimitExceededException
+from github.Repository import Repository
+from github.GithubObject import NotSet
+
+from src.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def handle_rate_limits(func):
+    """Decorator to handle GitHub API rate limits."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (RateLimitExceededException, GithubException) as e:
+            status = getattr(e, 'status', None)
+            data = getattr(e, 'data', {})
+            headers = getattr(e, 'headers', {})
+            
+            # Check for rate limit indicators
+            is_rate_limit = (
+                isinstance(e, RateLimitExceededException) or 
+                status == 429 or 
+                (status == 403 and 'rate limit' in str(data.get('message', '')).lower())
+            )
+            
+            if is_rate_limit:
+                retry_after = headers.get('Retry-After')
+                limit_reset = headers.get('X-RateLimit-Reset')
+                
+                wait_time = 60  # Default fallback
+                if retry_after:
+                    wait_time = int(retry_after)
+                elif limit_reset:
+                    wait_time = max(1, int(float(limit_reset) - time.time()))
+                
+                msg = f"GitHub API rate limit exceeded. Please retry after {wait_time} seconds."
+                logger.warning(msg, extra={"wait_time": wait_time})
+                
+                # Re-raise as a clean exception that can be caught by the agent
+                raise Exception(msg) from e
+            raise
+    return wrapper
+
+
+class GitHubTools:
+    """GitHub API operations wrapper using PyGithub.
+    
+    Uses lazy initialization to prevent network calls at import time.
+    Set GITOPS_MOCK_GITHUB=true to skip all GitHub API calls (for testing).
+    """
+    
+    def __init__(self, token: Optional[str] = None, lazy: bool = True):
+        # ... (init code remains same) ...
+        self.token = token or getattr(settings, 'GITHUB_TOKEN', None)
+        self._client: Optional[Github] = None
+        self._user = None
+        self._mock_mode = os.getenv("GITOPS_MOCK_GITHUB", "").lower() in ("true", "1", "yes")
+        
+        # Validate token early (but don't connect yet)
+        if not self._mock_mode and not self.token:
+            raise ValueError(
+                "GitHub token required. Set GITHUB_TOKEN in .env or pass token parameter"
+            )
+        
+        # Legacy behavior: initialize immediately if lazy=False
+        if not lazy and not self._mock_mode:
+            self._init_client()
+    
+    def _init_client(self) -> None:
+        """Initialize the GitHub client (called lazily on first use)."""
+        if self._client is not None:
+            return
+            
+        if self._mock_mode:
+            logger.info("GitHub client in MOCK mode - no API calls will be made")
+            return
+            
+        auth = Auth.Token(self.token)
+        self._client = Github(auth=auth)
+        self._user = self._client.get_user()
+        
+        logger.info(
+            f"GitHub client initialized for user: {self._user.login}",
+            extra={"username": self._user.login}
+        )
+    
+    @property
+    def client(self) -> Github:
+        """Get GitHub client (lazy initialization)."""
+        if self._mock_mode:
+            raise RuntimeError("GitHub client not available in mock mode")
+        if self._client is None:
+            self._init_client()
+        return self._client
+    
+    @property
+    def user(self):
+        """Get authenticated user (lazy initialization)."""
+        if self._mock_mode:
+            raise RuntimeError("GitHub user not available in mock mode")
+        if self._user is None:
+            self._init_client()
+        return self._user
+    
+    @handle_rate_limits
+    def list_repos(
+        self,
+        visibility: str = "all",
+        sort: str = "updated",
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """List user repositories.
+        
+        Args:
+            visibility: Repository visibility ('all', 'public', 'private')
+            sort: Sort by ('updated', 'created', 'pushed', 'full_name')
+            limit: Maximum number of repos to return
+            
+        Returns:
+            List of repository information dicts
+        """
+        try:
+            start_time = time.time()
+            repos = self.user.get_repos(
+                visibility=visibility,
+                sort=sort
+            )
+            
+            # Fetch slice immediately to force API call for timing measurement if lazy
+            result = []
+            fetched_repos = list(repos[:limit])
+            api_duration = time.time() - start_time
+            
+            for repo in fetched_repos:
+                result.append({
+                    "name": repo.name,
+                    "full_name": repo.full_name,
+                    "description": repo.description,
+                    "private": repo.private,
+                    "url": repo.html_url,
+                    "clone_url": repo.clone_url,
+                    "language": repo.language,
+                    "stars": repo.stargazers_count,
+                    "forks": repo.forks_count,
+                    "updated_at": repo.updated_at.isoformat() if repo.updated_at else None,
+                    "created_at": repo.created_at.isoformat() if repo.created_at else None,
+                })
+            
+            logger.info(
+                f"Listed {len(result)} repositories in {api_duration:.2f}s",
+                extra={
+                    "count": len(result), 
+                    "visibility": visibility,
+                    "duration_ms": int(api_duration * 1000)
+                }
+            )
+            return result
+            
+        except GithubException as e:
+            # handle_rate_limits decorator will catch rate limits, otherwise re-raise
+            logger.error(
+                f"Failed to list repos: {e.status} - {e.data}",
+                extra={"status": e.status, "error": str(e)},
+                exc_info=True
+            )
+            raise
+    
+    @handle_rate_limits
+    def create_repo(
+        self,
+        name: str,
+        description: str = "",
+        private: bool = False,
+        auto_init: bool = True,
+        gitignore_template: Optional[str] = None,
+        license_template: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create a new repository.
+        
+        Args:
+            name: Repository name
+            description: Repository description
+            private: Make repository private
+            auto_init: Initialize with README
+            gitignore_template: Gitignore template (e.g., 'Python', 'Node')
+            license_template: License template (e.g., 'mit', 'apache-2.0')
+            
+        Returns:
+            Created repository information
+        """
+        try:
+            start_time = time.time()
+            repo = self.user.create_repo(
+                name=name,
+                description=description or NotSet,
+                private=private,
+                auto_init=auto_init,
+                gitignore_template=gitignore_template or NotSet,
+                license_template=license_template or NotSet
+            )
+            duration = time.time() - start_time
+            
+            result = {
+                "name": repo.name,
+                "full_name": repo.full_name,
+                "description": repo.description,
+                "private": repo.private,
+                "url": repo.html_url,
+                "clone_url": repo.clone_url,
+                "created_at": repo.created_at.isoformat() if repo.created_at else None,
+            }
+            
+            logger.info(
+                f"Created repository: {repo.full_name} in {duration:.2f}s",
+                extra={
+                    "repo": repo.full_name, 
+                    "private": private,
+                    "duration_ms": int(duration * 1000)
+                }
+            )
+            return result
+            
+        except GithubException as e:
+            logger.error(
+                f"Failed to create repo '{name}': {e.status} - {e.data}",
+                extra={"repo_name": name, "status": e.status, "error": str(e)},
+                exc_info=True
+            )
+            raise
+    
+    @handle_rate_limits
+    def create_issue(
+        self,
+        repo_name: str,
+        title: str,
+        body: str = "",
+        labels: Optional[List[str]] = None,
+        assignees: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Create an issue in a repository.
+        
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo' for user repos)
+            title: Issue title
+            body: Issue description/body
+            labels: List of label names
+            assignees: List of GitHub usernames to assign
+            
+        Returns:
+            Created issue information
+        """
+        try:
+            # Handle both 'owner/repo' and 'repo' formats
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            
+            repo = self.client.get_repo(repo_name)
+            
+            start_time = time.time()
+            issue = repo.create_issue(
+                title=title,
+                body=body or NotSet,
+                labels=labels or NotSet,
+                assignees=assignees or NotSet
+            )
+            duration = time.time() - start_time
+            
+            result = {
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue.body,
+                "state": issue.state,
+                "url": issue.html_url,
+                "labels": [label.name for label in issue.labels],
+                "assignees": [assignee.login for assignee in issue.assignees],
+                "created_at": issue.created_at.isoformat() if issue.created_at else None,
+            }
+            
+            logger.info(
+                f"Created issue #{issue.number} in {repo_name} in {duration:.2f}s",
+                extra={
+                    "repo": repo_name, 
+                    "issue_number": issue.number,
+                    "duration_ms": int(duration * 1000)
+                }
+            )
+            return result
+            
+        except GithubException as e:
+            logger.error(
+                f"Failed to create issue in '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "status": e.status, "error": str(e)},
+                exc_info=True
+            )
+            raise
+    
+    @handle_rate_limits
+    def commit_file(
+        self,
+        repo_name: str,
+        file_path: str,
+        content: str,
+        commit_message: str,
+        branch: str = "main",
+        create_if_missing: bool = True
+    ) -> Dict[str, Any]:
+        """Commit a file to a repository.
+        
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+            file_path: Path to file in repo (e.g., 'src/app.py')
+            content: File content as string
+            commit_message: Commit message
+            branch: Branch name (default: 'main')
+            create_if_missing: Create file if it doesn't exist, else update
+            
+        Returns:
+            Commit information
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            
+            repo = self.client.get_repo(repo_name)
+            
+            # Check if file exists
+            start_time = time.time()
+            try:
+                existing_file = repo.get_contents(file_path, ref=branch)
+                # File exists - update it
+                result = repo.update_file(
+                    path=file_path,
+                    message=commit_message,
+                    content=content,
+                    sha=existing_file.sha,
+                    branch=branch
+                )
+                action = "updated"
+            except GithubException as e:
+                if e.status == 404 and create_if_missing:
+                    # File doesn't exist - create it
+                    result = repo.create_file(
+                        path=file_path,
+                        message=commit_message,
+                        content=content,
+                        branch=branch
+                    )
+                    action = "created"
+                else:
+                    raise
+            duration = time.time() - start_time
+            
+            commit_info = {
+                "action": action,
+                "file_path": file_path,
+                "commit_sha": result["commit"].sha,
+                "commit_message": commit_message,
+                "branch": branch,
+                "url": result["commit"].html_url,
+            }
+            
+            logger.info(
+                f"{action.capitalize()} file '{file_path}' in {repo_name} in {duration:.2f}s",
+                extra={
+                    "repo": repo_name, 
+                    "file": file_path, 
+                    "action": action,
+                    "duration_ms": int(duration * 1000)
+                }
+            )
+            return commit_info
+            
+        except GithubException as e:
+            logger.error(
+                f"Failed to commit file '{file_path}' to '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "file": file_path, "status": e.status, "error": str(e)},
+                exc_info=True
+            )
+            raise
+    
+    @handle_rate_limits
+    def create_pull_request(
+        self,
+        repo_name: str,
+        title: str,
+        head: str,
+        base: str = "main",
+        body: str = "",
+        draft: bool = False
+    ) -> Dict[str, Any]:
+        """Create a pull request.
+        
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+            title: PR title
+            head: Head branch name (branch with changes)
+            base: Base branch name (branch to merge into)
+            body: PR description
+            draft: Create as draft PR
+            
+        Returns:
+            Created PR information
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            
+            repo = self.client.get_repo(repo_name)
+            
+            start_time = time.time()
+            pr = repo.create_pull(
+                title=title,
+                body=body or NotSet,
+                head=head,
+                base=base,
+                draft=draft
+            )
+            duration = time.time() - start_time
+            
+            result = {
+                "number": pr.number,
+                "title": pr.title,
+                "body": pr.body,
+                "state": pr.state,
+                "draft": pr.draft,
+                "head": pr.head.ref,
+                "base": pr.base.ref,
+                "url": pr.html_url,
+                "created_at": pr.created_at.isoformat() if pr.created_at else None,
+            }
+            
+            logger.info(
+                f"Created PR #{pr.number} in {repo_name}: {head} -> {base} in {duration:.2f}s",
+                extra={
+                    "repo": repo_name, 
+                    "pr_number": pr.number, 
+                    "head": head, 
+                    "base": base,
+                    "duration_ms": int(duration * 1000)
+                }
+            )
+            return result
+            
+        except GithubException as e:
+            logger.error(
+                f"Failed to create PR in '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "status": e.status, "error": str(e)},
+                exc_info=True
+            )
+            raise
+
+
+# Convenience functions for agent usage
+def list_repos(
+    token: Optional[str] = None,
+    visibility: str = "all",
+    sort: str = "updated",
+    limit: int = 10
+) -> List[Dict[str, Any]]:
+    """List user repositories (convenience wrapper)."""
+    tools = GitHubTools(token=token)
+    return tools.list_repos(visibility=visibility, sort=sort, limit=limit)
+
+
+def create_repo(
+    name: str,
+    description: str = "",
+    private: bool = False,
+    token: Optional[str] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Create repository (convenience wrapper)."""
+    tools = GitHubTools(token=token)
+    return tools.create_repo(name=name, description=description, private=private, **kwargs)
+
+
+def create_issue(
+    repo_name: str,
+    title: str,
+    body: str = "",
+    token: Optional[str] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Create issue (convenience wrapper)."""
+    tools = GitHubTools(token=token)
+    return tools.create_issue(repo_name=repo_name, title=title, body=body, **kwargs)
+
+
+def commit_file(
+    repo_name: str,
+    file_path: str,
+    content: str,
+    commit_message: str,
+    token: Optional[str] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Commit file (convenience wrapper)."""
+    tools = GitHubTools(token=token)
+    return tools.commit_file(
+        repo_name=repo_name,
+        file_path=file_path,
+        content=content,
+        commit_message=commit_message,
+        **kwargs
+    )
+
+
+def create_pull_request(
+    repo_name: str,
+    title: str,
+    head: str,
+    base: str = "main",
+    body: str = "",
+    token: Optional[str] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Create pull request (convenience wrapper)."""
+    tools = GitHubTools(token=token)
+    return tools.create_pull_request(
+        repo_name=repo_name,
+        title=title,
+        head=head,
+        base=base,
+        body=body,
+        **kwargs
+    )

@@ -4,8 +4,8 @@
       "replaceBtn": "Replace Batch",
       "title": "New Assistant Recommendations:"
     },
-    "defaultMessage": "I am your personal intelligent assistant {{appName}}. How can I assist you today?<br />If you need a more professional or customized assistant, you can click <plus /> to create a custom assistant.",
-    "defaultMessageWithoutCreate": "I am your personal intelligent assistant {{appName}}. How can I assist you today?",
+    "defaultMessage": "I am your personal intelligent assistant , Devforger. How can I assist you today?<br />If you need a more professional or customized assistant, you can click <plus /> to create a custom assistant.",
+    "defaultMessageWithoutCreate": "I am your personal intelligent assistant , Devforger. How can I assist you today?",
     "groupActivities": {
       "analysis": {
         "codeReview": {
@@ -345,10 +345,10 @@
       "title": "Try asking:"
     },
     "welcome": {
-      "afternoon": "Good Afternoon",
-      "morning": "Good Morning",
-      "night": "Good Evening",
-      "noon": "Good Noon"
+      "afternoon": "Good Afternoon,Devforger!",
+      "morning": "Good Morning,Devforger!",
+      "night": "Good Evening,Devforger!",
+      "noon": "Good Noon,Devforger!"
     }
   },
   "header": "Welcome",

@@ -1,0 +1,185 @@
+.
+├── .cursor
+│   └── commands
+│       ├── PHASE_STATUS.md
+│       ├── devforge-backend.md
+│       ├── devforge-lobe-chat.md
+│       └── github-examples.md
+├── docs
+│   ├── tools
+│   │   ├── README.md
+│   │   ├── generate_cheatsheet.md
+│   │   ├── generate_data.md
+│   │   ├── github_operation.md
+│   │   ├── refine_prompt.md
+│   │   ├── rerank_docs.md
+│   │   └── retrieve_docs.md
+│   └── github_operations_curls.md
+├── manifests
+│   ├── __init__.py
+│   └── devforge.json
+├── scripts
+│   └── mcp_inspector.py
+├── src
+│   ├── agents
+│   │   ├── cheatsheet
+│   │   │   ├── agent.py
+│   │   │   ├── formatter.py
+│   │   │   ├── generator.py
+│   │   │   └── language_profiles.py
+│   │   ├── datagen
+│   │   │   ├── __init__.py
+│   │   │   └── agent.py
+│   │   ├── github
+│   │   │   ├── intelligence
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── commit_generator.py
+│   │   │   │   ├── log_parser.py
+│   │   │   │   └── repo_discovery.py
+│   │   │   ├── workflows
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── rollback.py
+│   │   │   ├── __init__.py
+│   │   │   └── agent.py
+│   │   ├── prompt_refiner
+│   │   │   ├── agent.py
+│   │   │   ├── code_parser.py
+│   │   │   ├── context_orchestrator.py
+│   │   │   ├── context_selector.py
+│   │   │   ├── context_types.py
+│   │   │   ├── conversation_parser.py
+│   │   │   ├── dependency_analyzer.py
+│   │   │   ├── domain_handlers.py
+│   │   │   ├── enhancer.py
+│   │   │   ├── sanitizer.py
+│   │   │   └── templates.py
+│   │   ├── rag
+│   │   │   ├── __init__.py
+│   │   │   └── agent.py
+│   │   ├── __init__.py
+│   │   ├── reranker.py
+│   │   └── supervisor.py
+│   ├── api
+│   │   ├── __init__.py
+│   │   ├── monitoring.py
+│   │   └── routers.py
+│   ├── core
+│   │   ├── __init__.py
+│   │   ├── audit.py
+│   │   ├── confidence.py
+│   │   ├── config.py
+│   │   ├── features.py
+│   │   ├── jobs.py
+│   │   ├── middleware.py
+│   │   ├── model_router.py
+│   │   ├── performance.py
+│   │   ├── schemas.py
+│   │   ├── security.py
+│   │   ├── session.py
+│   │   └── utils.py
+│   ├── tools
+│   │   ├── cheatsheet
+│   │   │   ├── templates.py
+│   │   │   └── tools.py
+│   │   ├── datagen
+│   │   │   ├── __init__.py
+│   │   │   ├── advanced_generator.py
+│   │   │   ├── advanced_generator_v2.py
+│   │   │   ├── catalog_factory.py
+│   │   │   ├── context_classifier.py
+│   │   │   ├── domain_templates.py
+│   │   │   ├── field_value_generator.py
+│   │   │   ├── lexical_classifier.py
+│   │   │   ├── lexical_dict.py
+│   │   │   ├── llm_classifier.py
+│   │   │   ├── pattern_classifier.py
+│   │   │   ├── realism_engine.py
+│   │   │   ├── relationship_engine.py
+│   │   │   ├── schema_designer.py
+│   │   │   ├── schema_models.py
+│   │   │   ├── semantic_analyzer.py
+│   │   │   ├── semantic_analyzer_v2.py
+│   │   │   ├── semantic_models.py
+│   │   │   ├── semantic_router.py
+│   │   │   ├── semantic_types.py
+│   │   │   ├── simple_distributions.py
+│   │   │   ├── tools.py
+│   │   │   └── value_catalog_builder.py
+│   │   ├── github
+│   │   │   ├── __init__.py
+│   │   │   └── tools.py
+│   │   ├── rag
+│   │   │   ├── __init__.py
+│   │   │   └── tools.py
+│   │   ├── __init__.py
+│   │   ├── changelog.py
+│   │   ├── ci_diagnostics.py
+│   │   └── scaffold.py
+│   ├── __init__.py
+│   └── main.py
+├── tests
+│   ├── __init__.py
+│   ├── test_api.py
+│   ├── test_changelog.py
+│   ├── test_cheatsheet.py
+│   ├── test_ci_diagnostics.py
+│   ├── test_commit_generator.py
+│   ├── test_confidence.py
+│   ├── test_context_parser.py
+│   ├── test_datagen.py
+│   ├── test_distributions.py
+│   ├── test_domain_templates.py
+│   ├── test_e2e_semantic.py
+│   ├── test_end_to_end.py
+│   ├── test_features.py
+│   ├── test_field_value_generator.py
+│   ├── test_github.py
+│   ├── test_github_agent_integration.py
+│   ├── test_github_integration.py
+│   ├── test_github_rollback.py
+│   ├── test_integration_phase1.py
+│   ├── test_integration_phase1_patterns.py
+│   ├── test_jobs.py
+│   ├── test_lexical_expansion.py
+│   ├── test_log_parser.py
+│   ├── test_monitoring.py
+│   ├── test_performance.py
+│   ├── test_phase1_regression.py
+│   ├── test_prompt_refiner.py
+│   ├── test_prompt_refiner_phase2.py
+│   ├── test_rag.py
+│   ├── test_realism.py
+│   ├── test_relationships.py
+│   ├── test_repo_discovery.py
+│   ├── test_reranker.py
+│   ├── test_rollback.py
+│   ├── test_sanitizer.py
+│   ├── test_scaffold.py
+│   ├── test_schema_designer.py
+│   ├── test_semantic_analyzer.py
+│   ├── test_semantic_analyzer_v2.py
+│   ├── test_semantic_models.py
+│   ├── test_semantic_router.py
+│   ├── test_session.py
+│   └── test_value_catalog_builder.py
+├── .env.example
+├── .gitignore
+├── BACKEND_PLAN.md
+├── CHANGELOG.md
+├── CODE_SNIPPETS.md
+├── IMPLEMENTATION_REVIEW.md
+├── INTEGRATION_PLAN.md
+├── MCP_GATEWAY_FIX.md
+├── PHASE3_SUMMARY.md
+├── PHASE_STATUS.md
+├── PROJECT_OVERVIEW.md
+├── README.md
+├── README_v0.8.0.md
+├── SECURITY.md
+├── USAGE.md
+├── pytest.ini
+├── requirements.txt
+├── setup.py
+└── structure.txt
+
+24 directories, 159 files

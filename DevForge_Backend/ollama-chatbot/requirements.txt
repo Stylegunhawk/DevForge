@@ -1,6 +1,0 @@
-ollama
-python-dotenv
-mcp
-python-dotenv
-jsonschema
-pydantic

@@ -3,10 +3,10 @@
     "title": "Model"
   },
   "active": "Active",
-  "agentDefaultMessage": "Hello, I am **{{name}}**. You can start a conversation with me right away, or you can go to [Assistant Settings]({{url}}) to complete my information.",
-  "agentDefaultMessageWithSystemRole": "Hello, I am **{{name}}**. How can I assist you today?",
-  "agentDefaultMessageWithoutEdit": "Hello, I am **{{name}}**. How can I assist you today?",
-  "agents": "Assistants",
+  "agentDefaultMessage": "Hello, I am **{{name}}**, your DevForge Assistant. Let's build something amazing together!",
+  "agentDefaultMessageWithSystemRole": "Hello, I am **{{name}}** from DevForge. How can I assist you with your development today?",
+  "agentDefaultMessageWithoutEdit": "Hi there! I’m your **DevForge** Assistant — ready to help you with your coding tasks.",
+  "agents": "DevForge Bots",
   "artifact": {
     "generating": "Generating",
     "inThread": "Cannot view in subtopic, please switch to the main conversation area to open",
@@ -14,22 +14,22 @@
     "thought": "Thought",
     "unknownTitle": "Untitled Work"
   },
-  "availableAgents": "Available assistants",
+  "availableAgents": "Available DevForge Bots",
   "backToBottom": "Back to bottom",
   "chatList": {
     "longMessageDetail": "View Details"
   },
-  "clearCurrentMessages": "Clear current session messages",
-  "confirmClearCurrentMessages": "You are about to clear the current session messages. Once cleared, they cannot be retrieved. Please confirm your action.",
-  "confirmRemoveChatGroupItemAlert": "This Agent team will be deleted. Team members will not be affected. Please confirm your action.",
-  "confirmRemoveGroupItemAlert": "You are about to delete this group. After deletion, its assistants will be moved to the default list. Please confirm your action.",
-  "confirmRemoveGroupSuccess": "Agent team deleted successfully",
-  "confirmRemoveSessionItemAlert": "You are about to delete this assistant. Once deleted, it cannot be retrieved. Please confirm your action.",
-  "confirmRemoveSessionSuccess": "Assistant removed successfully",
-  "defaultAgent": "Default Assistant",
-  "defaultGroupChat": "Agent Team",
+  "clearCurrentMessages": "Clear current DevForge session messages",
+  "confirmClearCurrentMessages": "You are about to clear the current DevForge chat session. Once cleared, it cannot be retrieved. Please confirm your action.",
+  "confirmRemoveChatGroupItemAlert": "This DevForge Team will be deleted. Team members will not be affected. Please confirm your action.",
+  "confirmRemoveGroupItemAlert": "You are about to delete this DevForge Group. After deletion, its bots will be moved to the default list. Please confirm your action.",
+  "confirmRemoveGroupSuccess": "DevForge Team deleted successfully",
+  "confirmRemoveSessionItemAlert": "You are about to delete this DevForge Assistant. Once deleted, it cannot be retrieved. Please confirm your action.",
+  "confirmRemoveSessionSuccess": "DevForge Assistant removed successfully",
+  "defaultAgent": "Default DevForge Assistant",
+  "defaultGroupChat": "DevForge Team",
   "defaultList": "Default List",
-  "defaultSession": "Default Assistant",
+  "defaultSession": "Default DevForge Assistant",
   "dm": {
     "placeholder": "Your private messages with {{agentTitle}} will appear here.",
     "tooltip": "Send a private message",
@@ -42,14 +42,14 @@
     "title": "{{title}} Copy"
   },
   "duplicateTitle": "{{title}} Copy",
-  "emptyAgent": "No assistant available",
+  "emptyAgent": "No DevForge Assistant available",
   "extendParams": {
     "disableContextCaching": {
-      "desc": "The cost of generating a single conversation can be reduced by up to 90%, and the response speed is increased by 4 times (<1>Learn more</1>). Enabling this will automatically disable the limit on the number of historical messages.",
+      "desc": "Reduces the cost of generating a single conversation by up to 90% and increases response speed by 4x. Enabling this will automatically disable historical message limits.",
       "title": "Enable Context Caching"
     },
     "enableReasoning": {
-      "desc": "Based on the Claude Thinking mechanism limit (<1>Learn more</1>), enabling this will automatically disable the limit on the number of historical messages.",
+      "desc": "Based on the DevForge Thinking mechanism, enabling this will automatically disable message limits.",
       "title": "Enable Deep Thinking"
     },
     "reasoningBudgetToken": {
@@ -66,16 +66,16 @@
     },
     "title": "Model Extension Features",
     "urlContext": {
-      "desc": "When enabled, web links will be automatically parsed to retrieve the actual webpage context content",
-      "title": "Extract Webpage Link Content"
+      "desc": "When enabled, web links will be automatically parsed to retrieve webpage content.",
+      "title": "Extract Webpage Content"
     }
   },
   "group": {
-    "desc": "Collaborate with multiple AI assistants in a shared conversation space.",
-    "memberTooltip": "There are {{count}} members in the group",
+    "desc": "Collaborate with multiple DevForge Bots in a shared coding workspace.",
+    "memberTooltip": "There are {{count}} members in this DevForge Team",
     "orchestratorThinking": "The host is thinking...",
     "removeMember": "Remove Member",
-    "title": "Group"
+    "title": "DevForge Team"
   },
   "groupDescription": "Team Description",
   "groupSidebar": {
@@ -86,7 +86,7 @@
       "orchestratorThinking": "The host is thinking...",
       "removeMember": "Remove Member",
       "stopOrchestrator": "Stop Thinking",
-      "triggerOrchestrator": "Start Group Chat"
+      "triggerOrchestrator": "Start Team Chat"
     },
     "tabs": {
       "host": "Host",
@@ -95,10 +95,10 @@
     }
   },
   "groupWizard": {
-    "chooseMembers": "Select existing assistants...",
-    "createGroup": "Create Team",
-    "existingMembers": "Current Agents",
-    "groupMembers": "These assistants will also be added to your list",
+    "chooseMembers": "Select existing DevForge Bots...",
+    "createGroup": "Create DevForge Team",
+    "existingMembers": "Current Bots",
+    "groupMembers": "These bots will also be added to your list",
     "host": {
       "description": "Enable the team to operate independently",
       "title": "Enable Host",
@@ -110,24 +110,24 @@
     "noTemplateMembers": "No members in the template",
     "noTemplates": "No templates available",
     "searchTemplates": "Search templates...",
-    "title": "Create Agent Team",
+    "title": "Create DevForge Team",
     "useTemplate": "Use Template"
   },
   "hideForYou": "Direct message content is hidden. Please enable 'Show Direct Message Content' in settings to view.",
   "history": {
-    "title": "The assistant will only remember the last {{count}} messages."
+    "title": "The DevForge Assistant will only remember the last {{count}} messages."
   },
   "historyRange": "History Range",
-  "historySummary": "Historical Message Summary",
+  "historySummary": "Chat History Summary",
   "inactive": "Inactive",
   "inbox": {
-    "desc": "Activate the brain cluster and spark creative thinking. Your virtual assistant is here to communicate with you about everything.",
-    "title": "Just Chat"
+    "desc": "Welcome to DevForge — your intelligent coding workspace. Collaborate with your DevForge Assistant here.",
+    "title": "DevForge Chat"
   },
   "input": {
-    "addAi": "Add an AI message",
+    "addAi": "Add a DevForge message",
     "addUser": "Add a user message",
-    "disclaimer": "AI may also make mistakes, please verify important information",
+    "disclaimer": "DevForge AI may make mistakes, please verify important information.",
     "errorMsg": "Message sending failed, please check your network and try again: {{errorMsg}}",
     "more": "more",
     "send": "Send",
@@ -144,28 +144,28 @@
   "knowledgeBase": {
     "all": "All Content",
     "allFiles": "All Files",
-    "allKnowledgeBases": "All Knowledge Bases",
-    "disabled": "The current deployment mode does not support knowledge base conversations. To use this feature, please switch to server-side database deployment or use the {{cloud}} service.",
+    "allKnowledgeBases": "All DevForge Knowledge Vaults",
+    "disabled": "The current deployment mode does not support DevForge Knowledge Vaults. Please switch to server-side deployment or use the {{cloud}} service.",
     "library": {
       "action": {
         "add": "Add",
         "detail": "Details",
         "remove": "Remove"
       },
-      "title": "Files/Knowledge Base"
+      "title": "Files/DevForge Vault"
     },
-    "relativeFilesOrKnowledgeBases": "Related Files/Knowledge Bases",
-    "title": "Knowledge Base",
-    "uploadGuide": "Uploaded files can be viewed in the 'Knowledge Base'.",
+    "relativeFilesOrKnowledgeBases": "Related Files/DevForge Vaults",
+    "title": "DevForge Knowledge Vault",
+    "uploadGuide": "Uploaded files can be viewed in the 'DevForge Knowledge Vault'.",
     "viewMore": "View More"
   },
   "memberSelection": {
     "addMember": "Add Member",
     "allMembers": "All members",
-    "createGroup": "Create Agent Team",
-    "noAvailableAgents": "No available agents to invite",
-    "noSelectedAgents": "No agents selected yet",
-    "searchAgents": "Search agents...",
+    "createGroup": "Create DevForge Team",
+    "noAvailableAgents": "No available DevForge Bots to invite",
+    "noSelectedAgents": "No bots selected yet",
+    "searchAgents": "Search DevForge Bots...",
     "setInitialMembers": "Select Team Members"
   },
   "members": "Members",
@@ -214,11 +214,11 @@
       "speed": {
         "tps": {
           "title": "TPS",
-          "tooltip": "Tokens Per Second (TPS). This indicates the average speed of AI-generated content (Tokens/second), calculated from the moment the first Token is received."
+          "tooltip": "Tokens Per Second (TPS). Indicates the average generation speed."
         },
         "ttft": {
           "title": "TTFT",
-          "tooltip": "Time To First Token (TTFT). This refers to the time interval from when you send a message to when the client receives the first Token."
+          "tooltip": "Time To First Token (TTFT). The time between message send and first response."
         }
       },
       "title": "Generation Details",
@@ -229,17 +229,17 @@
     "jumpToMessage": "Jump to message {{index}}",
     "nextMessage": "Next message",
     "previousMessage": "Previous message",
-    "senderAssistant": "Agent",
+    "senderAssistant": "DevForge Bot",
     "senderUser": "You"
   },
-  "newAgent": "New Assistant",
-  "newGroupChat": "New Agent Team",
-  "noAgentsYet": "This Agent Team has no members yet. Click the + button to invite assistants.",
-  "noAvailableAgents": "No members available to invite",
-  "noMatchingAgents": "No matching members found",
-  "noMembersYet": "This group doesn't have any members yet. Click the + button to invite assistants.",
-  "noSelectedAgents": "No members selected yet",
-  "owner": "Group Owner",
+  "newAgent": "New DevForge Assistant",
+  "newGroupChat": "New DevForge Team",
+  "noAgentsYet": "This DevForge Team has no members yet. Click the + button to invite bots.",
+  "noAvailableAgents": "No DevForge Bots available to invite",
+  "noMatchingAgents": "No matching DevForge Bots found",
+  "noMembersYet": "This DevForge Team doesn't have any members yet. Click the + button to invite bots.",
+  "noSelectedAgents": "No bots selected yet",
+  "owner": "Team Owner",
   "pin": "Pin",
   "pinOff": "Unpin",
   "rag": {
@@ -274,50 +274,50 @@
       "useModelBuiltin": "Use the model's built-in search engine"
     },
     "searchModel": {
-      "desc": "The current model does not support function calls, so it needs to be paired with a model that does support function calls for online searching.",
-      "title": "Search Assistant Model"
+      "desc": "The current model does not support function calls, so it needs to be paired with one that does for online searching.",
+      "title": "DevForge Search Model"
     },
     "title": "Online Search"
   },
-  "searchAgentPlaceholder": "Search assistants...",
-  "searchAgents": "Search assistants...",
-  "selectedAgents": "Selected agents",
+  "searchAgentPlaceholder": "Search DevForge Bots...",
+  "searchAgents": "Search DevForge Bots...",
+  "selectedAgents": "Selected DevForge Bots",
   "sendPlaceholder": "Type your message here...",
   "sessionGroup": {
-    "config": "Group Management",
-    "confirmRemoveGroupAlert": "This group is about to be deleted. After deletion, the assistants in this group will be moved to the default list. Please confirm your operation.",
-    "createAgentSuccess": "Assistant created successfully",
-    "createGroup": "Add New Group",
-    "createGroupFailed": "Failed to create group chat",
-    "createGroupSuccess": "Group chat created successfully",
+    "config": "Team Management",
+    "confirmRemoveGroupAlert": "This DevForge Team will be deleted. Bots in this team will be moved to the default list.",
+    "createAgentSuccess": "DevForge Assistant created successfully",
+    "createGroup": "Add New DevForge Team",
+    "createGroupFailed": "Failed to create DevForge Team",
+    "createGroupSuccess": "DevForge Team created successfully",
     "createSuccess": "Created successfully",
-    "creatingAgent": "Creating assistant...",
-    "inputPlaceholder": "Please enter group name...",
-    "moveGroup": "Move to Group",
-    "newGroup": "New Group",
-    "rename": "Rename Group",
+    "creatingAgent": "Creating DevForge Assistant...",
+    "inputPlaceholder": "Please enter team name...",
+    "moveGroup": "Move to Team",
+    "newGroup": "New Team",
+    "rename": "Rename Team",
     "renameSuccess": "Renamed successfully",
     "sortSuccess": "Reorder successful",
-    "sorting": "Group sorting updating...",
-    "tooLong": "Group name length should be between 1-20"
+    "sorting": "Team sorting updating...",
+    "tooLong": "Team name length should be between 1-20"
   },
   "shareModal": {
     "copy": "Copy",
     "download": "Download Screenshot",
     "downloadError": "Download failed",
-    "downloadFile": "Download File",
-    "downloadPdf": "Download PDF",
+    "downloadFile": "Download from DevForge",
+    "downloadPdf": "Download DevForge PDF",
     "downloadSuccess": "Download successful",
-    "exportPdf": "Export as PDF",
-    "exportTitle": "Default Title",
-    "generatePdf": "Generate PDF",
+    "exportPdf": "Export as DevForge PDF",
+    "exportTitle": "DevForge Export",
+    "generatePdf": "Generate DevForge PDF",
     "generatingPdf": "Generating PDF...",
     "imageType": "Image Format",
     "includeTool": "Include Plugin Messages",
     "includeUser": "Include User Messages",
     "loadingPdf": "Loading PDF...",
     "noPdfData": "No PDF data available",
-    "pdf": "PDF",
+    "pdf": "DevForge PDF",
     "pdfErrorDescription": "An error occurred while generating the PDF, please try again",
     "pdfGenerationError": "PDF generation failed",
     "pdfReady": "PDF is ready",
@@ -355,7 +355,7 @@
     "chats": "Chat Messages",
     "historySummary": "History Summary",
     "rest": "Remaining",
-    "supervisor": "Group Host",
+    "supervisor": "Team Host",
     "systemRole": "Role Settings",
     "title": "Context Details",
     "tools": "Plugin Settings",
@@ -381,8 +381,8 @@
     "action": "Text-to-Speech",
     "clear": "Clear Speech"
   },
-  "untitledAgent": "Untitled Assistant",
-  "updateAgent": "Update Assistant Information",
+  "untitledAgent": "Untitled DevForge Assistant",
+  "updateAgent": "Update DevForge Assistant Information",
   "upload": {
     "action": {
       "fileUpload": "Upload File",

@@ -1,0 +1,373 @@
+{
+  "identifier": "devforge",
+  "name": "DevForge",
+  "meta": {
+    "author": "You",
+    "version": "0.8.0",
+    "description": "Local developer tools with intelligent GitHub automation (data generation, RAG, GitOps, CI/CD, and Cheat Sheets)"
+  },
+  "api": [
+    {
+      "name": "generate_data",
+      "description": "Generate mock CSV/JSON data using Faker and Pandas.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "description": "Number of rows to generate",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 10
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format",
+            "enum": [
+              "json",
+              "csv"
+            ],
+            "default": "json"
+          },
+          "fields": {
+            "type": "array",
+            "description": "Optional custom fields (e.g., ['name','email','phone'])",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "rows"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "retrieve_docs",
+      "description": "Search documents using RAG (ChromaDB / Qdrant). Ingest documents and query them semantically.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "file_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional: Documents to ingest first (PDF, MD, TXT, DOCX)"
+          },
+          "top_k": {
+            "type": "integer",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Number of results to return"
+          },
+          "embed_model": {
+            "type": "string",
+            "enum": [
+              "nomic-embed-text",
+              "bge-m3"
+            ],
+            "default": "nomic-embed-text",
+            "description": "Embedding model to use"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "github_operation",
+      "description": "Intelligent GitHub automation with natural language. Supports: list repos, create issues, commit files, create PRs. v0.8 features: fuzzy repo matching, AI commit messages from diffs, log-to-issue parsing (Python/JS/Java/Go), confidence-based safety gating.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural language description of the GitHub action (e.g., 'list my repos', 'create issue in backend about login bug', 'commit auth changes')"
+          },
+          "context": {
+            "type": "object",
+            "description": "Optional context for enhanced intelligence (v0.8)",
+            "properties": {
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "File list for commit message context"
+              },
+              "diff": {
+                "type": "string",
+                "description": "Git diff for auto-generating Conventional Commit messages"
+              },
+              "error_log": {
+                "type": "string",
+                "description": "Stack trace for intelligent issue creation with file/line extraction"
+              },
+              "session_id": {
+                "type": "string",
+                "description": "Session ID for multi-turn conversation context"
+              },
+              "repo": {
+                "type": "string",
+                "description": "Pre-specified repository (owner/repo) to skip fuzzy matching"
+              }
+            }
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "rerank_docs",
+      "description": "Rerank retrieved documents by relevance using cross-encoder",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "User query"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of documents to rerank"
+          },
+          "top_k": {
+            "type": "integer",
+            "default": 5,
+            "description": "Number of top results to return"
+          }
+        },
+        "required": [
+          "query",
+          "documents"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "refine_prompt",
+      "description": "Refine and optimize a prompt for specific domains (image, code, rag, llm)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Original user prompt to refine"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "general",
+              "image",
+              "code",
+              "rag",
+              "llm"
+            ],
+            "default": "general",
+            "description": "Target domain for the prompt"
+          },
+          "skill_level": {
+            "type": "string",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "expert"
+            ],
+            "default": "intermediate",
+            "description": "Target skill level/complexity"
+          },
+          "file_context": {
+            "type": "string",
+            "description": "Optional context from attached files (code, markdown, etc.)"
+          },
+          "conversation_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "assistant",
+                    "system"
+                  ]
+                },
+                "content": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Last 5 conversation messages for project context (e.g., tech stack, previous work)"
+          },
+          "attached_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Code file contents to analyze for context (e.g., existing classes, functions, conventions)"
+          },
+          "project_files": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Dictionary of project files (e.g., {'requirements.txt': '...'}) for dependency analysis"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "generate_cheatsheet",
+      "description": "Generate a dynamic cheat sheet for a programming language based on skill level.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string",
+            "description": "Programming language (e.g., python, javascript). Auto-detected if code_context is provided."
+          },
+          "skill_level": {
+            "type": "string",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "expert"
+            ],
+            "default": "beginner",
+            "description": "Target skill level"
+          },
+          "code_context": {
+            "type": "string",
+            "description": "Optional code snippet to auto-detect language and context."
+          }
+        },
+        "required": []
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "generate_changelog",
+      "description": "Generate release notes and changelog from git history between tags or commits. Parses conventional commits and categories changes (features, fixes, docs, etc.).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "Repository name (user/repo or org/repo)"
+          },
+          "from_tag": {
+            "type": "string",
+            "description": "Start tag or commit SHA"
+          },
+          "to_tag": {
+            "type": "string",
+            "default": "HEAD",
+            "description": "End tag or commit SHA (default: HEAD)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "json"
+            ],
+            "default": "markdown",
+            "description": "Output format"
+          }
+        },
+        "required": [
+          "repo",
+          "from_tag"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "analyze_ci_failure",
+      "description": "Analyze CI/CD pipeline failures and suggest fixes. Detects test failures, build errors, dependency issues, and timeouts. Auto-fix policy enforced for safe operations.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "Repository name (user/repo)"
+          },
+          "run_id": {
+            "type": "integer",
+            "description": "Workflow run ID (optional, defaults to latest failed run)"
+          },
+          "pr_number": {
+            "type": "integer",
+            "description": "PR number to analyze (optional, alternative to run_id)"
+          }
+        },
+        "required": [
+          "repo"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
+      "name": "scaffold_repository",
+      "description": "Create new repository from template with CI/CD setup. Templates: fastapi, react, nextjs, microservice, docs. Includes token validation, idempotency checks, and async fallback for large templates.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Repository name (lowercase, hyphens/underscores/dots allowed)"
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "fastapi",
+              "react",
+              "nextjs",
+              "microservice",
+              "docs"
+            ],
+            "description": "Template to use"
+          },
+          "description": {
+            "type": "string",
+            "description": "Repository description (max 200 chars, optional)"
+          },
+          "private": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether repository should be private"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force creation even if repository exists"
+          }
+        },
+        "required": [
+          "name",
+          "template"
+        ]
+      },
+      "call_mode": "prefer"
+    }
+  ]
+}
