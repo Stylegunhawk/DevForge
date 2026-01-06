@@ -1,9 +1,9 @@
 # rerank_docs - Document Reranking Tool
 
 **Tool Name:** `rerank_docs`  
-**Version:** 12A (Phase 11 + 12A Integration)  
-**Status:** ✅ Production Ready  
-**Last Updated:** December 16, 2025
+**Version:** 3.2 (Lobe Chat Integrated)  
+**Status:** ✅ Implemented  
+**Last Updated:** January 6, 2026
 
 ---
 
@@ -15,6 +15,7 @@ The `rerank_docs` tool improves search result quality by re-scoring retrieved do
 - Reranks **fused results** from multiple expanded queries
 - Works with intent-aware query expansion
 - Integrated into `retrieve_docs` two-stage pipeline
+- **Lobe Chat Mandatory:** Automatically utilized by the `semanticSearchForChat` endpoint to ensure high-quality retrieval results (Vector Search + Reranking).
 - Improved string handling for robust tokenization
 
 **Phase 11 Features:**

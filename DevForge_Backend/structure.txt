@@ -5,7 +5,23 @@
 │       ├── devforge-backend.md
 │       ├── devforge-lobe-chat.md
 │       └── github-examples.md
+├── data
+│   └── chromadb
+│       ├── 87e138cd-056c-4fe9-bb1f-c24b1dff4739
+│       │   ├── data_level0.bin
+│       │   ├── header.bin
+│       │   ├── length.bin
+│       │   └── link_lists.bin
+│       └── devforge_docs
+│           ├── 83a8e8ec-172e-46b3-8053-97b2fe62a676
+│           │   ├── data_level0.bin
+│           │   ├── header.bin
+│           │   ├── length.bin
+│           │   └── link_lists.bin
+│           └── chroma.sqlite3
 ├── docs
+│   ├── rag
+│   │   └── phase_11_2_guide.md
 │   ├── tools
 │   │   ├── README.md
 │   │   ├── generate_cheatsheet.md
@@ -14,19 +30,41 @@
 │   │   ├── refine_prompt.md
 │   │   ├── rerank_docs.md
 │   │   └── retrieve_docs.md
-│   └── github_operations_curls.md
+│   ├── backend-frontend-rag-integration-plan-ENHANCED.md
+│   ├── backend-frontend-rag-integration-plan.md
+│   ├── github_operations_curls.md
+│   ├── phase12a_completion.md
+│   ├── phase12a_response.md
+│   ├── phase12a_tests.md
+│   ├── rag_architecture.md
+│   ├── rag_comprehensive_tests.md
+│   ├── rag_golden_path_test.md
+│   ├── rag_ingest_tool_response_curl.md
+│   ├── rag_integration_flow.md
+│   ├── rag_postman_tests.md
+│   └── reranking.md
 ├── manifests
 │   ├── __init__.py
 │   └── devforge.json
 ├── scripts
-│   └── mcp_inspector.py
+│   ├── ingest_test.py
+│   ├── ingest_tools_docs.py
+│   ├── mcp_inspector.py
+│   ├── simple_ingest.py
+│   └── test_retrieval.py
 ├── src
 │   ├── agents
 │   │   ├── cheatsheet
 │   │   │   ├── agent.py
+│   │   │   ├── complexity_scorer.py
+│   │   │   ├── context_parser.py
+│   │   │   ├── enhanced_templates.py
 │   │   │   ├── formatter.py
 │   │   │   ├── generator.py
-│   │   │   └── language_profiles.py
+│   │   │   ├── language_profiles.py
+│   │   │   ├── library_detector.py
+│   │   │   ├── quick_reference.py
+│   │   │   └── section_selector.py
 │   │   ├── datagen
 │   │   │   ├── __init__.py
 │   │   │   └── agent.py
@@ -54,15 +92,51 @@
 │   │   │   ├── sanitizer.py
 │   │   │   └── templates.py
 │   │   ├── rag
+│   │   │   ├── analytics
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── intent_classifier.py
+│   │   │   ├── cache
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── query_cache.py
+│   │   │   │   ├── query_normalizer.py
+│   │   │   │   └── semantic_cache.py
+│   │   │   ├── chunking
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── base_chunker.py
+│   │   │   │   ├── code_chunker.py
+│   │   │   │   └── text_chunker.py
+│   │   │   ├── expansion
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── query_expander.py
+│   │   │   │   └── result_fusion.py
+│   │   │   ├── graph
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── code_graph.py
+│   │   │   ├── linking
+│   │   │   │   ├── __init__.py
+│   │   │   │   └── test_linker.py
+│   │   │   ├── reranking
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── base_reranker.py
+│   │   │   │   └── cross_encoder_reranker.py
+│   │   │   ├── retrieval
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── bm25_index.py
+│   │   │   │   └── hybrid_retriever.py
 │   │   │   ├── __init__.py
 │   │   │   └── agent.py
 │   │   ├── __init__.py
 │   │   ├── reranker.py
 │   │   └── supervisor.py
 │   ├── api
+│   │   ├── routers
+│   │   │   ├── __init__.py
+│   │   │   └── rag.py
+│   │   ├── schemas
+│   │   │   └── rag.py
 │   │   ├── __init__.py
 │   │   ├── monitoring.py
-│   │   └── routers.py
+│   │   └── rag_models.py
 │   ├── core
 │   │   ├── __init__.py
 │   │   ├── audit.py
@@ -77,6 +151,15 @@
 │   │   ├── security.py
 │   │   ├── session.py
 │   │   └── utils.py
+│   ├── llm
+│   │   ├── __init__.py
+│   │   └── ollama_client.py
+│   ├── storage
+│   │   ├── __init__.py
+│   │   ├── base_store.py
+│   │   ├── chroma_health_check.py
+│   │   ├── chroma_store.py
+│   │   └── redis_file_store.py
 │   ├── tools
 │   │   ├── cheatsheet
 │   │   │   ├── templates.py
@@ -115,43 +198,73 @@
 │   │   ├── changelog.py
 │   │   ├── ci_diagnostics.py
 │   │   └── scaffold.py
+│   ├── workers
+│   │   ├── tasks
+│   │   │   ├── __init__.py
+│   │   │   └── rag_tasks.py
+│   │   ├── __init__.py
+│   │   └── celery_app.py
 │   ├── __init__.py
 │   └── main.py
 ├── tests
+│   ├── fixtures
+│   │   └── code_samples.py
+│   ├── integration
+│   │   └── test_phase_11_2.py
+│   ├── rag
+│   │   ├── test_intent_classifier.py
+│   │   ├── test_phase12a_minimal.py
+│   │   ├── test_phase12a_simple.py
+│   │   ├── test_query_cache.py
+│   │   └── test_semantic_cache.py
 │   ├── __init__.py
 │   ├── test_api.py
 │   ├── test_changelog.py
 │   ├── test_cheatsheet.py
+│   ├── test_cheatsheet_context_parser.py
+│   ├── test_cheatsheet_performance.py
 │   ├── test_ci_diagnostics.py
 │   ├── test_commit_generator.py
+│   ├── test_complexity_scorer.py
 │   ├── test_confidence.py
 │   ├── test_context_parser.py
 │   ├── test_datagen.py
+│   ├── test_day2_validation.py
+│   ├── test_day34_validation.py
+│   ├── test_day5_validation.py
+│   ├── test_day6_validation.py
+│   ├── test_day7_validation.py
 │   ├── test_distributions.py
 │   ├── test_domain_templates.py
 │   ├── test_e2e_semantic.py
 │   ├── test_end_to_end.py
+│   ├── test_fallback.py
 │   ├── test_features.py
 │   ├── test_field_value_generator.py
 │   ├── test_github.py
 │   ├── test_github_agent_integration.py
 │   ├── test_github_integration.py
 │   ├── test_github_rollback.py
+│   ├── test_integration.py
 │   ├── test_integration_phase1.py
 │   ├── test_integration_phase1_patterns.py
 │   ├── test_jobs.py
 │   ├── test_lexical_expansion.py
+│   ├── test_library_detector.py
 │   ├── test_log_parser.py
 │   ├── test_monitoring.py
 │   ├── test_performance.py
 │   ├── test_phase1_regression.py
 │   ├── test_prompt_refiner.py
 │   ├── test_prompt_refiner_phase2.py
+│   ├── test_python_levels.py
 │   ├── test_rag.py
 │   ├── test_realism.py
 │   ├── test_relationships.py
 │   ├── test_repo_discovery.py
 │   ├── test_reranker.py
+│   ├── test_reranking_integration.py
+│   ├── test_reranking_performance.py
 │   ├── test_rollback.py
 │   ├── test_sanitizer.py
 │   ├── test_scaffold.py
@@ -177,9 +290,16 @@
 ├── README_v0.8.0.md
 ├── SECURITY.md
 ├── USAGE.md
+├── docker-compose.yml
 ├── pytest.ini
 ├── requirements.txt
+├── response.json
 ├── setup.py
-└── structure.txt
+├── structure.txt
+├── uvicorn.log
+├── validate_chunking.py
+├── verification_cloud_force.json
+├── verification_logs.json
+└── verification_result.json
 
-24 directories, 159 files
+47 directories, 256 files

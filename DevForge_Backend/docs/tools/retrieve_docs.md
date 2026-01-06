@@ -1,9 +1,9 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
 **Tool Name:** `retrieve_docs`  
-**Version:** 12A (Phase 12A Complete)  
-**Status:** ✅ Production Ready  
-**Last Updated:** December 16, 2025
+**Version:** 3.2 (Lobe Chat Integrated)  
+**Status:** ✅ Implemented  
+**Last Updated:** January 6, 2026
 
 ---
 
@@ -110,6 +110,28 @@ curl -X POST http://localhost:8001/api/rag/ingest-async \
 ```bash
 curl http://localhost:8001/api/rag/task/{task_id}
 ```
+
+---
+
+## Lobe Chat Frontend Integration (v3.2)
+
+The RAG system is fully integrated with Lobe Chat's TypeScript data contracts via a dedicated router.
+
+### New Integration Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/rag/file/upload` | `POST` | Upload files with MIME detection and async ingestion |
+| `/api/v1/rag/file/{id}` | `GET` | Poll processing status until `finishEmbedding: true` |
+| `/api/v1/rag/chunk/semanticSearchForChat` | `POST` | Primary search endpoint for Lobe Chat sessions |
+| `/api/v1/rag/file/{id}` | `DELETE` | Removes file, vectors, and metadata |
+| `/api/v1/rag/message/{id}/query` | `DELETE` | Cleans up RAG queries for the specified message |
+
+### Integration Architecture
+
+- **Redis Metadata Store:** Tracks file status (`pending` → `processing` → `success/error`) and query logs.
+- **Static File Serving:** Files are served via `/static/uploads` for frontend previews.
+- **Two-Stage Retrieval:** The `semanticSearchForChat` endpoint automatically utilizes the Phase 12A RAGAgent's vector search and reranking capabilities.
 
 ---
 
@@ -476,8 +498,10 @@ POST /rag/ingest-async
 | TestLinker | `src/agents/rag/linking/test_linker.py` | Test-source linking |
 | BaseVectorStore | `src/storage/base_store.py` | Vector store abstraction |
 | ChromaVectorStore | `src/storage/chroma_store.py` | ChromaDB implementation |
+| Redis Store | `src/storage/redis_file_store.py` | Metadata persistence and state tracking |
+| API (Lobe Chat) | `src/api/routers/rag.py` | Frontend-compliant integration router |
+| API (Legacy) | `src/api/routers/__init__.py` | Original MCP and analytics endpoints |
 | Celery Tasks | `src/workers/tasks/rag_tasks.py` | Async ingestion tasks |
-| API Endpoints | `src/api/routers.py` | HTTP endpoints |
 
 ---
 

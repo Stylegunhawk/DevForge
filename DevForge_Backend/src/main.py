@@ -5,10 +5,14 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
 from src.core.config import settings
 from src.api.routers import router, mcp_router
+from src.api.routers.rag import router as rag_router
+
 from src.api.monitoring import router as monitoring_router  # Phase 3
 
 # Track application start time for uptime calculation
@@ -51,8 +55,27 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(router, prefix="/api")
+app.include_router(rag_router, prefix="/api") # Lobe Chat RAG
 app.include_router(mcp_router)  # MCP endpoints
 app.include_router(monitoring_router)  # Phase 3: Observability
+
+
+
+
+
+# ============================================================================
+# Static File Serving (Critical for fileUrl preview)
+# ============================================================================
+
+storage_root = settings.STORAGE_ROOT
+# Ensure directory exists to prevent startup error
+if not os.path.exists(storage_root):
+    try:
+        os.makedirs(storage_root, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Could not create storage root {storage_root}: {e}")
+
+app.mount("/static/uploads", StaticFiles(directory=storage_root), name="uploads")
 
 
 @app.get("/health")

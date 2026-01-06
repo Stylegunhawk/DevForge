@@ -1,115 +1,62 @@
-"""RAG Celery tasks for async document processing.
-
-Phase 10.1: Async ingestion with progress tracking and error isolation.
-
-ARCHITECTURE COMPLIANCE (see docs/rag_architecture.md):
-✅ Calls RAGAgent (NOT tools)
-✅ No global graph references
-✅ Uses async_to_sync wrapper
-"""
-
-import logging
-from typing import List, Optional
-
 from celery import shared_task
-from asgiref.sync import async_to_sync
+import asyncio
+from pathlib import Path
+from typing import List
 
-logger = logging.getLogger(__name__)
+from src.agents.rag.agent import get_shared_rag_agent
+from src.storage.redis_file_store import _update_file_status_sync
 
-
-@shared_task(bind=True, soft_time_limit=300, max_retries=3, acks_late=True)
-def async_ingest_documents(
-    self,
-    file_paths: List[str],
-    collection_name: str = "devforge_docs",
-    embed_model: str = "nomic-embed-text",
-) -> dict:
+@shared_task
+def async_ingest_documents(file_paths: List[str], collection: str, file_id: str):
     """
-    Async document ingestion with per-file error isolation.
-    
-    ARCHITECTURE: Calls RAGAgent directly, NEVER tools.
-    
-    Args:
-        file_paths: List of file paths to ingest
-        collection_name: Target collection name
-        embed_model: Embedding model to use
-    
-    Returns:
-        Dictionary with ingestion results per file
+    Celery task for async document ingestion.
+    State transitions: pending → processing → success/error
     """
-    # Import here to avoid circular imports
-    from src.agents.rag.agent import RAGAgent
-    
-    logger.info(
-        f"Starting async ingestion: {len(file_paths)} files",
-        extra={"task_id": self.request.id, "collection": collection_name}
-    )
-    
-    # Create agent instance (each task gets its own)
-    agent = RAGAgent(collection_name=collection_name)
-    
-    results = []
-    successful = 0
-    failed = 0
-    
-    for i, file_path in enumerate(file_paths):
-        # Update progress
-        progress = {
-            "current": i + 1,
-            "total": len(file_paths),
-            "file": file_path,
-            "percent": int((i + 1) / len(file_paths) * 100),
-        }
-        self.update_state(state="PROGRESS", meta=progress)
+    try:
+        # 1. Update status: processing
+        _update_file_status_sync(file_id, {
+            "chunkingStatus": "processing",
+            "embeddingStatus": "processing"
+        })
+        
+        # 2. Run ingestion (async wrapper for Celery sync context)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
         try:
-            # CORRECT: Call agent method, NOT tool
-            result = async_to_sync(agent.ingest_document)(
-                file_path=file_path,
-                embed_model=embed_model,
-            )
-            results.append({
-                "file": file_path,
-                "success": True,
-                "chunks_created": result.get("chunks_created", 0),
-            })
-            successful += 1
-            logger.info(f"Ingested: {file_path}")
+            agent = get_shared_rag_agent()
             
-        except Exception as e:
-            # Per-file error isolation
-            error_msg = str(e)
-            results.append({
-                "file": file_path,
-                "success": False,
-                "error": error_msg,
+            # Your existing RAGAgent.ingest_document method
+            result = loop.run_until_complete(
+                agent.ingest_documents(
+                    file_paths=file_paths,
+                    collection_name=collection
+                )
+            )
+            
+            # 3. Update status: success
+            _update_file_status_sync(file_id, {
+                "chunkingStatus": "success",
+                "embeddingStatus": "success",
+                "finishEmbedding": True,  # ⚠️ CRITICAL: Stops frontend polling
+                "chunkCount": result.get("chunks_created", 0)
             })
-            failed += 1
-            logger.error(f"Failed to ingest {file_path}: {error_msg}")
+            
+        finally:
+            loop.close()
     
-    final_result = {
-        "status": "completed",
-        "task_id": self.request.id,
-        "collection": collection_name,
-        "total_files": len(file_paths),
-        "successful": successful,
-        "failed": failed,
-        "results": results,
-    }
-    
-    logger.info(
-        f"Ingestion completed: {successful}/{len(file_paths)} successful",
-        extra=final_result
-    )
-    
-    return final_result
-
-
-@shared_task(bind=True)
-def health_check(self) -> dict:
-    """Simple health check task for verifying Celery connectivity."""
-    return {
-        "status": "healthy",
-        "task_id": self.request.id,
-        "worker": self.request.hostname,
-    }
+    except Exception as e:
+        # 4. Update status: error
+        error_payload = {
+            "name": type(e).__name__,
+            "body": {"detail": str(e)}
+        }
+        
+        _update_file_status_sync(file_id, {
+            "chunkingStatus": "error",
+            "embeddingStatus": "error",
+            "chunkingError": error_payload,
+            "finishEmbedding": False
+        })
+        
+        raise  # Re-raise for Celery retry logic

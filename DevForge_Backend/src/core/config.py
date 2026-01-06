@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 5
     RAG_SCORE_THRESHOLD: float = 0.0  # Set to 0 to accept all results; ChromaDB L2 scores are small
 
+    # Storage Configuration
+    STORAGE_ROOT: str = "./data/uploads/users"
+    FILE_BASE_URL: str = "http://localhost:8000/static/uploads"
+
     # Phase 3.1b: Qdrant Cloud Configuration
     QDRANT_URL: str | None = None  # e.g., https://xxx.europe-west3-0.gcp.cloud.qdrant.io
     QDRANT_API_KEY: str | None = None
