@@ -40,6 +40,14 @@ class RedisFileStore:
                 file_id,
                 ex=ttl
             )
+        
+        # Reverse lookup: diskPath → file_id (for RAG retrieval)
+        if "diskPath" in metadata:
+            await self.client.set(
+                f"path:{metadata['diskPath']}",
+                file_id,
+                ex=ttl
+            )
     
     async def get_file_metadata(self, file_id: str) -> Optional[Dict]:
         """Get file metadata by ID"""

@@ -26,20 +26,22 @@ def async_ingest_documents(file_paths: List[str], collection: str, file_id: str)
         try:
             agent = get_shared_rag_agent()
             
-            # Your existing RAGAgent.ingest_document method
-            result = loop.run_until_complete(
-                agent.ingest_documents(
-                    file_paths=file_paths,
-                    collection_name=collection
-                )
-            )
+            # Wrapper for multiple files ingestion
+            async def _ingest_all():
+                total = 0
+                for path in file_paths:
+                    res = await agent.ingest_document(file_path=path)
+                    total += res.get("chunks_created", 0)
+                return total
+
+            total_chunks = loop.run_until_complete(_ingest_all())
             
             # 3. Update status: success
             _update_file_status_sync(file_id, {
                 "chunkingStatus": "success",
                 "embeddingStatus": "success",
                 "finishEmbedding": True,  # ⚠️ CRITICAL: Stops frontend polling
-                "chunkCount": result.get("chunks_created", 0)
+                "chunkCount": total_chunks
             })
             
         finally:

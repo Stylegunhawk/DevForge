@@ -20,6 +20,20 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @property
+    def is_docker(self) -> bool:
+        """Check if running inside Docker container."""
+        return os.path.exists("/.dockerenv")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Auto-correct Celery broker for local dev if it points to docker service
+        if not self.is_docker:
+            if "redis:6379" in self.CELERY_BROKER_URL:
+                self.CELERY_BROKER_URL = self.CELERY_BROKER_URL.replace("redis:6379", "localhost:6379")
+            if "redis:6379" in self.CELERY_RESULT_BACKEND:
+                self.CELERY_RESULT_BACKEND = self.CELERY_RESULT_BACKEND.replace("redis:6379", "localhost:6379")
+
     # Server Configuration
     PORT: int = 8000
     CORS_ORIGINS: str = "http://localhost:3000"

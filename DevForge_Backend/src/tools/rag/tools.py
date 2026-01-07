@@ -1,7 +1,8 @@
 """RAG tools for document ingestion, retrieval, and response generation.
 
 Phase 3.1: ChromaDB implementation with async file I/O.
-Supports PDF, Markdown, TXT, and DOCX file formats.
+Supports ".pdf", ".md", ".txt", ".docx",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".rst"
 """
 
 import asyncio
@@ -25,7 +26,10 @@ from langchain_chroma import Chroma
 logger = logging.getLogger(__name__)
 
 # Supported file extensions
-SUPPORTED_EXTENSIONS = {".pdf", ".md", ".txt", ".docx"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf", ".md", ".txt", ".docx",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".rst"
+}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
@@ -169,7 +173,7 @@ def get_vector_store(
 async def read_document(file_path: str) -> str:
     """Read a document file asynchronously and extract text content.
 
-    Supports PDF, Markdown, TXT, and DOCX formats.
+    Supports PDF, Markdown, TXT, DOCX, and Code formats.
 
     Args:
         file_path: Path to the document file
@@ -222,8 +226,8 @@ async def read_document(file_path: str) -> str:
 
             text = await asyncio.to_thread(read_pdf)
 
-        elif extension in {".md", ".txt"}:
-            # Read text files asynchronously
+        elif extension in {".md", ".txt", ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".rst"}:
+            # Read text and code files asynchronously
             async with aiofiles.open(path, mode="r", encoding="utf-8") as f:
                 text = await f.read()
 

@@ -2,7 +2,7 @@ import uuid
 from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
 from typing import List, Optional
 from pathlib import Path
-
+import logging
 from datetime import datetime
 
 from src.core.config import settings
@@ -58,7 +58,7 @@ async def upload_files(
             "size": len(content),
             "fileType": file_type,
             "url": f"{base_url}/{user_id}/{collection}/{file_id}_{file.filename}",
-            "diskPath": str(file_path),  # Store real disk path
+            "diskPath": str(file_path.resolve()),  # Store absolute resolved path
             
             # Initial status: pending
             "chunkingStatus": "pending",
@@ -117,51 +117,90 @@ async def semantic_search_for_chat(request: SemanticSearchRequest):
     # Use rewritten query if available, else original
     query = request.rewriteQuery or request.userQuery
     
-    # Filter by files if provided
-    target_file_paths = None
-    if request.fileIds:
-        target_file_paths = []
-        for fid in request.fileIds:
-            meta = await redis_store.get_file_metadata(fid)
-            if meta and "diskPath" in meta:
-                target_file_paths.append(meta["diskPath"])
-            # If default files missing diskPath (legacy), implementation could fallback here if needed,
-            # but strictly adhering to "Store and use" for new consistency.
+    # NOTE: File filtering logic is prepared but disabled until Agent supports it
+    # target_file_paths = ... (logic is fine, just unused for now)
     
-    # Phase 12A: retrieve_with_reranking (your existing method)
+    # Phase 12A: retrieve_with_reranking
     result = await agent.retrieve_with_reranking(
         query=query,
         top_k=request.top_k,
-        file_paths=target_file_paths,
+        # file_paths=target_file_paths,
         use_reranking=True
     )
     
     # Transform to ChatFileChunk format
     response_chunks = []
     
-    for doc in result["documents"]:
-        # Get file metadata from path
-        file_path = doc.metadata.get("source", "")
-        file_meta = await redis_store.get_file_metadata_by_path(file_path)
+    # Use .get() for safety and handle both Dicts and Objects
+    documents = result.get("documents", [])
+    logging.info(f"[DEBUG] Search returned {len(documents)} documents")
+    
+    for i, doc in enumerate(documents):
+        # --- NORMALIZATION LAYER ---
+        # 1. canonize attributes
+        doc_obj = doc if not isinstance(doc, dict) else None
+        doc_dict = doc if isinstance(doc, dict) else None
         
-        # Fallback if file not in Redis (older files)
+        # Extract metadata
+        if doc_dict:
+            metadata = doc_dict.get("metadata") or {}
+        else:
+            metadata = getattr(doc_obj, "metadata", {}) or {}
+            
+        # Extract content (try multiple keys)
+        if doc_dict:
+            content = doc_dict.get("content") or doc_dict.get("page_content") or ""
+        else:
+            content = getattr(doc_obj, "content", None) or getattr(doc_obj, "page_content", "") or ""
+            
+        # Extract score
+        if doc_dict:
+            score = doc_dict.get("score") or doc_dict.get("similarity") or 0.0
+        else:
+            score = getattr(doc_obj, "score", None) or getattr(doc_obj, "similarity", 0.0)
+
+        # 2. Resolve Path
+        source_path = metadata.get("source", "")
+        resolved_path = None
+        
+        if source_path:
+            try:
+                # Resolve to absolute path for Redis lookup
+                resolved_path = str(Path(source_path).resolve())
+            except Exception as e:
+                logging.warning(f"Path resolution failed for '{source_path}': {e}")
+                resolved_path = source_path # Fallback
+
+        # Debug logs
+        logging.info(f"[DEBUG] Doc {i}: type={type(doc)}, content_len={len(content)}, score={score}")
+        logging.info(f"[DEBUG] Doc {i} path: source='{source_path}' -> resolved='{resolved_path}'")
+        
+        # 3. Redis Lookup
+        file_meta = None
+        if resolved_path:
+            file_meta = await redis_store.get_file_metadata_by_path(resolved_path)
+            
+        logging.info(f"[DEBUG] Redis lookup result: {'FOUND' if file_meta else 'MISSING'}")
+        
+        # 3. Fallback logic
         if not file_meta:
             file_meta = {
                 "id": "unknown",
-                "name": Path(file_path).name,
+                "name": Path(source_path).name if source_path else "unknown",
                 "fileType": "text/plain",
                 "url": "",
             }
         
+        # 4. Create Response Chunk
         response_chunks.append(ChatFileChunk(
-            id=doc.metadata.get("chunk_id", str(uuid.uuid4())),
+            id=metadata.get("chunk_id", str(uuid.uuid4())),
             fileId=file_meta["id"],
             filename=file_meta["name"],
             fileType=file_meta["fileType"],
             fileUrl=file_meta["url"],
-            text=doc.page_content,
-            similarity=float(doc.metadata.get("score", 0.0)),
-            pageNumber=doc.metadata.get("page", None)
+            text=content,
+            similarity=float(score),
+            pageNumber=metadata.get("page", None)
         ))
     
     # Generate query ID

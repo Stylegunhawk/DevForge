@@ -16,14 +16,7 @@ from src.tools.rag.tools import (
     ingest_documents,
     retrieve_docs,
 )
-from src.agents.reranker import Reranker
-
-# Initialize reranker globally
-try:
-    reranker = Reranker()
-except Exception as e:
-    logger.warning(f"Failed to initialize Reranker: {e}. Reranking will be disabled.")
-    reranker = None
+# Note: Reranker is lazy-loaded inside RAGAgent
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +114,8 @@ async def retrieve_node(state: RAGState) -> RAGState:
     score_threshold = state.get("score_threshold", settings.RAG_SCORE_THRESHOLD)
 
     logger.info(
-        f"Retrieving documents: query='{str(query)[:50]}...', top_k={top_k}",
-        extra={"query_preview": str(query)[:50], "top_k": top_k},
+        f"Retrieving documents: query='{str(query)[:50]}...', top_k={top_k}, threshold={score_threshold}",
+        extra={"query_preview": str(query)[:50], "top_k": top_k, "score_threshold": score_threshold},
     )
 
     try:
@@ -134,7 +127,8 @@ async def retrieve_node(state: RAGState) -> RAGState:
             top_k=top_k,
             use_reranking=True,
             use_cache=True,
-            use_hybrid=False  # Hybrid requires init_bm25() first
+            use_hybrid=False,  # Hybrid requires init_bm25() first
+            score_threshold=score_threshold # Pass threshold correctly
         )
         
         # Extract documents from the result
@@ -164,8 +158,25 @@ async def retrieve_node(state: RAGState) -> RAGState:
                 "error": None,
             }
 
+        # [LOGGING] Check for graph chunks in final results
+        graph_chunks_count = sum(1 for doc in formatted_documents 
+                               if doc.get("metadata", {}).get("is_graph_expansion") or 
+                               doc.get("is_graph_expansion"))
+        
+        if graph_chunks_count > 0:
+            logger.info(f"✅ RAG Context includes {graph_chunks_count} chunks from Graph Expansion!")
+        else:
+            logger.info("ℹ️ RAG Context contains only vector/hybrid matches (no graph expansion used)")
+
         # Concatenate document content into context
-        context = "\n\n".join([f"[{i+1}] {doc['content']}" for i, doc in enumerate(formatted_documents)])
+        context_parts = []
+        for i, doc in enumerate(formatted_documents):
+            # Add visual marker for graph chunks in logs
+            is_graph = doc.get("metadata", {}).get("is_graph_expansion") or doc.get("is_graph_expansion")
+            marker = "[GRAPH]" if is_graph else "[VECTOR]"
+            context_parts.append(f"[{i+1}] {marker} {doc['content']}")
+            
+        context = "\n\n".join(context_parts)
 
         logger.info(
             f"Retrieved {len(formatted_documents)} documents ({len(context)} characters)",
@@ -437,7 +448,7 @@ async def rag_agent_invoke(
             },
         )
 
-        return result
+        return _sanitize_json_values(result)
 
     except Exception as e:
         execution_time = time.time() - start_time
@@ -457,6 +468,21 @@ async def rag_agent_invoke(
             "execution_time": round(execution_time, 4),
             "error": f"RAG agent execution failed: {str(e)}",
         }
+
+
+import math
+
+def _sanitize_json_values(obj):
+    """Recursively replace NaN/Inf floats with 0.0 for JSON compliance."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return 0.0
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _sanitize_json_values(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_json_values(i) for i in obj]
+    return obj
 
 
 # Phase 10.1: RAGAgent class for Celery task compatibility
@@ -591,10 +617,18 @@ class RAGAgent:
         count = 0
         try:
             async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
-                # Convert metadata list to chunk format
-                chunks = [{"metadata": meta} for meta in batch]
-                self._code_graph.add_chunks_batch(chunks)
-                count += len(batch)
+                # Validate metadata hygiene
+                valid_batch = []
+                for meta in batch:
+                    # FIX: Risk 1 - Metadata Integrity Check
+                    if "source" not in meta or "name" not in meta:
+                        logger.debug(f"Skipping chunk for graph (missing source/name): {meta.get('id', 'unknown')}")
+                        continue
+                    valid_batch.append({"metadata": meta})
+
+                if valid_batch:
+                    self._code_graph.add_chunks_batch(valid_batch)
+                    count += len(valid_batch)
             
             logger.info(f"Graph initialized: {count} chunks → {self._code_graph.size()} nodes")
         except Exception as e:
@@ -705,8 +739,11 @@ class RAGAgent:
             backend=self.backend,
         )
         
+        # FIX: Problem 1 - Graph Freshness
+        # Invalidate graph so it rebuilds on next query with new data
+        self._code_graph = None
         logger.info(
-            f"Document ingested: {file_path}",
+            f"Document ingested: {file_path}. Graph invalidated.",
             extra={"chunks": result.get("chunks_created", 0)}
         )
         
@@ -736,13 +773,14 @@ class RAGAgent:
             score_threshold=settings.RAG_SCORE_THRESHOLD,
         )
     
-    async def _vector_search(self, query: str, top_k: int) -> List:
+    async def _vector_search(self, query: str, top_k: int, score_threshold: float = 0.0) -> List:
         """
         Vector-only search (helper for fallback).
         
         Args:
             query: Search query
             top_k: Number of results
+            score_threshold: Minimum similarity score (default: 0.0)
         
         Returns:
             List of search results
@@ -754,7 +792,7 @@ class RAGAgent:
             top_k=top_k,
             embed_model=self.embed_model,
             backend=self.backend,
-            score_threshold=settings.RAG_SCORE_THRESHOLD,
+            score_threshold=score_threshold,
         )
     
     async def retrieve_with_reranking(
@@ -763,7 +801,8 @@ class RAGAgent:
         top_k: int = 5,
         use_reranking: bool = True,
         use_cache: bool = True,  # Phase 11.2 Day 1
-        use_hybrid: bool = True  # Phase 11.2 Day 3
+        use_hybrid: bool = True,  # Phase 11.2 Day 3
+        score_threshold: float = 0.0, # Added correct score threshold support
     ) -> dict:
         """
         Retrieve documents with optional hybrid search, caching, and reranking.
@@ -781,6 +820,7 @@ class RAGAgent:
             use_reranking: Enable reranking (respects ENABLE_RERANKING flag)
             use_cache: Enable cache lookup (respects ENABLE_QUERY_CACHE flag)
             use_hybrid: Enable hybrid search (respects ENABLE_HYBRID_SEARCH flag)
+            score_threshold: Minimum similarity score filter
         
         Returns:
             Dictionary with documents and metadata
@@ -875,8 +915,8 @@ class RAGAgent:
             
             all_results = []
             for eq in expanded_queries:
-                # Use vector search for each expanded query
-                eq_results = await self._vector_search(eq, initial_top_k)
+                # Use vector search for each expanded query, pass score_threshold
+                eq_results = await self._vector_search(eq, initial_top_k, score_threshold)
                 all_results.append(eq_results)
             
             # Fuse results using Reciprocal Rank Fusion
@@ -901,14 +941,60 @@ class RAGAgent:
                     logger.debug(f"Hybrid search returned {len(initial_results)} results")
                 except Exception as e:
                     logger.error(f"Hybrid search failed: {e}, falling back to vector-only")
-                    # Graceful fallback to vector search
-                    initial_results = await self._vector_search(query, initial_top_k)
+                    # Graceful fallback to vector search, pass threshold
+                    initial_results = await self._vector_search(query, initial_top_k, score_threshold)
             else:
-                # Hybrid not available, use vector
-                initial_results = await self._vector_search(query, initial_top_k)
+                # Hybrid not available, use vector, pass threshold
+                initial_results = await self._vector_search(query, initial_top_k, score_threshold)
         else:
-            # Vector-only search
-            initial_results = await self._vector_search(query, initial_top_k)
+            # Vector-only search, pass threshold
+            initial_results = await self._vector_search(query, initial_top_k, score_threshold)
+ 
+        # Phase 12A: Graph Context Expansion (Before Reranking)
+        if settings.ENABLE_CODE_GRAPH:
+            try:
+                # 1. Ensure graph is initialized (lazy load)
+                if self._code_graph is None:
+                    await self.init_graph()
+                
+                # 2. Prepare candidates (normalize to dicts)
+                anchors = []
+                for res in initial_results:
+                    if hasattr(res, 'metadata'): 
+                        anchors.append({
+                            "metadata": res.metadata, 
+                            "source": res.metadata.get("source"), 
+                            "name": res.metadata.get("name")
+                        })
+                    else:
+                        anchors.append(res)
+
+                # 3. Expand using Strong Anchors
+                # This calls your NEW _expand_with_graph_context method
+                expanded_candidates = await self._expand_with_graph_context(anchors)
+                
+                # 4. Merge Candidates into Results for Reranking
+                from src.storage.base_store import ChunkResult
+                
+                # Deduplicate
+                seen_ids = {r.id for r in initial_results if hasattr(r, 'id')}
+                seen_ids.update({r.get("id") for r in initial_results if isinstance(r, dict)})
+                
+                for cand in expanded_candidates:
+                    cand_id = cand.get("id")
+                    if cand_id and cand_id not in seen_ids:
+                        # Convert to ChunkResult for Reranker compatibility
+                        new_chunk = ChunkResult(
+                            id=cand_id,
+                            content=cand.get("content"),
+                            metadata=cand.get("metadata"),
+                            score=0.0 # Neutral score (Constraint C)
+                        )
+                        initial_results.append(new_chunk)
+                        seen_ids.add(cand_id)
+                        
+            except Exception as e:
+                logger.warning(f"Graph expansion failed: {e}")
         
         # If reranking disabled, return vector results
         if not use_reranking or not settings.ENABLE_RERANKING or self.reranker is None:
@@ -1074,13 +1160,29 @@ class RAGAgent:
                 "expanded": False,
             }
         
+        # FIX: Problem 2 - Legacy Safety
+        # Normalize to dict before calling expander (prevent legacy crash)
+        candidates = []
+        for res in initial_results:
+            if hasattr(res, 'metadata'): 
+                candidates.append({
+                    "metadata": res.metadata, 
+                    "source": res.metadata.get("source"), 
+                    "name": res.metadata.get("name")
+                })
+            else:
+                candidates.append(res)
+
         # Expand with graph context
-        expanded_results = await self._expand_with_graph_context(initial_results)
+        expanded_results = await self._expand_with_graph_context(candidates)
         
+        # Merge results (Legacy mode just appends)
+        final_docs = initial_results + expanded_results
+
         return {
-            "documents": expanded_results,
+            "documents": final_docs,
             "expanded": True,
-            "expansion_count": len(expanded_results) - len(initial_results),
+            "expansion_count": len(expanded_results),
         }
     
     async def _expand_with_graph_context(self, results: List[dict]) -> List[dict]:
@@ -1093,15 +1195,15 @@ class RAGAgent:
         - NEVER accesses vector_store internals
         
         Args:
-            results: Initial search results
+            results: Initial search results (Strong Anchors)
         
         Returns:
-            Extended list with related code chunks
+            List of NEW related code chunks found via graph (Nominees)
         """
-        expanded = list(results)
+        expanded = [] # Return only the NEW chunks found via graph
         seen_qids = set()
         
-        # Build QIDs from initial results
+        # Build QIDs from initial results (Anchors)
         for result in results:
             metadata = result.get("metadata", {})
             source = metadata.get("source", "")
@@ -1122,7 +1224,7 @@ class RAGAgent:
             
             qid = f"{source}::{name}"
             
-            # Get related QIDs via BFS
+            # Constraint D: Respect Bounds (Depth & Max Chunks)
             related_qids = self.code_graph.get_related(
                 qid,
                 depth=settings.GRAPH_CONTEXT_DEPTH,
@@ -1136,17 +1238,24 @@ class RAGAgent:
                 
                 seen_qids.add(related_qid)
                 
-                # CRITICAL: Use abstraction, NOT backend internals
-                # For now, we need to add get_chunk_by_qid to BaseVectorStore
-                # Placeholder: Log that we would fetch this chunk
-                logger.debug(f"Would fetch related chunk: {related_qid}")
+                # CRITICAL: Fetch actual code using the now-implemented storage method
+                related_chunk = await self.vector_store.get_chunk_by_qualified_id(related_qid)
                 
-                # TODO: Implement get_chunk_by_qualified_id in BaseVectorStore
-                # related_chunk = await self.vector_store.get_chunk_by_qualified_id(related_qid)
-                # if related_chunk:
-                #     expanded.append(related_chunk)
-        
-        logger.info(f"Graph expansion: {len(results)} → {len(expanded)} chunks")
+                if related_chunk:
+                    # Constraint E: Fetch candidate, do not assume importance
+                    chunk_dict = {
+                        "id": related_chunk.id,
+                        "content": related_chunk.content,
+                        "metadata": related_chunk.metadata,
+                        # Constraint C: Neutral placeholder score. 
+                        # The Reranker will assign the real score later.
+                        "score": 0.0, 
+                        "is_graph_expansion": True
+                    }
+                    expanded.append(chunk_dict)
+                    logger.debug(f"Graph expansion candidate: {related_qid}")
+
+        logger.info(f"Graph expansion: {len(results)} anchors -> found {len(expanded)} new dependency chunks")
         return expanded
 
 

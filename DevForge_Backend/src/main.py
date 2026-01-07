@@ -10,8 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from src.core.config import settings
+# Ensure Celery app is loaded to apply broker config (prevents fallback to AMQP)
+import src.workers.celery_app
+
 from src.api.routers import router, mcp_router
 from src.api.routers.rag import router as rag_router
+
 
 from src.api.monitoring import router as monitoring_router  # Phase 3
 

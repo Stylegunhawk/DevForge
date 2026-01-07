@@ -6,19 +6,22 @@
 │       ├── devforge-lobe-chat.md
 │       └── github-examples.md
 ├── data
-│   └── chromadb
-│       ├── 87e138cd-056c-4fe9-bb1f-c24b1dff4739
-│       │   ├── data_level0.bin
-│       │   ├── header.bin
-│       │   ├── length.bin
-│       │   └── link_lists.bin
-│       └── devforge_docs
-│           ├── 83a8e8ec-172e-46b3-8053-97b2fe62a676
-│           │   ├── data_level0.bin
-│           │   ├── header.bin
-│           │   ├── length.bin
-│           │   └── link_lists.bin
-│           └── chroma.sqlite3
+│   ├── chromadb
+│   │   ├── c9125411-4908-40fb-9509-1ad25f9aca3b
+│   │   │   ├── data_level0.bin
+│   │   │   ├── header.bin
+│   │   │   ├── length.bin
+│   │   │   └── link_lists.bin
+│   │   ├── devforge_docs
+│   │   │   └── chroma.sqlite3
+│   │   └── chroma.sqlite3
+│   └── uploads
+│       └── users
+│           ├── test_user
+│           │   └── default
+│           │       └── 9cb2cf0a-6df4-4199-a492-7c47f42fbac9_script_only.py
+│           └── user1
+│               └── default
 ├── docs
 │   ├── rag
 │   │   └── phase_11_2_guide.md
@@ -27,11 +30,11 @@
 │   │   ├── generate_cheatsheet.md
 │   │   ├── generate_data.md
 │   │   ├── github_operation.md
+│   │   ├── rag_unification_verified.md
 │   │   ├── refine_prompt.md
 │   │   ├── rerank_docs.md
 │   │   └── retrieve_docs.md
 │   ├── backend-frontend-rag-integration-plan-ENHANCED.md
-│   ├── backend-frontend-rag-integration-plan.md
 │   ├── github_operations_curls.md
 │   ├── phase12a_completion.md
 │   ├── phase12a_response.md
@@ -46,6 +49,7 @@
 ├── manifests
 │   ├── __init__.py
 │   └── devforge.json
+├── migrations
 ├── scripts
 │   ├── ingest_test.py
 │   ├── ingest_tools_docs.py
@@ -280,6 +284,7 @@
 ├── BACKEND_PLAN.md
 ├── CHANGELOG.md
 ├── CODE_SNIPPETS.md
+├── Dockerfile
 ├── IMPLEMENTATION_REVIEW.md
 ├── INTEGRATION_PLAN.md
 ├── MCP_GATEWAY_FIX.md
@@ -291,15 +296,20 @@
 ├── SECURITY.md
 ├── USAGE.md
 ├── docker-compose.yml
+├── dump.rdb
 ├── pytest.ini
+├── reproduce_issue.py
 ├── requirements.txt
 ├── response.json
+├── script_only.py
 ├── setup.py
 ├── structure.txt
 ├── uvicorn.log
 ├── validate_chunking.py
 ├── verification_cloud_force.json
 ├── verification_logs.json
-└── verification_result.json
+├── verification_result.json
+├── verify_broker.py
+└── verify_tree_sitter.py
 
-47 directories, 256 files
+53 directories, 260 files
