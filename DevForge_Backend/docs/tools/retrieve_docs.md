@@ -1,20 +1,25 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
-**Tool Name:** `retrieve_docs`  
-**Version:** 3.2 (Lobe Chat Integrated)  
-**Status:** ✅ Implemented  
-**Last Updated:** January 6, 2026
+**Version:** 15.0 (Strict Multi-Tenancy)  
+**Version:** 3.3 (Lobe Chat Integrated)  
+**Status:** ✅ Implemented & Frozen  
+**Last Updated:** January 9, 2026
 
 ---
 
 ## Overview
 
-The `retrieve_docs` tool provides intelligent semantic document search with **Phase 12A Query Intelligence** enhancements:
+The `retrieve_docs` tool provides intelligent semantic document search with **Phase 12A Query Intelligence** and **Phase 15 Multi-Tenancy** enhancements.
 
-**Phase 12A Features (NEW!):**
-- 🆕 **3-Tier Intent Classification** - Auto-detect code_search, explain, debug, general intents
-- 🆕 **Intent-Aware Query Expansion** - Generate 2-3 related queries per intent
-- 🆕 **Semantic Caching by Intent** - Cache similar queries for 10-50ms responses
+**Phase 15 Features (NEW!):**
+- 🆕 **Strict Multi-Tenancy** - Isolated collections via `X-User-ID` header.
+- 🆕 **Frozen API Contract** - Guaranteed semantic priority and orphan filtering.
+- 🆕 **Safety Valve Chunking** - Auto-split large AST entities (>2000 chars) for model safety.
+
+**Phase 12A Features:**
+- ✅ **3-Tier Intent Classification** - Auto-detect code_search, explain, debug, general intents
+- ✅ **Intent-Aware Query Expansion** - Generate 2-3 related queries per intent
+- ✅ **Semantic Caching by Intent** - Cache similar queries for 10-50ms responses
 - 🆕 **Cloud Model Support** - Use gpt-oss:120b-cloud for memory-efficient response generation
 - 🆕 **Analytics Endpoints** - Track intent distribution, expansion quality, cache hits
 

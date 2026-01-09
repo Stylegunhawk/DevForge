@@ -217,7 +217,7 @@ curl -X POST http://localhost:8000/api/v1/rag/file/upload \
   -F "collection=default" \
   -F "files=@README.md"
 
-curl http://localhost:8000/api/v1/rag/file/3d62040f-4c02-4819-a4b2-81b8e3495ce0
+curl http://localhost:8000/api/v1/rag/file/35f8c7fe-a10a-4eac-a1cc-b13d13227ea7
 
 
 curl -X POST http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat \
@@ -239,9 +239,15 @@ curl -X POST http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat \
     "fileIds": []
   }'
 
+((venv) ) siddesh.kale@Admins-MacBook-Air-2 DevForge_Backend % curl -X DELETE "http://localhost:8000/api/v1/rag/file/f1eebb3f-133d-4747-b2c8-716846f38d6" \
+  -H "X-User-ID: dev_user_1"
+{"detail":"File not found"}%                                                           
+((venv) ) siddesh.kale@Admins-MacBook-Air-2 DevForge_Backend % curl -X DELETE "http://localhost:8000/api/v1/rag/file/f1eebb3f-133d-4747-b2c8-716846f38d60" \
+  -H "X-User-ID: dev_user_1"
+{"success":true,"fileId":"f1eebb3f-133d-4747-b2c8-716846f38d60"}%     
 
 
-  }'
+  /Users/siddesh.kale/Documents/DevForge/DevForge_Backend/data/uploads/users/dev_user_1/default/f1eebb3f-133d-4747-b2c8-716846f38d60_agent.py
 
 ---
 

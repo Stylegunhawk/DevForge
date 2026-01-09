@@ -461,8 +461,8 @@ async def get_fallback_usage():
 async def get_expansion_quality():
     """Get query expansion quality metrics."""
     try:
-        from src.agents.rag.agent import get_shared_rag_agent
-        agent = get_shared_rag_agent()
+        from src.agents.rag.agent import get_rag_agent
+        agent = get_rag_agent()
         
         if not hasattr(agent, '_query_expander') or not agent._query_expander:
             return {"enabled": False, "message": "Query expansion not initialized"}
@@ -478,8 +478,8 @@ async def get_expansion_quality():
 async def get_intent_distribution():
     """Get intent classification distribution."""
     try:
-        from src.agents.rag.agent import get_shared_rag_agent
-        agent = get_shared_rag_agent()
+        from src.agents.rag.agent import get_rag_agent
+        agent = get_rag_agent()
         
         if not hasattr(agent, '_intent_classifier') or not agent._intent_classifier:
             return {"enabled": False, "message": "Intent classification not initialized"}
@@ -500,8 +500,8 @@ async def get_intent_distribution():
 async def get_cache_by_intent():
     """Get semantic cache effectiveness by intent."""
     try:
-        from src.agents.rag.agent import get_shared_rag_agent
-        agent = get_shared_rag_agent()
+        from src.agents.rag.agent import get_rag_agent
+        agent = get_rag_agent()
         
         if not hasattr(agent, '_semantic_cache') or not agent._semantic_cache:
             return {"enabled": False, "message": "Semantic cache not initialized"}

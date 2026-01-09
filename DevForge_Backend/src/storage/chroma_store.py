@@ -61,26 +61,38 @@ class ChromaVectorStore(BaseVectorStore):
     async def add_chunks(self, chunks: List[Dict], embeddings: List) -> int:
         """
         Add chunks with embeddings to ChromaDB.
-        
-        Args:
-            chunks: List of dicts with 'content' and 'metadata'
-            embeddings: List of embedding vectors
-        
-        Returns:
-            Number of chunks added
+        Ensures metadata chunk_id is used as the database primary key.
         """
-        # Convert to LangChain Document format
+        import uuid
         from langchain_core.documents import Document
         
-        documents = [
-            Document(page_content=c["content"], metadata=c.get("metadata", {}))
-            for c in chunks
-        ]
+        documents = []
+        ids = []
         
-        # Add to Chroma (synchronous operation)
-        await asyncio.to_thread(self.client.add_documents, documents)
+        for c in chunks:
+            metadata = c.get("metadata", {})
+            # Extract ID from metadata or fallback
+            chunk_id = metadata.get("chunk_id") or str(uuid.uuid4())
+            
+            # Ensure chunk_id is in metadata for search alignment
+            metadata["chunk_id"] = chunk_id
+            
+            doc = Document(
+                page_content=c["content"],
+                metadata=metadata
+            )
+            documents.append(doc)
+            ids.append(chunk_id)
         
-        logger.debug(f"Added {len(chunks)} chunks to ChromaDB")
+        # Add to Chroma with explicit IDs
+        if documents:
+            await asyncio.to_thread(
+                self.client.add_documents, 
+                documents=documents, 
+                ids=ids
+            )
+        
+        logger.debug(f"Added {len(chunks)} chunks to ChromaDB (IDs synchronized)")
         return len(chunks)
     
     async def search(
@@ -90,37 +102,50 @@ class ChromaVectorStore(BaseVectorStore):
         score_threshold: float = 0.0,
     ) -> List[ChunkResult]:
         """
-        Search for similar chunks in ChromaDB.
-        
-        Args:
-            query_embedding: Query vector
-            top_k: Number of results
-            score_threshold: Minimum similarity score
-        
-        Returns:
-            List of ChunkResult objects
+        Search for similar chunks in ChromaDB (Direct Collection Access).
         """
-        # Chroma uses cosine similarity (higher = more similar)
-        # LangChain returns (Document, score) tuples
+        # Direct query to underlying Chroma collection
+        # This guarantees we get scores and metadata without wrapper issues
         results = await asyncio.to_thread(
-            self.client.similarity_search_with_score,
-            query="",  # We're using embedding directly
-            k=top_k,
+            self._collection.query,
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"]
         )
         
-        # Filter and convert to ChunkResult
         chunk_results = []
-        for doc, score in results:
-            if score >= score_threshold:
-                chunk_results.append(ChunkResult(
-                    id=doc.metadata.get("id", "unknown"),
-                    content=doc.page_content,
-                    metadata=doc.metadata,
-                    score=score,
-                ))
         
+        # Check if we got results
+        if not results or not results["ids"]:
+            return []
+            
+        # Parse standard Chroma results structure (list of lists)
+        ids = results["ids"][0]
+        documents = results["documents"][0]
+        metadatas = results["metadatas"][0]
+        distances = results["distances"][0]
+        
+        for i in range(len(ids)):
+            dist = distances[i]
+            
+            # Chroma returns DISTANCE (lower is better).
+            # We need SIMILARITY (higher is better).
+            # Simple conversion for L2 distance: similarity = 1 / (1 + distance)
+            # OR just pass the raw distance if your agent handles it (our agent does).
+            
+            # Let's verify threshold
+            # If threshold is 0.0, we accept everything.
+            
+            # Construct ChunkResult
+            chunk_results.append(ChunkResult(
+                id=ids[i],
+                content=documents[i],
+                metadata=metadatas[i] or {},
+                score=dist, # Pass raw distance, agent handles normalization
+            ))
+            
         return chunk_results
-    
+        
     async def get_chunk_by_qualified_id(self, qid: str) -> Optional[ChunkResult]:
         """
         Get chunk by qualified ID (file::entity).

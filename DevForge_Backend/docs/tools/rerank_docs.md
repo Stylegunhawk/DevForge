@@ -1,22 +1,19 @@
 # rerank_docs - Document Reranking Tool
 
 **Tool Name:** `rerank_docs`  
-**Version:** 3.2 (Lobe Chat Integrated)  
+**Version:** 3.3 (Phase 15 Integrated)  
 **Status:** ✅ Implemented  
-**Last Updated:** January 6, 2026
+**Last Updated:** January 9, 2026
 
 ---
 
 ## Overview
 
-The `rerank_docs` tool improves search result quality by re-scoring retrieved documents using a Cross-Encoder model. **Phase 12A** integrates reranking into the multi-query expansion pipeline with intent-aware result fusion.
+The `rerank_docs` tool improves search result quality by re-scoring retrieved documents using a Cross-Encoder model. **Phase 15** ensures this works seamlessly within localized tenant collections.
 
-**Phase 12A Integration:**
-- Reranks **fused results** from multiple expanded queries
-- Works with intent-aware query expansion
-- Integrated into `retrieve_docs` two-stage pipeline
-- **Lobe Chat Mandatory:** Automatically utilized by the `semanticSearchForChat` endpoint to ensure high-quality retrieval results (Vector Search + Reranking).
-- Improved string handling for robust tokenization
+**Phase 15 Integration:**
+- Reranks results within tenant-specific vector stores.
+- Ensures `semanticSearchForChat` maintains top-tier precision across all users.
 
 **Phase 11 Features:**
 - Cross-Encoder based reranking (ms-marco-MiniLM-L-6-v2)

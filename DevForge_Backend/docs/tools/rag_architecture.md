@@ -1,15 +1,187 @@
 # DevForge RAG Architecture
 
-**Version:** 12A Complete ✅  
-**Phase:** Phase 12A Query Intelligence  
-**Date:** 2025-12-17  
-**Status:** Production Ready
+**Version:** 15.1 Complete (Multi-Tenant) ✅  
+**Phase:** Phase 15 Multi-Tenancy + Phase 3 strict filtering  
+**Date:** 2026-01-09  
+**Status:** Production Ready - Backend Contract Frozen
 
 This document outlines the architecture of the Retrieval-Augmented Generation (RAG) system in DevForge Backend, covering ingestion, retrieval, reranking, and query intelligence.
 
 ---
 
-## Overview
+## ❄️ Final RAG API Contract
+
+To prevent regressions, the following endpoints are frozen with specific behavioral guarantees.
+
+### 1. Common Requirements
+*   **Header:** `X-User-ID` (Required) - Used to derive the `tenant_id` and sandbox the collection (`user_{tenant_id}`).
+*   **Scope:** All operations are strictly isolated to the tenant provided in the header.
+
+### 2. Endpoints
+
+#### `POST /api/v1/rag/chunk/semanticSearchForChat`
+Primary retrieval endpoint for Lobe Chat sessions.
+*   **Request Schema:** `SemanticSearchRequest`
+    *   `messageId`: unique UI message ID
+    *   `userQuery`: the raw user string
+    *   `rewriteQuery` (Optional): LLM-optimized query for better vector matching
+    *   `fileIds` (Optional): whitelist of file IDs to search within
+*   **Response Schema:** `SemanticSearchResponse`
+*   **Guaranteed Behaviors:**
+    *   **Strict Orphan Filtering:** Chunks belonging to files that have been deleted from Redis are automatically dropped.
+    *   **Empty Content Filtering:** Chunks with empty or whitespace-only text are never returned.
+    *   **Semantic Priority:** Results are returned in order of relevance (Rerank Logits → Sigmoid Normalized Similarity).
+
+#### `GET /api/v1/rag/file/{fileId}`
+Polling endpoint for processing status.
+*   **Response Schema:** `FileStatusResponse`
+*   **Guaranteed Behavior:**
+    *   Returns `finishEmbedding: true` only when both chunking and embedding tasks are successful.
+    *   Includes `size` (bytes) and `url` for preview.
+
+#### `POST /api/v1/rag/file/upload`
+Universal ingestion entry point.
+*   **Body:** `multipart/form-data`
+*   **Guaranteed Behavior:**
+    *   Automatically detects MIME type.
+    *   Initializes Redis tracking metadata before queuing Celery tasks.
+    *   Async task will re-split AST chunks larger than 2000 characters (Safety Valve).
+
+#### `DELETE /api/v1/rag/file/{fileId}`
+Tear-down endpoint.
+*   **Guaranteed Behavior:**
+    *   Deletes physical file from disk.
+    *   Deletes all corresponding vectors from ChromaDB (using `chunk_id` index).
+    *   Deletes file tracking metadata from Redis (This triggers the Orphan Filter for existing cached search results).
+
+---
+
+## 🔒 RAG API FREEZE – CANONICAL CURL SET
+
+These curls define **"what correct means"**. If any future change breaks one of these, it is a regression.
+
+### 1. File Upload (Async Ingestion)
+**Purpose:** Create file record, persist tenant metadata, and trigger async ingestion. Return immediately with pending status.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/rag/file/upload" \
+  -H "X-User-ID: dev_user_1" \
+  -F "collection=default" \
+  -F "files=@/absolute/path/to/file.py"
+```
+
+**Expected Guarantees:**
+- `id` exists in response
+- `size` matches source file bytes
+- `tenant_id` saved as `dev_user_1`
+- `collection_name` saved as `user_dev_user_1`
+- `finishEmbedding: false`
+
+### 2. File Status Polling
+**Purpose:** UI polls until embedding completes. Single source of truth is Redis.
+
+```bash
+curl "http://localhost:8000/api/v1/rag/file/{file_id}"
+```
+
+**Expected Guarantees:**
+- `finishEmbedding: true` ONLY after vectors are fully written to ChromaDB.
+- `chunkCount > 0`
+- Stable schema (no missing fields like `size`).
+
+### 3. Semantic Search (Primary Entry Point)
+**Purpose:** Query tenant-scoped vector store, apply reranking, apply context shaper, and filter orphans.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: dev_user_1" \
+  -d '{
+    "messageId": "msg_001",
+    "userQuery": "How does the RAGAgent initialize?",
+    "top_k": 5
+  }'
+```
+
+**Expected Guarantees:**
+- **No Orphans:** No chunks from deleted files.
+- **No Empty Text:** Chunks with empty content are dropped.
+- **Tenant Isolation:** No leakage from other users.
+- **Semantic Priority:** Ordered by combined similarity + rerank score.
+- `queryId` always returned.
+
+### 4. Semantic Search (Rewrite Query Path)
+**Purpose:** Ensure `rewriteQuery` is honored for better vector matching.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: dev_user_1" \
+  -d '{
+    "messageId": "msg_002",
+    "userQuery": "graph rebuild",
+    "rewriteQuery": "Explain how code_graph is cached using Redis",
+    "top_k": 5
+  }'
+```
+
+**Expected Guarantees:**
+- `rewriteQuery` is used for retrieval.
+- Results differ meaningfully from raw `userQuery`.
+
+### 5. Multi-Tenant Isolation Verification
+**Purpose:** Prove no cross-tenant leakage.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: dev_user_2" \
+  -d '{
+    "messageId": "msg_iso_test",
+    "userQuery": "How does the RAGAgent initialize?",
+    "top_k": 5
+  }'
+```
+
+**Expected Guarantees:**
+- **Empty result set** (assuming `dev_user_2` has no files).
+- Zero leakage from `dev_user_1`.
+
+### 6. File Deletion (Hard Delete)
+**Purpose:** Wipe data and invalidate cache.
+
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/rag/file/{file_id}" \
+  -H "X-User-ID: dev_user_1"
+```
+
+**Expected Guarantees:**
+- File removed from Redis.
+- Vectors removed from ChromaDB.
+- Graph cache invalidated.
+
+### 7. Post-Deletion Verification (Anti-Phantom)
+**Purpose:** Ensure no ghost chunks survive in search results.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: dev_user_1" \
+  -d '{
+    "messageId": "msg_verify_del",
+    "userQuery": "What is the agent structure?",
+    "top_k": 5
+  }'
+```
+
+**Expected Guarantees:**
+- `chunks: []`
+- No "unknown" citations.
+- No empty placeholders.
+
+---
+
+## Architecture Rules
 
 DevForge RAG system provides code-aware document retrieval with:
 - **Two-stage retrieval:** Vector search → Cross-encoder reranking

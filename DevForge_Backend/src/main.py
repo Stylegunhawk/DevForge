@@ -3,11 +3,11 @@
 import time
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path  # ✅ Added for robust path handling
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
 from src.core.config import settings
 # Ensure Celery app is loaded to apply broker config (prevents fallback to AMQP)
@@ -15,8 +15,6 @@ import src.workers.celery_app
 
 from src.api.routers import router, mcp_router
 from src.api.routers.rag import router as rag_router
-
-
 from src.api.monitoring import router as monitoring_router  # Phase 3
 
 # Track application start time for uptime calculation
@@ -35,6 +33,11 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events."""
     # Startup
     logger.info("DevForge v0.8.0 starting up...")
+    
+    # ✅ FIX: Ensure data directory structure exists on startup
+    # This prevents 500 errors if the folder is missing when the first file is uploaded
+    Path("data/uploads").mkdir(parents=True, exist_ok=True)
+    
     yield
     # Shutdown
     logger.info("DevForge shutting down...")
@@ -64,22 +67,18 @@ app.include_router(mcp_router)  # MCP endpoints
 app.include_router(monitoring_router)  # Phase 3: Observability
 
 
-
-
-
 # ============================================================================
-# Static File Serving (Critical for fileUrl preview)
+# Static File Serving (Fixed for RAG File Previews)
 # ============================================================================
 
-storage_root = settings.STORAGE_ROOT
-# Ensure directory exists to prevent startup error
-if not os.path.exists(storage_root):
-    try:
-        os.makedirs(storage_root, exist_ok=True)
-    except Exception as e:
-        logger.warning(f"Could not create storage root {storage_root}: {e}")
+# ✅ FIX: Mount the root 'data' directory to '/static'
+# This ensures that a URL like: http://localhost:8000/static/uploads/users/dev_user_1/file.py
+# Correctly maps to the file system: ./data/uploads/users/dev_user_1/file.py
 
-app.mount("/static/uploads", StaticFiles(directory=storage_root), name="uploads")
+data_dir = Path("data")
+data_dir.mkdir(parents=True, exist_ok=True) # Double check creation
+
+app.mount("/static", StaticFiles(directory=data_dir), name="static")
 
 
 @app.get("/health")
@@ -117,4 +116,3 @@ if __name__ == "__main__":
         port=settings.PORT,
         reload=True,
     )
-

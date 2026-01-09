@@ -1,19 +1,21 @@
 import uuid
 import math
-from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
-from typing import List, Optional
-from pathlib import Path
 import logging
 from datetime import datetime
+from typing import List, Optional
+from pathlib import Path
+
+from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
 
 from src.core.config import settings
 from src.api.schemas.rag import *
 from src.storage.redis_file_store import RedisFileStore
-from src.agents.rag.agent import get_shared_rag_agent
+from src.agents.rag.agent import get_rag_agent
 from src.workers.tasks.rag_tasks import async_ingest_documents
 
 router = APIRouter(prefix="/v1/rag", tags=["RAG"])
 redis_store = RedisFileStore()
+logger = logging.getLogger(__name__)
 
 def _sigmoid(x: float) -> float:
     """Normalize raw logits (e.g. 351.63) to 0-1 range for UI display."""
@@ -30,178 +32,165 @@ def _sigmoid(x: float) -> float:
 async def upload_files(
     files: List[UploadFile] = File(...),
     collection: str = Form("default"),
-    user_id: str = Header("default", alias="X-User-ID"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 ):
     """
     Upload files and trigger async ingestion.
     Returns file metadata with 'pending' status.
     """
+    tenant_id = x_user_id or "default"
+    collection_name = f"user_{tenant_id}"
+    
     results = []
-    base_url = settings.FILE_BASE_URL
-    storage_root = Path(settings.STORAGE_ROOT)
     
     for file in files:
-        # Generate file ID
         file_id = str(uuid.uuid4())
         
+        # Determine paths with isolation
+        upload_dir = Path("data/uploads/users") / tenant_id / collection
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        safe_filename = f"{file_id}_{file.filename}"
+        file_path = upload_dir / safe_filename
+        
         # Save file to disk
-        user_dir = storage_root / user_id / collection
-        user_dir.mkdir(parents=True, exist_ok=True)
-        
-        file_path = user_dir / f"{file_id}_{file.filename}"
         content = await file.read()
-        
         with open(file_path, "wb") as f:
             f.write(content)
         
         # Detect MIME type
         import magic
         mime = magic.Magic(mime=True)
-        file_type = mime.from_file(str(file_path))
+        file_type = mime.from_buffer(content)
+            
+        file_url = f"http://localhost:8000/static/uploads/users/{tenant_id}/{collection}/{safe_filename}"
         
-        # Create metadata matching FileListItem
-        file_metadata = {
+        # Initialize metadata in Redis (Replacing broken init_file_status)
+        file_meta = {
             "id": file_id,
             "name": file.filename,
             "size": len(content),
+            "url": file_url,
+            "diskPath": str(file_path),
             "fileType": file_type,
-            "url": f"{base_url}/{user_id}/{collection}/{file_id}_{file.filename}",
-            "diskPath": str(file_path.resolve()),  # Store absolute resolved path
-            
-            # Initial status: pending
+            "tenant_id": tenant_id,
+            "collection_name": collection_name,
+            "chunkCount": 0,
             "chunkingStatus": "pending",
             "embeddingStatus": "pending",
             "finishEmbedding": False,
-            "chunkCount": 0,
-            
-            # Timestamps
-            "createdAt": datetime.utcnow().isoformat(),
-            "updatedAt": datetime.utcnow().isoformat(),
+            "createdAt": datetime.now().isoformat(),
+            "updatedAt": datetime.now().isoformat()
         }
+        await redis_store.save_file_metadata(file_id, file_meta)
         
-        # Save to Redis
-        await redis_store.save_file_metadata(file_id, file_metadata)
-        
-        # Trigger async ingestion (Celery)
+        # Trigger async ingestion
         async_ingest_documents.delay(
             file_paths=[str(file_path)],
-            collection=f"user_{user_id}_{collection}",
-            file_id=file_id
+            file_id=file_id,
+            tenant_id=tenant_id,
+            collection_name=collection_name
         )
         
-        results.append(file_metadata)
-    
+        results.append(file_meta)
+        
     return {"files": results}
+
 
 # ============================================================================
 # 2. FILE STATUS POLLING
 # ============================================================================
 
-@router.get("/file/{file_id}", response_model=FileStatusResponse)
-async def get_file_status(file_id: str):
+@router.get("/file/{file_id}")
+async def get_file_metadata(file_id: str):
     """
-    Poll file processing status.
-    Frontend calls this every 2 seconds until finishEmbedding=true.
+    Get file processing status.
     """
-    metadata = await redis_store.get_file_metadata(file_id)
-    if not metadata:
+    status = await redis_store.get_file_metadata(file_id)
+    if not status:
+        # Compatibility: check get_file_metadata if get_file_metadata (alias) fails
+        status = await redis_store.get_file_metadata(file_id)
+        
+    if not status:
         raise HTTPException(status_code=404, detail="File not found")
-    
-    return metadata
+    return status
 
 # ============================================================================
 # 3. SEMANTIC SEARCH
 # ============================================================================
 
 @router.post("/chunk/semanticSearchForChat", response_model=SemanticSearchResponse)
-async def semantic_search_for_chat(request: SemanticSearchRequest):
+async def semantic_search_for_chat(
+    request: SemanticSearchRequest,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
     """
-    Semantic search with Phase 12A query intelligence.
-    Returns chunks with fileId, fileUrl, and normalized similarity.
+    Semantic search with strict filtering for orphaned/phantom chunks.
     """
-    # Get RAGAgent (your existing Phase 12A implementation)
-    agent = get_shared_rag_agent()
+    tenant_id = x_user_id or "default"
+    collection_name = f"user_{tenant_id}"
     
-    # Use rewritten query if available, else original
+    agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
     query = request.rewriteQuery or request.userQuery
     
-    # Phase 12A: retrieve_with_reranking
     result = await agent.retrieve_with_reranking(
         query=query,
         top_k=request.top_k,
         use_reranking=True
     )
     
-    # Transform to ChatFileChunk format
     response_chunks = []
-    
-    # Use .get() for safety and handle both Dicts and Objects
     documents = result.get("documents", [])
-    logging.info(f"[DEBUG] Search returned {len(documents)} documents")
     
-    for i, doc in enumerate(documents):
-        # --- NORMALIZATION LAYER ---
+    for doc in documents:
+        # 1. Normalize Chunk Data
         if isinstance(doc, dict):
             metadata = doc.get("metadata", {})
-            # ✅ FIX ISSUE 2: Defensive Content Extraction
             content = doc.get("content") or doc.get("page_content") or ""
             score = doc.get("score") or doc.get("similarity") or 0.0
             doc_id = doc.get("id")
         else:
             metadata = getattr(doc, "metadata", {})
-            # ✅ FIX ISSUE 2: Defensive Content Extraction
             content = getattr(doc, "content", None) or getattr(doc, "page_content", "") or ""
             score = getattr(doc, "score", 0.0)
             doc_id = getattr(doc, "id", None)
 
-        # 1. Normalize Similarity Score (Robust Fix)
-        # ✅ FIX ISSUE 1: Distinguish Logits vs Distances vs Probabilities
+        # 🛑 STRICT FILTER 1: Drop empty content
+        if not content or not str(content).strip():
+            continue
+
+        # 2. Normalize Similarity Score
         try:
             score_val = float(score)
-            
-            # Case A: Explicit Reranker Score (Logits)
             if metadata.get("rerank_score") is not None:
                 normalized_score = _sigmoid(score_val)
-                
-            # Case B: Standard Cosine/Similarity [0.0 - 1.0]
             elif 0.0 <= score_val <= 1.0:
                 normalized_score = score_val
-                
-            # Case C: Likely Distance (>1.0 usually means L2 distance)
-            # Invert it so smaller distance = higher score
             else:
                 normalized_score = 1 / (1 + abs(score_val))
-                
         except (ValueError, TypeError):
             normalized_score = 0.0
 
-        # 2. File ID Resolution
+        # 3. Resolve File Metadata
         file_id = metadata.get("file_id")
         file_meta = None
         
         if file_id:
             file_meta = await redis_store.get_file_metadata(file_id)
         
-        if not file_meta:
-            # Fallback path lookup
-            path = metadata.get("source")
-            if path:
-                file_meta = await redis_store.get_file_metadata_by_path(path)
+        if not file_meta and metadata.get("source"):
+            file_meta = await redis_store.get_file_metadata_by_path(metadata.get("source"))
         
-        # 3. Fallback Logic
+        # 🛑 STRICT FILTER 2: Drop Orphans (Deleted Files)
+        # If Redis has no record of this file, it means the file was deleted.
+        # We skip it so the UI doesn't show a broken "unknown" citation.
         if not file_meta:
-            # Note: This fallback indicates the chunk originated from a legacy ingestion path
-            # (e.g. script-based, not API-driven) and confirms that only API-ingested 
-            # files now produce valid metadata. This is expected behavior during migration.
-            file_meta = {
-                "id": file_id or "unknown",
-                "name": Path(metadata.get("source", "unknown")).name,
-                "fileType": "text/plain",
-                "url": ""
-            }
+            continue
+            
+        # 🛑 STRICT FILTER 3: Drop Malformed/Legacy Data
+        if file_meta.get("id") == "unknown" or not file_meta.get("url"):
+             continue
 
-        # 4. Create Response Chunk
-        # ✅ FIX ISSUE 3: Prefer chunk_id from metadata for consistency
         final_chunk_id = metadata.get("chunk_id") or doc_id or str(uuid.uuid4())
 
         response_chunks.append(ChatFileChunk(
@@ -213,13 +202,10 @@ async def semantic_search_for_chat(request: SemanticSearchRequest):
             text=content,
             similarity=float(normalized_score),
             pageNumber=metadata.get("page", None),
-            role=metadata.get("role", "supporting")  # Phase 13: Expose role
+            role=metadata.get("role", "supporting")
         ))
     
-    # Generate query ID
     query_id = str(uuid.uuid4())
-    
-    # Save query metadata for deletion support
     await redis_store.save_query_metadata(
         query_id=query_id,
         message_id=request.messageId,
@@ -232,7 +218,7 @@ async def semantic_search_for_chat(request: SemanticSearchRequest):
         chunks=response_chunks,
         queryId=query_id
     )
-
+    
 # ============================================================================
 # 4. FILE DELETION
 # ============================================================================
@@ -240,41 +226,36 @@ async def semantic_search_for_chat(request: SemanticSearchRequest):
 @router.delete("/file/{file_id}")
 async def delete_file(file_id: str):
     """
-    Delete file, metadata, and vector embeddings.
-    Required by Lobe Chat file manager.
+    Delete file, metadata, and vector embeddings accurately using the factory.
     """
-    # Get metadata
     file_meta = await redis_store.get_file_metadata(file_id)
     if not file_meta:
         raise HTTPException(status_code=404, detail="File not found")
     
-    # Use stored diskPath instead of driving it
     file_path = file_meta.get("diskPath")
+    tenant_id = file_meta.get("tenant_id", "default")
+    collection_name = file_meta.get("collection_name", f"user_{tenant_id}")
     
     if file_path:
-        # Delete physical file
+        # Delete from disk
         try:
             Path(file_path).unlink(missing_ok=True)
         except Exception as e:
-            print(f"Failed to delete file {file_path}: {e}")
+            logger.error(f"Failed to delete file {file_path}: {e}")
         
-        # Delete vector embeddings
+        # Delete from Vector Store using the FACTORY
         try:
-            agent = get_shared_rag_agent()
-            agent.vector_store.delete_by_source(file_path)
+            agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
+            await agent.vector_store.delete_by_source(file_path)
+            # Invalidate graph for this collection
+            agent._code_graph = None
         except Exception as e:
-            print(f"Failed to delete vectors for {file_path}: {e}")
+            logger.error(f"Failed to delete vectors for {file_path}: {e}")
             
-    else:
-        print(f"Warning: diskPath not found for file {file_id}")
-    
     # Delete metadata
     await redis_store.delete_file_metadata(file_id)
     
-    return {
-        "success": True,
-        "fileId": file_id
-    }
+    return {"success": True, "fileId": file_id}
 
 # ============================================================================
 # 5. QUERY DELETION
@@ -284,12 +265,6 @@ async def delete_file(file_id: str):
 async def delete_message_query(message_id: str):
     """
     Delete RAG query associated with a message.
-    Required by Lobe Chat when regenerating responses.
     """
     deleted_count = await redis_store.delete_queries_by_message(message_id)
-    
-    return {
-        "success": True,
-        "messageId": message_id,
-        "deletedQueries": deleted_count
-    }
+    return {"success": True, "messageId": message_id, "deletedQueries": deleted_count}

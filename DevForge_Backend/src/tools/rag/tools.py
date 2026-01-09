@@ -297,8 +297,36 @@ def chunk_document(
                 )
                 documents.append(doc)
             
-            logger.debug(f"Code-aware chunking: {len(documents)} chunks from {file_path}")
-            return documents
+            logger.debug(f"Initial chunking: {len(documents)} chunks from {file_path}")
+            
+            # --- SAFETY VALVE: Ensure no chunk exceeds 2000 characters ---
+            safe_chunks = []
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                separators=["\n\n", "\n", " ", ""]
+            )
+            
+            for doc in documents:
+                if len(doc.page_content) > 2000:
+                    logger.info(
+                        f"Chunk too large ({len(doc.page_content)} chars), re-splitting: {file_path}",
+                        extra={"file_path": file_path, "original_size": len(doc.page_content)}
+                    )
+                    sub_chunks = splitter.split_text(doc.page_content)
+                    for i, sub_content in enumerate(sub_chunks):
+                        safe_chunks.append(Document(
+                            page_content=sub_content,
+                            metadata={
+                                **doc.metadata,
+                                "is_split_by_safety_valve": True,
+                                "sub_chunk_index": i
+                            }
+                        ))
+                else:
+                    safe_chunks.append(doc)
+            
+            return safe_chunks
             
         except ImportError:
             logger.warning("Chunkers not available, using RecursiveCharacterTextSplitter")
@@ -337,32 +365,38 @@ def chunk_document(
 
 async def ingest_documents(
     file_paths: List[str],
-    file_id: str,  # Required: Passed from API/Task
+    file_id: str, 
+    tenant_id: str,  # Phase 15: Tenant Isolation
+    knowledge_id: Optional[str] = None, # Phase 15: Knowledge Base Isolation
     embed_model: str = "nomic-embed-text",
     chunk_size: int = 500,
     chunk_overlap: int = 50,
     backend: str = "chroma",
+    collection_name: Optional[str] = None, # Phase 15: Dynamic Collection
 ) -> dict:
-    """Ingest documents into vector store (Standardized).
+    """Ingest documents into vector store (Multi-Tenant).
 
     Args:
         file_paths: List of file paths to ingest
-        file_id: Unique ID for the file (required)
+        file_id: Unique ID for the file
+        tenant_id: User/Tenant ID for isolation
+        knowledge_id: Optional Knowledge Base ID
         embed_model: Embedding model name
-        chunk_size: Maximum characters per chunk
-        chunk_overlap: Characters to overlap between chunks
-        backend: Vector store backend ("chroma" or "qdrant")
-
-    Returns:
-        Dictionary with ingestion result
+        collection_name: Optional override for collection name (defaults to user/org scope)
     """
+    # Determine collection name
+    # IF specific collection passed -> use it
+    # ELSE -> default to "devforge_docs" (legacy) or constructed scope
+    target_collection = collection_name or settings.CHROMA_COLLECTION
+    
     logger.info(
-        f"Ingesting {len(file_paths)} documents",
+        f"Ingesting {len(file_paths)} documents into {target_collection}",
         extra={
             "file_count": len(file_paths),
             "file_id": file_id,
-            "embed_model": embed_model,
-            "backend": backend,
+            "tenant_id": tenant_id,
+            "knowledge_id": knowledge_id,
+            "collection": target_collection,
         },
     )
 
@@ -370,9 +404,9 @@ async def ingest_documents(
         # Initialize vector store using Standard Abstraction
         from src.storage.chroma_store import ChromaVectorStore
         
-        # Initialize store (always use standard collection)
+        # Initialize store with dynamic collection
         vector_store = ChromaVectorStore(
-            collection_name=settings.CHROMA_COLLECTION,
+            collection_name=target_collection,
             embed_model=embed_model
         )
 
@@ -402,7 +436,7 @@ async def ingest_documents(
                     chunk_overlap=chunk_overlap,
                 )
                 
-                # ENFORCE METADATA STANDARDS
+                # ENFORCE META STANDARDS & MULTI-TENANCY
                 valid_chunks = []
                 for i, chunk in enumerate(chunks):
                     # 1. Ensure absolute path for source
@@ -418,8 +452,12 @@ async def ingest_documents(
                     meta["chunk_index"] = i
                     meta["total_chunks"] = len(chunks)
                     
+                    # PHASE 15: Tenant & KB Isolation Metadata
+                    meta["tenant_id"] = tenant_id
+                    if knowledge_id:
+                        meta["knowledge_id"] = knowledge_id
+                    
                     # 4. Flatten metadata (ChromaDB requirement)
-                    # Convert lists/dicts to JSON strings
                     import json
                     flat_meta = {}
                     for k, v in meta.items():
@@ -447,26 +485,12 @@ async def ingest_documents(
 
         # Add to vector store
         if all_chunks:
-            # Use standardized add_chunks method
-            # Note: embeddings arg is empty list as Chroma generates them if not provided,
-            # or we rely on vector_store implementation to handle embedding generation.
-            # ChromaVectorStore uses vector_store.add_documents which handles embedding.
-            # Wait, BaseVectorStore.add_chunks takes (chunks, embeddings).
-            # But ChromaVectorStore implementation wraps `add_documents` which takes Document objects.
-            # I should use `vector_store.add_chunks` if it generates embeddings?
-            # BaseVectorStore interface says:
-            # add_chunks(chunks: List[Dict], embeddings: List)
-            # If embeddings is empty, does it generate? 
-            # ChromaVectorStore implementation:
-            # documents = [Document(...) for c in chunks]
-            # self.client.add_documents(documents)
-            # Chroma handles generation if embedding_function is set (which it is).
-            
+            # Add chunks to scoped collection
             await vector_store.add_chunks(chunks=all_chunks, embeddings=[])
             
             logger.info(
-                f"Added {len(all_chunks)} chunks to vector store",
-                extra={"chunk_count": len(all_chunks), "backend": backend},
+                f"Added {len(all_chunks)} chunks to {target_collection}",
+                extra={"chunk_count": len(all_chunks), "tenant_id": tenant_id},
             )
 
         result = {
@@ -474,6 +498,7 @@ async def ingest_documents(
             "documents_processed": documents_processed,
             "chunks_created": len(all_chunks),
             "backend": backend,
+            "collection": target_collection,
             "error": "; ".join(errors) if errors else None,
         }
 
@@ -495,6 +520,8 @@ async def retrieve_docs(
     embed_model: str = "nomic-embed-text",
     backend: str = "chroma",
     score_threshold: float = 0.5,
+    tenant_id: str = "default",
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """Retrieve relevant documents via semantic search (Delegated to Agent).
 
@@ -504,24 +531,28 @@ async def retrieve_docs(
         embed_model: Embedding model name
         backend: Vector store backend
         score_threshold: Minimum similarity score (0.0-1.0)
+        tenant_id: tenant ID for isolation
+        collection_name: focus search on a specific collection
 
     Returns:
         List of dictionaries with id, content, metadata, score
     """
     logger.info(
-        f"Retrieving documents (Delegated): query='{str(query)[:50]}...', top_k={top_k}",
-        extra={"query_preview": str(query)[:50], "top_k": top_k},
+        f"Retrieving documents (Delegated): query='{str(query)[:50]}...', tenant='{tenant_id}'",
+        extra={"query_preview": str(query)[:50], "top_k": top_k, "tenant": tenant_id},
     )
 
     try:
         # Phase 14: Delegate to RAGAgent (Single Source of Truth)
-        # Prevent circular import
-        from src.agents.rag.agent import get_shared_rag_agent
+        # Prevent circular import via local import
+        from src.agents.rag.agent import get_rag_agent
         
-        agent = get_shared_rag_agent()
+        # Determine collection
+        target_collection = collection_name or f"user_{tenant_id}"
+        
+        agent = get_rag_agent(tenant_id=tenant_id, collection_name=target_collection)
         
         # Use retrieve_with_reranking for best results
-        # Note: We pass use_reranking=True explicitly as this is the "smart" tool
         result = await agent.retrieve_with_reranking(
             query=query,
             top_k=top_k,
@@ -529,12 +560,11 @@ async def retrieve_docs(
             use_reranking=True
         )
         
-        # Format results: retrieve_with_reranking returns a dict with "documents" list
+        # Format results
         documents = result.get("documents", [])
         
         formatted_results = []
         for doc in documents:
-            # Handle both ChunkResult objects and dicts
             if hasattr(doc, 'content'):
                 formatted_results.append({
                     "id": getattr(doc, 'id', ''),
@@ -548,7 +578,7 @@ async def retrieve_docs(
         return formatted_results
 
     except Exception as e:
-        logger.error(f"Document retrieval failed: {e}", exc_info=True)
+        logger.error(f"Document retrieval failed for tenant {tenant_id}: {e}", exc_info=True)
         return []
 
 
