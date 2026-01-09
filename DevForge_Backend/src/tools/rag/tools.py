@@ -337,63 +337,59 @@ def chunk_document(
 
 async def ingest_documents(
     file_paths: List[str],
+    file_id: str,  # Required: Passed from API/Task
     embed_model: str = "nomic-embed-text",
     chunk_size: int = 500,
     chunk_overlap: int = 50,
     backend: str = "chroma",
 ) -> dict:
-    """Ingest documents into vector store.
-
-    Reads files in parallel, chunks them, generates embeddings, and upserts into vector store.
+    """Ingest documents into vector store (Standardized).
 
     Args:
         file_paths: List of file paths to ingest
-        embed_model: Embedding model name (default: "nomic-embed-text")
+        file_id: Unique ID for the file (required)
+        embed_model: Embedding model name
         chunk_size: Maximum characters per chunk
         chunk_overlap: Characters to overlap between chunks
         backend: Vector store backend ("chroma" or "qdrant")
 
     Returns:
-        Dictionary with:
-            - success (bool): Whether ingestion succeeded
-            - documents_processed (int): Number of documents successfully processed
-            - chunks_created (int): Total number of chunks created
-            - backend (str): Backend used
-            - error (str | None): Error message if any
+        Dictionary with ingestion result
     """
     logger.info(
         f"Ingesting {len(file_paths)} documents",
         extra={
             "file_count": len(file_paths),
+            "file_id": file_id,
             "embed_model": embed_model,
             "backend": backend,
         },
     )
 
     try:
-        # Initialize embedding model
-        embeddings = get_embedding_model(embed_model)
-
-        # Initialize vector store
-        vector_store = get_vector_store(
-            backend=backend,
-            embed_model=embeddings,
+        # Initialize vector store using Standard Abstraction
+        from src.storage.chroma_store import ChromaVectorStore
+        
+        # Initialize store (always use standard collection)
+        vector_store = ChromaVectorStore(
             collection_name=settings.CHROMA_COLLECTION,
+            embed_model=embed_model
         )
 
-        # Read all documents in parallel with error handling
+        # Read all documents in parallel
         read_tasks = [read_document(fp) for fp in file_paths]
         contents = await asyncio.gather(*read_tasks, return_exceptions=True)
 
-        # Process successful reads and collect errors
         all_chunks = []
         documents_processed = 0
         errors = []
 
+        import uuid
+
         for file_path, content in zip(file_paths, contents):
             if isinstance(content, Exception):
                 error_msg = f"Failed to read {file_path}: {str(content)}"
-                logger.warning(error_msg, extra={"file_path": file_path, "error": str(content)})
+                logger.warning(error_msg)
                 errors.append(error_msg)
                 continue
 
@@ -405,33 +401,69 @@ async def ingest_documents(
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                 )
-                all_chunks.extend(chunks)
+                
+                # ENFORCE METADATA STANDARDS
+                valid_chunks = []
+                for i, chunk in enumerate(chunks):
+                    # 1. Ensure absolute path for source
+                    source_path = str(Path(file_path).resolve())
+                    
+                    # 2. Get chunk metadata or init new
+                    meta = chunk.metadata if hasattr(chunk, "metadata") else {}
+                    
+                    # 3. Inject Critical Identity Fields
+                    meta["file_id"] = file_id
+                    meta["chunk_id"] = str(uuid.uuid4())
+                    meta["source"] = source_path
+                    meta["chunk_index"] = i
+                    meta["total_chunks"] = len(chunks)
+                    
+                    # 4. Flatten metadata (ChromaDB requirement)
+                    # Convert lists/dicts to JSON strings
+                    import json
+                    flat_meta = {}
+                    for k, v in meta.items():
+                        if isinstance(v, (list, dict)):
+                            flat_meta[k] = json.dumps(v)
+                        elif v is None:
+                            flat_meta[k] = ""
+                        else:
+                            flat_meta[k] = v
+                    
+                    # 5. Create standardized chunk dict
+                    valid_chunks.append({
+                        "content": chunk.page_content,
+                        "metadata": flat_meta
+                    })
+                
+                all_chunks.extend(valid_chunks)
                 documents_processed += 1
+                
             except Exception as e:
                 error_msg = f"Failed to chunk {file_path}: {str(e)}"
-                logger.warning(error_msg, extra={"file_path": file_path, "error": str(e)})
+                logger.warning(error_msg)
                 errors.append(error_msg)
                 continue
 
-        # Add chunks to vector store
+        # Add to vector store
         if all_chunks:
-            # Filter complex metadata - ChromaDB only accepts str, int, float, bool, None
-            # Convert list values to JSON strings
-            import json as json_module
-            for chunk in all_chunks:
-                if hasattr(chunk, 'metadata'):
-                    for key in list(chunk.metadata.keys()):
-                        value = chunk.metadata[key]
-                        if isinstance(value, list):
-                            chunk.metadata[key] = json_module.dumps(value) if value else ""
-                        elif value is None:
-                            chunk.metadata[key] = ""
+            # Use standardized add_chunks method
+            # Note: embeddings arg is empty list as Chroma generates them if not provided,
+            # or we rely on vector_store implementation to handle embedding generation.
+            # ChromaVectorStore uses vector_store.add_documents which handles embedding.
+            # Wait, BaseVectorStore.add_chunks takes (chunks, embeddings).
+            # But ChromaVectorStore implementation wraps `add_documents` which takes Document objects.
+            # I should use `vector_store.add_chunks` if it generates embeddings?
+            # BaseVectorStore interface says:
+            # add_chunks(chunks: List[Dict], embeddings: List)
+            # If embeddings is empty, does it generate? 
+            # ChromaVectorStore implementation:
+            # documents = [Document(...) for c in chunks]
+            # self.client.add_documents(documents)
+            # Chroma handles generation if embedding_function is set (which it is).
             
-            # ChromaDB's add_documents is synchronous, run in thread pool
-            def add_to_store():
-                vector_store.add_documents(all_chunks)
-
-            await asyncio.to_thread(add_to_store)
+            await vector_store.add_chunks(chunks=all_chunks, embeddings=[])
+            
             logger.info(
                 f"Added {len(all_chunks)} chunks to vector store",
                 extra={"chunk_count": len(all_chunks), "backend": backend},
@@ -445,28 +477,14 @@ async def ingest_documents(
             "error": "; ".join(errors) if errors else None,
         }
 
-        logger.info(
-            f"Ingestion completed: {documents_processed}/{len(file_paths)} documents, {len(all_chunks)} chunks",
-            extra={
-                "documents_processed": documents_processed,
-                "total_documents": len(file_paths),
-                "chunks_created": len(all_chunks),
-            },
-        )
-
         return result
 
     except Exception as e:
-        logger.error(
-            f"Document ingestion failed: {e}",
-            extra={"error": str(e), "file_count": len(file_paths)},
-            exc_info=True,
-        )
+        logger.error(f"Document ingestion failed: {e}", exc_info=True)
         return {
             "success": False,
             "documents_processed": 0,
             "chunks_created": 0,
-            "backend": backend,
             "error": str(e),
         }
 
@@ -478,7 +496,7 @@ async def retrieve_docs(
     backend: str = "chroma",
     score_threshold: float = 0.5,
 ) -> List[dict]:
-    """Retrieve relevant documents via semantic search.
+    """Retrieve relevant documents via semantic search (Delegated to Agent).
 
     Args:
         query: Search query string
@@ -488,86 +506,49 @@ async def retrieve_docs(
         score_threshold: Minimum similarity score (0.0-1.0)
 
     Returns:
-        List of dictionaries with:
-            - id (str): Document ID
-            - content (str): Document content
-            - metadata (dict): Document metadata
-            - score (float): Similarity score
+        List of dictionaries with id, content, metadata, score
     """
     logger.info(
-        f"Retrieving documents: query='{str(query)[:50]}...', top_k={top_k}",
-        extra={"query_preview": str(query)[:50], "top_k": top_k, "embed_model": embed_model},
+        f"Retrieving documents (Delegated): query='{str(query)[:50]}...', top_k={top_k}",
+        extra={"query_preview": str(query)[:50], "top_k": top_k},
     )
 
     try:
-        # Initialize embedding model
-        embeddings = get_embedding_model(embed_model)
-
-        # Initialize vector store
-        vector_store = get_vector_store(
-            backend=backend,
-            embed_model=embeddings,
-            collection_name=settings.CHROMA_COLLECTION,
+        # Phase 14: Delegate to RAGAgent (Single Source of Truth)
+        # Prevent circular import
+        from src.agents.rag.agent import get_shared_rag_agent
+        
+        agent = get_shared_rag_agent()
+        
+        # Use retrieve_with_reranking for best results
+        # Note: We pass use_reranking=True explicitly as this is the "smart" tool
+        result = await agent.retrieve_with_reranking(
+            query=query,
+            top_k=top_k,
+            score_threshold=score_threshold,
+            use_reranking=True
         )
-
-        # Perform similarity search
-        # ChromaDB's similarity_search_with_score is synchronous
-        def search_docs():
-            # DEBUG: Check collection count
-            try:
-                count = vector_store._collection.count() if hasattr(vector_store, '_collection') else 'N/A'
-                logger.info(f"[DEBUG] ChromaDB collection count: {count}")
-            except Exception as ce:
-                logger.warning(f"[DEBUG] Could not get collection count: {ce}")
-            
-            # Use similarity_search_with_score to get scores
-            results = vector_store.similarity_search_with_score(query, k=top_k)
-            
-            # DEBUG: Log raw results
-            logger.info(f"[DEBUG] Raw search results count: {len(results)}")
-            for i, (doc, score) in enumerate(results[:3]):
-                logger.info(f"[DEBUG] Result {i}: score={score}, content={doc.page_content[:50]}...")
-            
-            return results
-
-        search_results = await asyncio.to_thread(search_docs)
-
-        # Format results and filter by score threshold
+        
+        # Format results: retrieve_with_reranking returns a dict with "documents" list
+        documents = result.get("documents", [])
+        
         formatted_results = []
-        for doc, score in search_results:
-            # ChromaDB returns squared L2 distance by default (lower is better)
-            # Convert to similarity (higher is better): similarity = 1 / (1 + distance)
-            # This gives values in [0, 1] range
-            similarity = 1.0 / (1.0 + score) if score >= 0 else 1.0
-            
-            logger.info(f"[DEBUG] Doc: raw_score={score}, similarity={similarity:.4f}")
-
-            if similarity >= score_threshold:
-                formatted_results.append(
-                    {
-                        "id": doc.metadata.get("id", ""),
-                        "content": doc.page_content,
-                        "metadata": doc.metadata,
-                        "score": round(similarity, 4),
-                    }
-                )
-
-        logger.info(
-            f"Retrieved {len(formatted_results)} documents (threshold: {score_threshold})",
-            extra={
-                "results_count": len(formatted_results),
-                "score_threshold": score_threshold,
-            },
-        )
-
+        for doc in documents:
+            # Handle both ChunkResult objects and dicts
+            if hasattr(doc, 'content'):
+                formatted_results.append({
+                    "id": getattr(doc, 'id', ''),
+                    "content": getattr(doc, 'content', ''),
+                    "metadata": getattr(doc, 'metadata', {}),
+                    "score": getattr(doc, 'rerank_score', getattr(doc, 'score', 0.0))
+                })
+            else:
+                formatted_results.append(doc)
+                
         return formatted_results
 
     except Exception as e:
-        logger.error(
-            f"Document retrieval failed: {e}",
-            extra={"error": str(e), "query_preview": str(query)[:50]},
-            exc_info=True,
-        )
+        logger.error(f"Document retrieval failed: {e}", exc_info=True)
         return []
 
 

@@ -6,12 +6,16 @@ Loads environment variables and provides settings singleton.
 import os
 from functools import lru_cache
 from typing import List, Optional, Dict
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+    # Base paths
+    BASE_DIR: Path = Path(__file__).resolve().parents[2]
+    MANIFEST_DIR: Path = BASE_DIR / "manifests"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -36,7 +40,7 @@ class Settings(BaseSettings):
 
     # Server Configuration
     PORT: int = 8000
-    CORS_ORIGINS: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3210"
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
 

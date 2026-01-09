@@ -30,7 +30,8 @@ def async_ingest_documents(file_paths: List[str], collection: str, file_id: str)
             async def _ingest_all():
                 total = 0
                 for path in file_paths:
-                    res = await agent.ingest_document(file_path=path)
+                    # Pass file_id to ensure metadata consistency
+                    res = await agent.ingest_document(file_path=path, file_id=file_id)
                     total += res.get("chunks_created", 0)
                 return total
 

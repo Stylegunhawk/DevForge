@@ -154,7 +154,14 @@ graph TD
    ↓
    Stage 2 precision ranking
    
-8. Response Generation
+8. Deterministic Context Shaping (Phase 13)
+   ContextShaper.shape_context(reranked_results)
+   ↓
+   - Deduplicate by Qualified ID
+   - Assign Roles (Entry / Dependency / Supporting)
+   - Apply Hard Limits (Max 12)
+   
+9. Response Generation
    model_router.select_model("rag_simple", prefer_local=False)
    ↓
    Uses cloud model (gpt-oss:120b-cloud) for memory efficiency
@@ -501,7 +508,8 @@ def validate(value):
       "end_line": 8,
       "imports": [],
       "calls": ["add"],  // Detected function call
-      "docstring": null
+      "docstring": null,
+      "role": "dependency"
     }
   }
 ]

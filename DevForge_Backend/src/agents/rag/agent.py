@@ -5,8 +5,10 @@ Supports PDF, Markdown, TXT, and DOCX file formats.
 """
 
 import logging
+import asyncio
 import time
-from typing import List, Literal, Optional, TypedDict
+from typing import List, Literal, Optional, TypedDict, Dict
+from pathlib import Path
 
 from langgraph.graph import END, StateGraph
 
@@ -17,6 +19,7 @@ from src.tools.rag.tools import (
     retrieve_docs,
 )
 # Note: Reranker is lazy-loaded inside RAGAgent
+from src.agents.rag.context_shaper import ContextShaper
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +59,16 @@ async def ingest_node(state: RAGState) -> RAGState:
         extra={"file_count": len(file_paths), "embed_model": embed_model, "backend": backend},
     )
 
+    import uuid
+    # Phase 14: Generate ID for ad-hoc ingestion
+    # Note: This node is mostly for testing/Graph flows. 
+    # API uploads use rag_tasks which handles file_id properly.
+    batch_id = str(uuid.uuid4())
+
     try:
         result = await ingest_documents(
             file_paths=file_paths,
+            file_id=batch_id,
             embed_model=embed_model,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -572,6 +582,13 @@ class RAGAgent:
             )
             logger.info("Semantic cache enabled")
         
+        # Phase 13: Initialize context shaper (deterministic dedup + ordering)
+        self._context_shaper = ContextShaper(
+            max_chunks=12,
+            max_per_secondary_role=3
+        )
+        logger.info("Context shaper initialized")
+        
         logger.info(f"RAGAgent initialized: collection={collection_name}")
     
     @property
@@ -716,6 +733,7 @@ class RAGAgent:
     async def ingest_document(
         self,
         file_path: str,
+        file_id: str,
         embed_model: Optional[str] = None,
     ) -> dict:
         """Ingest a single document into the vector store.
@@ -724,6 +742,7 @@ class RAGAgent:
         
         Args:
             file_path: Path to document to ingest
+            file_id: Unique ID for the file
             embed_model: Optional embedding model override
         
         Returns:
@@ -733,6 +752,7 @@ class RAGAgent:
         
         result = await _ingest_documents(
             file_paths=[file_path],
+            file_id=file_id,
             embed_model=embed_model or self.embed_model,
             chunk_size=settings.RAG_CHUNK_SIZE,
             chunk_overlap=settings.RAG_CHUNK_OVERLAP,
@@ -763,19 +783,12 @@ class RAGAgent:
         Returns:
             List of matching documents
         """
-        from src.tools.rag.tools import retrieve_docs as _retrieve_docs
-        
-        return await _retrieve_docs(
-            query=query,
-            top_k=top_k,
-            embed_model=self.embed_model,
-            backend=self.backend,
-            score_threshold=settings.RAG_SCORE_THRESHOLD,
-        )
+        # Phase 14: Use _vector_search directly (breaking circular dependency)
+        return await self._vector_search(query=query, top_k=top_k)
     
     async def _vector_search(self, query: str, top_k: int, score_threshold: float = 0.0) -> List:
         """
-        Vector-only search (helper for fallback).
+        Vector-only search using ChromaVectorStore.
         
         Args:
             query: Search query
@@ -783,17 +796,36 @@ class RAGAgent:
             score_threshold: Minimum similarity score (default: 0.0)
         
         Returns:
-            List of search results
+            List of search results (ChunkResult objects, NOT dicts)
         """
-        from src.tools.rag.tools import retrieve_docs as _retrieve_docs
+        # Phase 14: Direct store usage
+        # Note: vector_store.search returns ChunkResult objects
+        # We need to ensure callers handle objects (or convert them if needed)
+        # Existing callers (retrieve_with_reranking) expect ChunkResult objects for reraking.
         
-        return await _retrieve_docs(
-            query=query,
-            top_k=top_k,
-            embed_model=self.embed_model,
-            backend=self.backend,
-            score_threshold=score_threshold,
+        # We need query embedding first?
+        # ChromaVectorStore.search takes query_embedding.
+        # But wait, helper implementation of ChromaVectorStore.search takes query_embedding.
+        # Does it have a method for query string?
+        # Looking at chroma_store.py: 
+        # async def search(self, query_embedding: List[float], ...)
+        
+        # So we need to embed the query first.
+        # self.vector_store.embeddings.embed_query(query)
+        
+        query_embedding = await asyncio.to_thread(
+            self.vector_store.embeddings.embed_query,
+            query
         )
+        
+        results = await self.vector_store.search(
+            query_embedding=query_embedding,
+            top_k=top_k,
+            score_threshold=score_threshold
+        )
+        
+        return results
+
     
     async def retrieve_with_reranking(
         self,
@@ -1056,8 +1088,12 @@ class RAGAgent:
                 # Case A: ≥3 pass threshold → return those
                 final_results = filtered[:top_k]
                 logger.info(f"Reranking: {len(filtered)} passed threshold, returning top {len(final_results)}")
+                
+                # Phase 13: Deterministic Context Shaping
+                shaped_results = self._context_shaper.shape_context(final_results)
+                
                 result = {
-                    "documents": final_results,
+                    "documents": shaped_results,
                     "reranked": True,
                     "threshold_passed": len(filtered),
                     "fallback_used": False,
@@ -1070,8 +1106,12 @@ class RAGAgent:
                 remaining = top_k - len(filtered)
                 fallback = [c for c in chunk_candidates if c not in filtered][:remaining]
                 final_results = filtered + fallback
+                
+                # Phase 13: Deterministic Context Shaping
+                shaped_results = self._context_shaper.shape_context(final_results)
+                
                 result = {
-                    "documents": final_results,
+                    "documents": shaped_results,
                     "reranked": True,
                     "threshold_passed": len(filtered),
                     "fallback_used": True,
@@ -1082,8 +1122,13 @@ class RAGAgent:
             else:
                 # Case C: 0 pass threshold → return top vector results (safeguard)
                 logger.warning("No results passed rerank threshold, using vector results")
+                
+                # Phase 13: Deterministic Context Shaping
+                final_results = chunk_candidates[:top_k]
+                shaped_results = self._context_shaper.shape_context(final_results)
+                
                 result = {
-                    "documents": chunk_candidates[:top_k],
+                    "documents": shaped_results,
                     "reranked": False,
                     "threshold_passed": 0,
                     "fallback_used": True,

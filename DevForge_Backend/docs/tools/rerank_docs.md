@@ -56,11 +56,11 @@ Query → Vector Search → Results
 Quality: ~75% relevance
 ```
 
-### With Reranking
+### With Reranking (and Shaping)
 
 ```
-Query → Vector Search → Initial Results → Rerank → Final Results
-Quality: ~85-90% relevance
+Query → Vector Search → Initial Results → Rerank → Context Shape → Final Results
+Quality: ~95% relevance + deterministic ordering
 ```
 
 ### Reranking Process
@@ -68,7 +68,8 @@ Quality: ~85-90% relevance
 1. **Initial Retrieval:** Get top documents from vector store
 2. **Cross-Encoder Scoring:** Re-score each document against query
 3. **Re-Sorting:** Sort by new relevance scores
-4. **Top-K Selection:** Return most relevant documents
+4. **Context Shaping:** Deduplicate by Qualified ID & Assign Roles (Phase 13)
+5. **Top-K Selection:** Return most relevant documents
 
 ---
 

@@ -1,4 +1,5 @@
 import uuid
+import math
 from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
 from typing import List, Optional
 from pathlib import Path
@@ -13,6 +14,13 @@ from src.workers.tasks.rag_tasks import async_ingest_documents
 
 router = APIRouter(prefix="/v1/rag", tags=["RAG"])
 redis_store = RedisFileStore()
+
+def _sigmoid(x: float) -> float:
+    """Normalize raw logits (e.g. 351.63) to 0-1 range for UI display."""
+    try:
+        return 1 / (1 + math.exp(-x))
+    except OverflowError:
+        return 0.0 if x < 0 else 1.0
 
 # ============================================================================
 # 1. FILE UPLOAD
@@ -109,7 +117,7 @@ async def get_file_status(file_id: str):
 async def semantic_search_for_chat(request: SemanticSearchRequest):
     """
     Semantic search with Phase 12A query intelligence.
-    Returns chunks with fileId, fileUrl, and similarity.
+    Returns chunks with fileId, fileUrl, and normalized similarity.
     """
     # Get RAGAgent (your existing Phase 12A implementation)
     agent = get_shared_rag_agent()
@@ -117,14 +125,10 @@ async def semantic_search_for_chat(request: SemanticSearchRequest):
     # Use rewritten query if available, else original
     query = request.rewriteQuery or request.userQuery
     
-    # NOTE: File filtering logic is prepared but disabled until Agent supports it
-    # target_file_paths = ... (logic is fine, just unused for now)
-    
     # Phase 12A: retrieve_with_reranking
     result = await agent.retrieve_with_reranking(
         query=query,
         top_k=request.top_k,
-        # file_paths=target_file_paths,
         use_reranking=True
     )
     
@@ -137,70 +141,79 @@ async def semantic_search_for_chat(request: SemanticSearchRequest):
     
     for i, doc in enumerate(documents):
         # --- NORMALIZATION LAYER ---
-        # 1. canonize attributes
-        doc_obj = doc if not isinstance(doc, dict) else None
-        doc_dict = doc if isinstance(doc, dict) else None
-        
-        # Extract metadata
-        if doc_dict:
-            metadata = doc_dict.get("metadata") or {}
+        if isinstance(doc, dict):
+            metadata = doc.get("metadata", {})
+            # ✅ FIX ISSUE 2: Defensive Content Extraction
+            content = doc.get("content") or doc.get("page_content") or ""
+            score = doc.get("score") or doc.get("similarity") or 0.0
+            doc_id = doc.get("id")
         else:
-            metadata = getattr(doc_obj, "metadata", {}) or {}
-            
-        # Extract content (try multiple keys)
-        if doc_dict:
-            content = doc_dict.get("content") or doc_dict.get("page_content") or ""
-        else:
-            content = getattr(doc_obj, "content", None) or getattr(doc_obj, "page_content", "") or ""
-            
-        # Extract score
-        if doc_dict:
-            score = doc_dict.get("score") or doc_dict.get("similarity") or 0.0
-        else:
-            score = getattr(doc_obj, "score", None) or getattr(doc_obj, "similarity", 0.0)
+            metadata = getattr(doc, "metadata", {})
+            # ✅ FIX ISSUE 2: Defensive Content Extraction
+            content = getattr(doc, "content", None) or getattr(doc, "page_content", "") or ""
+            score = getattr(doc, "score", 0.0)
+            doc_id = getattr(doc, "id", None)
 
-        # 2. Resolve Path
-        source_path = metadata.get("source", "")
-        resolved_path = None
-        
-        if source_path:
-            try:
-                # Resolve to absolute path for Redis lookup
-                resolved_path = str(Path(source_path).resolve())
-            except Exception as e:
-                logging.warning(f"Path resolution failed for '{source_path}': {e}")
-                resolved_path = source_path # Fallback
+        # 1. Normalize Similarity Score (Robust Fix)
+        # ✅ FIX ISSUE 1: Distinguish Logits vs Distances vs Probabilities
+        try:
+            score_val = float(score)
+            
+            # Case A: Explicit Reranker Score (Logits)
+            if metadata.get("rerank_score") is not None:
+                normalized_score = _sigmoid(score_val)
+                
+            # Case B: Standard Cosine/Similarity [0.0 - 1.0]
+            elif 0.0 <= score_val <= 1.0:
+                normalized_score = score_val
+                
+            # Case C: Likely Distance (>1.0 usually means L2 distance)
+            # Invert it so smaller distance = higher score
+            else:
+                normalized_score = 1 / (1 + abs(score_val))
+                
+        except (ValueError, TypeError):
+            normalized_score = 0.0
 
-        # Debug logs
-        logging.info(f"[DEBUG] Doc {i}: type={type(doc)}, content_len={len(content)}, score={score}")
-        logging.info(f"[DEBUG] Doc {i} path: source='{source_path}' -> resolved='{resolved_path}'")
-        
-        # 3. Redis Lookup
+        # 2. File ID Resolution
+        file_id = metadata.get("file_id")
         file_meta = None
-        if resolved_path:
-            file_meta = await redis_store.get_file_metadata_by_path(resolved_path)
-            
-        logging.info(f"[DEBUG] Redis lookup result: {'FOUND' if file_meta else 'MISSING'}")
         
-        # 3. Fallback logic
+        if file_id:
+            file_meta = await redis_store.get_file_metadata(file_id)
+        
         if not file_meta:
-            file_meta = {
-                "id": "unknown",
-                "name": Path(source_path).name if source_path else "unknown",
-                "fileType": "text/plain",
-                "url": "",
-            }
+            # Fallback path lookup
+            path = metadata.get("source")
+            if path:
+                file_meta = await redis_store.get_file_metadata_by_path(path)
         
+        # 3. Fallback Logic
+        if not file_meta:
+            # Note: This fallback indicates the chunk originated from a legacy ingestion path
+            # (e.g. script-based, not API-driven) and confirms that only API-ingested 
+            # files now produce valid metadata. This is expected behavior during migration.
+            file_meta = {
+                "id": file_id or "unknown",
+                "name": Path(metadata.get("source", "unknown")).name,
+                "fileType": "text/plain",
+                "url": ""
+            }
+
         # 4. Create Response Chunk
+        # ✅ FIX ISSUE 3: Prefer chunk_id from metadata for consistency
+        final_chunk_id = metadata.get("chunk_id") or doc_id or str(uuid.uuid4())
+
         response_chunks.append(ChatFileChunk(
-            id=metadata.get("chunk_id", str(uuid.uuid4())),
+            id=final_chunk_id,
             fileId=file_meta["id"],
             filename=file_meta["name"],
             fileType=file_meta["fileType"],
             fileUrl=file_meta["url"],
             text=content,
-            similarity=float(score),
-            pageNumber=metadata.get("page", None)
+            similarity=float(normalized_score),
+            pageNumber=metadata.get("page", None),
+            role=metadata.get("role", "supporting")  # Phase 13: Expose role
         ))
     
     # Generate query ID
@@ -221,7 +234,7 @@ async def semantic_search_for_chat(request: SemanticSearchRequest):
     )
 
 # ============================================================================
-# 4. FILE DELETION (NEW!)
+# 4. FILE DELETION
 # ============================================================================
 
 @router.delete("/file/{file_id}")
@@ -248,29 +261,23 @@ async def delete_file(file_id: str):
         # Delete vector embeddings
         try:
             agent = get_shared_rag_agent()
-            deleted_count = agent.vector_store.delete(
-                filter={"source": file_path}
-            )
+            agent.vector_store.delete_by_source(file_path)
         except Exception as e:
             print(f"Failed to delete vectors for {file_path}: {e}")
-            deleted_count = 0
             
     else:
-        # Should not happen for new files
         print(f"Warning: diskPath not found for file {file_id}")
-        deleted_count = 0
     
     # Delete metadata
     await redis_store.delete_file_metadata(file_id)
     
     return {
         "success": True,
-        "fileId": file_id,
-        "deletedChunks": deleted_count
+        "fileId": file_id
     }
 
 # ============================================================================
-# 5. QUERY DELETION (NEW!)
+# 5. QUERY DELETION
 # ============================================================================
 
 @router.delete("/message/{message_id}/query")

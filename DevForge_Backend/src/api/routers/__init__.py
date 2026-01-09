@@ -517,31 +517,45 @@ async def get_cache_by_intent():
 @router.get("/manifests/devforge.json")
 async def get_manifest():
     """
-    Generates manifest dynamically with current gateway URL from settings.
-    This allows the manifest to reflect the correct port and host.
+    Serve the LobeHub plugin manifest.
 
-    Returns:
-        JSONResponse with manifest containing tools array
+    This endpoint MUST return a LobeHub-compliant schema.
+    It must never silently fall back to a different manifest format.
     """
-    # Load base manifest structure
-    manifest_path = Path(__file__).parent.parent.parent / "manifests" / "devforge.json"
+    manifest_path = settings.MANIFEST_DIR / "devforge.json"
+
+    if not manifest_path.exists():
+        logging.critical(f"Manifest file missing: {manifest_path}")
+        raise HTTPException(
+            status_code=500,
+            detail="Plugin manifest not found on server"
+        )
 
     try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
-    except FileNotFoundError:
-        logging.warning("Static manifest not found, generating dynamically")
-        manifest = _generate_default_manifest()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
-        logging.error(f"Invalid JSON in manifest file: {e}")
-        manifest = _generate_default_manifest()
+        logging.critical(f"Invalid manifest JSON: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Plugin manifest is invalid JSON"
+        )
 
-    # Update gateway URL dynamically
-    manifest["gateway"] = settings.gateway_url
+    # Optional: validate expected LobeHub keys
+    required_keys = {"identifier", "meta", "api"}
+    missing = required_keys - manifest.keys()
+    if missing:
+        logging.critical(f"Manifest missing keys: {missing}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Manifest missing required fields: {missing}"
+        )
 
     logging.info(
-        "Manifest requested",
-        extra={"gateway_url": manifest["gateway"], "tools_count": len(manifest.get("tools", []))},
+        "LobeHub manifest served",
+        extra={
+            "identifier": manifest["identifier"],
+            "api_count": len(manifest["api"]),
+        }
     )
 
     return JSONResponse(

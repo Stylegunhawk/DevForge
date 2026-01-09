@@ -169,7 +169,16 @@ Fetch Related Chunks via QID
     ↓
 Merge + Deduplicate
     ↓
-Return Expanded Context
+Cross-Encoder Reranking
+    ↓
+Context Shaper (Deterministic)  <-- NEW
+    ↓
+  1. Qualified ID Deduplication
+  2. Role Assignment (Entry/Dependency/Supporting)
+  3. Deterministic Ordering
+  4. Hard Limits
+    ↓
+Return Shaped Context
 ```
 
 ### Graph Rebuild
@@ -219,6 +228,7 @@ Graph Ready (in-memory, derived state)
 | File | Responsibility |
 |------|----------------|
 | `agent.py` | RAGAgent class, graph ownership |
+| `context_shaper.py` | Deterministic context shaping & role assignment |
 | `graph/code_graph.py` | In-memory dependency graph |
 | `chunking/code_chunker.py` | Tree-sitter AST parsing |
 | `chunking/text_chunker.py` | Fallback text chunking |
@@ -226,6 +236,7 @@ Graph Ready (in-memory, derived state)
 
 **Architecture:**
 - `RAGAgent` owns `self._code_graph` (instance-scoped)
+- `ContextShaper` is purely deterministic (logical ordering/dedup)
 - Graph is lazy-initialized from `iter_chunk_metadata()`
 - NO global state, NO persistence
 

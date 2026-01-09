@@ -18,6 +18,11 @@ The `retrieve_docs` tool provides intelligent semantic document search with **Ph
 - 🆕 **Cloud Model Support** - Use gpt-oss:120b-cloud for memory-efficient response generation
 - 🆕 **Analytics Endpoints** - Track intent distribution, expansion quality, cache hits
 
+**Phase 13 Features (NEW!):**
+- 🆕 **Deterministic Context Shaping** - Post-retrieval deduplication & ordering
+- 🆕 **Role-Based Context** - Explicit `entry`, `dependency`, `supporting` roles
+- 🆕 **Qualified ID Deduplication** - Handles overloaded functions & classes correctly
+
 **Phase 11 Features:**
 - ✅ Two-stage retrieval (Vector search → Cross-encoder reranking)
 - ✅ Code-aware score boosting
@@ -205,7 +210,8 @@ curl -X POST http://localhost:8001/api/gateway \
         "metadata": {
           "source": "auth.py",
           "chunk_type": "function",
-          "name": "validate_token"
+          "name": "validate_token",
+          "role": "entry"
         }
       },
       {
@@ -215,7 +221,8 @@ curl -X POST http://localhost:8001/api/gateway \
           "source": "utils.py",
           "chunk_type": "function",
           "name": "decode_jwt",
-          "expanded_from": "auth.py::validate_token"
+          "expanded_from": "auth.py::validate_token",
+          "role": "dependency"
         }
       }
     ],

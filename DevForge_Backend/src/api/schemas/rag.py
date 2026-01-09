@@ -56,6 +56,9 @@ class ChatFileChunk(BaseModel):
     text: str  # Chunk content
     similarity: float  # Float (frontend will .toFixed(1))
     pageNumber: Optional[int] = None  # For PDFs
+    
+    # Phase 13: Context Roles (entry, dependency, supporting)
+    role: Optional[str] = "supporting"  # Default to supporting if missing
 
 # ============================================================================
 # 5. SEMANTIC SEARCH (Request + Response)
