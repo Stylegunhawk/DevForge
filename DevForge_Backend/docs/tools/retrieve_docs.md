@@ -621,6 +621,18 @@ curl http://localhost:8001/api/rag/task/{task_id}
 
 ---
 
+⚠️ CANONICAL FOR FRONTEND (PHASE 15 ONLY)
+The following endpoints are the ONLY ones used by Lobe Chat:
+- /api/v1/rag/file/upload
+- /api/v1/rag/file/{id}
+- /api/v1/rag/chunk/semanticSearchForChat
+- /api/v1/rag/file/{id} (DELETE)
+
+All other endpoints are legacy or internal tools.
+
+
+
+
 **Last Updated:** December 14, 2025  
 **Version:** 10.1 (Phase 10.1 Complete)  
 **Maintainer:** DevForge Team  

@@ -555,3 +555,15 @@ OLLAMA_HOST=http://localhost:11434
 **Version History:**
 - v10.1 (Dec 2025) - Code graph, async queue, vector abstraction
 - v3.1 (Dec 2025) - Initial RAG implementation
+
+
+
+
+⚠️ CANONICAL FOR FRONTEND (PHASE 15 ONLY)
+The following endpoints are the ONLY ones used by Lobe Chat:
+- /api/v1/rag/file/upload
+- /api/v1/rag/file/{id}
+- /api/v1/rag/chunk/semanticSearchForChat
+- /api/v1/rag/file/{id} (DELETE)
+
+All other endpoints are legacy or internal tools.

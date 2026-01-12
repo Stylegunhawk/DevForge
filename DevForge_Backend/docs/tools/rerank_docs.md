@@ -480,6 +480,18 @@ pytest tests/test_reranker.py -v
 
 ---
 
+
+⚠️ CANONICAL FOR FRONTEND (PHASE 15 ONLY)
+The following endpoints are the ONLY ones used by Lobe Chat:
+- /api/v1/rag/file/upload
+- /api/v1/rag/file/{id}
+- /api/v1/rag/chunk/semanticSearchForChat
+- /api/v1/rag/file/{id} (DELETE)
+
+All other endpoints are legacy or internal tools.
+
+
+
 **Last Updated:** December 2, 2025  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
