@@ -24,6 +24,7 @@ const Ollama: ModelProviderCard = {
       displayName: 'GPT-OSS 20B (Cloud)',
       enabled: true,
       functionCall: true,
+      //files: true,
       id: 'gpt-oss:20b-cloud',
     },
     {
@@ -31,6 +32,7 @@ const Ollama: ModelProviderCard = {
       description: 'Large GPT-OSS model with tool-calling support.',
       displayName: 'GPT-OSS 120B (Cloud)',
       enabled: true,
+      files: true,
       functionCall: true,
       id: 'gpt-oss:120b-cloud',
     },
@@ -48,6 +50,7 @@ const Ollama: ModelProviderCard = {
       displayName: 'Qwen3 Coder 480B (Cloud)',
       enabled: true,
       functionCall: true,
+      //files: true,
       id: 'qwen3-coder:480b-cloud',
     },
     {
@@ -56,6 +59,7 @@ const Ollama: ModelProviderCard = {
       displayName: 'DeepSeek V3.1 671B (Cloud)',
       enabled: true,
       functionCall: true,
+      //files: true,
       id: 'deepseek-v3.1:671b-cloud',
     },
     {
@@ -64,6 +68,7 @@ const Ollama: ModelProviderCard = {
       displayName: 'Qwen3-VL 235B (Cloud)',
       enabled: true,
       functionCall: true,
+      //files: true,
       id: 'qwen3-vl:235b-cloud',
       vision: true,
     },

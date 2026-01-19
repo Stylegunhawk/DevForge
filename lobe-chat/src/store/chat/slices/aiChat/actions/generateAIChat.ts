@@ -29,6 +29,8 @@ import { useSessionStore } from '@/store/session';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { Action, setNamespace } from '@/utils/storeDebug';
 
+import { RAGBackendAdapter } from '@/services/adapters/rag-backend-adapter';
+
 import { chatSelectors, topicSelectors } from '../../../selectors';
 
 const n = setNamespace('ai');
@@ -328,6 +330,62 @@ export const generateAIChat: StateCreator<
 
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;
+
+    // ============================================================================
+    // 🕵️ DEVFORGE INTERCEPTOR: Custom RAG Injection (Client Mode)
+    // ============================================================================
+    const USE_CUSTOM_RAG = process.env.NEXT_PUBLIC_USE_CUSTOM_RAG === 'true';
+
+    // Only run if Custom RAG is enabled and we have a user message
+    if (USE_CUSTOM_RAG && messages.length > 0) {
+      const lastMsgIndex = messages.length - 1;
+      const lastMsg = messages[lastMsgIndex];
+
+      if (lastMsg.role === 'user') {
+        try {
+          console.log('🕵️ [DevForge] Intercepting chat for RAG search...');
+          const adapter = new RAGBackendAdapter();
+
+          const res = await adapter.semanticSearchForChat({
+            messageId: userMessageId,
+            rewriteQuery: lastMsg.content,
+            userQuery: lastMsg.content,
+          });
+
+          if (res.chunks && res.chunks.length > 0) {
+            console.log(`🕵️ [DevForge] Found ${res.chunks.length} chunks. Injecting context.`);
+
+            const contextText = res.chunks.map((c) => c.text).join('\n\n---\n\n');
+            const systemContext = `
+[RAG Context Start]
+Use the following retrieved context to answer the user's question.
+If the answer is not in the context, use your general knowledge.
+
+${contextText}
+[RAG Context End]
+`.trim();
+
+            // INJECT: Modify the message content sent to the LLM
+            messages[lastMsgIndex] = {
+              ...lastMsg,
+              content: `${systemContext}\n\nQuestion: ${lastMsg.content}`,
+            };
+
+            // CITATIONS: Populate fileChunks so UI can show citations
+            fileChunks = res.chunks.map((c) => ({
+              id: c.id,
+              similarity: c.similarity,
+            }));
+
+            ragQueryId = res.queryId;
+          }
+        } catch (e) {
+          console.error('🕵️ [DevForge] RAG Search Failed:', e);
+          // Fallback: Proceed without context
+        }
+      }
+    }
+    // ============================================================================
 
     // go into RAG flow if there is ragQuery flag
     if (params?.ragQuery) {

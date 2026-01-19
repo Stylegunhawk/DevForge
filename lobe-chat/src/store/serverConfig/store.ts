@@ -31,7 +31,7 @@ const initialState: ServerConfigState = {
 
 //  ===============  聚合 createStoreFn ============ //
 
-export interface ServerConfigStore extends ServerConfigState, ServerConfigAction {}
+export interface ServerConfigStore extends ServerConfigState, ServerConfigAction { }
 
 type CreateStore = (
   initState: Partial<ServerConfigStore>,
@@ -39,10 +39,26 @@ type CreateStore = (
 
 const createStore: CreateStore =
   (runtimeState) =>
-  (...params) => ({
-    ...merge(initialState, runtimeState),
-    ...createServerConfigSlice(...params),
-  });
+    (...params) => {
+      // 1. Perform the standard merge
+      const mergedState = merge(initialState, runtimeState);
+
+      // 2. 🔓 DEVFORGE HACK: Conditional Override
+      // Only apply this hack if your custom RAG mode is enabled in .env
+      if (process.env.NEXT_PUBLIC_USE_CUSTOM_RAG === 'true') {
+        mergedState.featureFlags = {
+          ...mergedState.featureFlags,
+          enableFileUpload: true,
+          enableKnowledgeBase: true,
+        };
+      }
+
+      // 3. Return the state
+      return {
+        ...mergedState,
+        ...createServerConfigSlice(...params),
+      };
+    };
 
 //  ===============  实装 useStore ============ //
 

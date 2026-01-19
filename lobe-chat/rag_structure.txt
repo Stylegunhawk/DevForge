@@ -1,0 +1,22 @@
+src
+├── services
+│   └── rag.ts                # 🔧 YOU CHANGE THIS
+
+├── store/chat/slices/aiChat/actions
+│   ├── rag.ts                # lifecycle
+│   ├── generateAIChat.ts
+│   └── generateAIChatV2.ts
+
+├── store/chat/slices/message
+│   ├── reducer.ts            # chunksList hydration
+│   └── selectors.ts
+
+├── server/routers/lambda
+│   ├── chunk.ts              # semanticSearchForChat
+│   ├── file.ts               # upload / poll / delete
+│   └── message.ts            # fetch + enrich
+
+└── server/services
+    ├── chunk
+    ├── file
+    └── message

@@ -1,8 +1,16 @@
-# Lobe Chat RAG API Contracts
+# Lobe Chat RAG API Contracts (Code-Verified)
 
-This document outlines the exact API contracts and data structures used by Lobe Chat's RAG implementation, intended for backend integration.
+⚠️ **UNIFIED BACKEND CONTRACT (PHASE 15)**
+This document reconciled with the backend contract in `src/api/routers/rag.py`.
 
-## 1. Service Layer (Bridge)
+## 1. Authorization Header
+
+> [!IMPORTANT]
+> - **Header Name:** `X-User-ID`
+> - **Role:** Identifies the user for strictly isolated collections.
+> - **Backend Requirement:** In Phase 15, this header is the PRIMARY source of tenant isolation. If missing, backend falls back to `"default"`, which is **NOT** recommended for production.
+
+## 2. Service Layer (Bridge)
 **File:** `src/services/rag.ts`
 
 ```typescript
@@ -33,6 +41,11 @@ class RAGService {
   semanticSearchForChat = async (params: SemanticSearchSchemaType) => {
     return lambdaClient.chunk.semanticSearchForChat.mutate(params);
   };
+```
+
+> [!IMPORTANT]
+> - `semanticSearchForChat` returns **partially enriched chunks** (no `fileType` or `fileUrl`).
+> - **Authoritative Boundary:** UI components **MUST NOT** consume raw `semanticSearchForChat` results. Only message-fetch–hydrated chunks are UI-safe.
 
   deleteMessageRagQuery = async (id: string) => {
     return lambdaClient.message.removeMessageQuery.mutate({ id });
@@ -58,16 +71,19 @@ z.object({
 
 ```typescript
 export const SemanticSearchSchema = z.object({
-  fileIds: z.array(z.string()).optional(),
-  knowledgeIds: z.array(z.string()).optional(),
+  fileIds: z.array(z.string()).optional(),      // ⚠️ IGNORED by backend in rag.py:136
+  knowledgeIds: z.array(z.string()).optional(), // ⚠️ IGNORED by backend in rag.py:136
   messageId: z.string(),
   model: z.string().optional(),
   rewriteQuery: z.string(),
   userQuery: z.string(),
 });
+```
+
+> [!WARNING]
+> - ❌ **Removed assumption:** Previous docs implied `fileIds` were used for filtering. Code review of `rag.py` shows `agent.retrieve_with_reranking` only uses the collection broad search; direct filtering on `fileIds` is not currently implemented in the frozen contract.
 
 export type SemanticSearchSchemaType = z.infer<typeof SemanticSearchSchema>;
-```
 
 ## 3. Data Types (Shape)
 **Source:** `packages/types/src/chunk/index.ts`

@@ -43,12 +43,13 @@ The `ChatFileChunk` interface used by UI components extends this with display me
 // Source: packages/types/src/message/ui/rag.ts
 export interface ChatFileChunk {
   fileId: string;        // REQUIRED for opening file preview
-  fileType: string;      // REQUIRED for FileIcon component
-  fileUrl: string;       // REQUIRED (though not directly used in ChunkItem)
+  fileType: string;      // REQUIRED for FileIcon component (Hydrated during fetch)
+  fileUrl: string;       // REQUIRED (Hydrated during fetch)
   filename: string;      // REQUIRED for display
   id: string;            // REQUIRED (chunk ID)
   similarity?: number;   // OPTIONAL but displayed as badge if present
   text: string;          // REQUIRED for preview on click
+  // ⚠️ role is NOT AVAILABLE (SQL Missing in Node.js backend)
 }
 ```
 
@@ -58,17 +59,30 @@ Your backend semantic search endpoint must return:
 
 ```typescript
 {
-  chunks: ChatFileChunk[],  // Array of chunks matching above interface
-  queryId?: string,          // Optional RAG query tracking ID
+  chunks: ChatFileChunk[],  // ⚠️ Partially enriched (no fileType/fileUrl)
+  queryId?: string,         // Optional RAG query tracking ID
 }
+```
+
+> [!IMPORTANT]
+> - `semanticSearchForChat` returns **partially enriched chunks**.
+> - **Authoritative Boundary:** UI components **MUST NOT** consume raw `semanticSearchForChat` results. Only message-fetch–hydrated chunks are UI-safe.
+
+### Split Hydration Model
+
+```mermaid
+graph TD
+    A["semanticSearchForChat"] --> B["Partial Chunk (id, text, fileName, similarity)"]
+    B --> C["Persisted via message (DB)"]
+    C --> D["Message fetch (Hydration Phase)"]
+    D --> E["ChatFileChunk (UI-safe with fileType/fileUrl)"]
 ```
 
 ### Critical Notes
 
-1. **`fileType`** must be a valid MIME type (e.g., `"application/pdf"`, `"text/plain"`) for the FileIcon component
-2. **`similarity`** should be a floating point number (displayed with `.toFixed(1)`)
-3. **`text`** is displayed in the file preview modal when chunk is clicked
-4. **`filename`** is displayed directly in the UI - keep it user-friendly
+1. **`fileType`** and **`fileUrl`** are injected during the **Message Fetch** phase, NOT during retrieval.
+2. **`role`** is **NOT AVAILABLE** in the current frontend-facing contract (SQL selection missing in Node.js backend).
+3. **`similarity`** should be a floating point number (displayed with `.toFixed(1)`)
 
 ---
 

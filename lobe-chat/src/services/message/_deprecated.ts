@@ -38,23 +38,30 @@ export class ClientService implements IMessageService {
   async getMessages(sessionId: string, topicId?: string): Promise<UIChatMessage[]> {
     const messages = await MessageModel.query({ sessionId, topicId });
 
-    const fileList = (await Promise.all(
+    const fileList = ((await Promise.all(
       messages
-        .flatMap((item) => item.files)
+        .flatMap((item) => {
+          const files = Array.isArray(item.files) ? item.files : [];
+          return files;
+        })
         .filter(Boolean)
         .map(async (id) => FileModel.findById(id!)),
-    )) as ChatFileItem[];
+    )) as (ChatFileItem | undefined)[]).filter(Boolean) as ChatFileItem[];
 
-    return messages.map((item) => ({
-      ...item,
-      imageList: fileList
-        .filter((file) => item.files?.includes(file.id) && file.fileType.startsWith('image'))
-        .map((file) => ({
-          alt: file.name,
-          id: file.id,
-          url: file.url,
-        })),
-    }));
+    return messages.map((item) => {
+      const files = Array.isArray(item.files) ? item.files : [];
+
+      return {
+        ...item,
+        imageList: fileList
+          .filter((file) => files.includes(file?.id) && file?.fileType?.startsWith('image'))
+          .map((file) => ({
+            alt: file.name,
+            id: file.id,
+            url: file.url,
+          })),
+      };
+    });
   }
 
   async getGroupMessages(groupId: string, topicId?: string): Promise<UIChatMessage[]> {

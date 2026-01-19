@@ -47,6 +47,7 @@ export const FeatureFlagsSchema = z.object({
   // please contact us for more information: hello@lobehub.com
   commercial_hide_github: FeatureFlagValue.optional(),
   commercial_hide_docs: FeatureFlagValue.optional(),
+  file_upload: FeatureFlagValue.optional()
 });
 
 export type IFeatureFlags = z.infer<typeof FeatureFlagsSchema>;
@@ -108,6 +109,7 @@ export const DEFAULT_FEATURE_FLAGS: IFeatureFlags = {
   // please contact us for more information: hello@lobehub.com
   commercial_hide_github: false,
   commercial_hide_docs: false,
+  file_upload: true,
 };
 
 export const mapFeatureFlagsEnvToState = (config: IFeatureFlags, userId?: string) => {
@@ -145,6 +147,7 @@ export const mapFeatureFlagsEnvToState = (config: IFeatureFlags, userId?: string
 
     hideGitHub: evaluateFeatureFlag(config.commercial_hide_github, userId),
     hideDocs: evaluateFeatureFlag(config.commercial_hide_docs, userId),
+    enableFileUpload: evaluateFeatureFlag(config.file_upload, userId),
   };
 };
 

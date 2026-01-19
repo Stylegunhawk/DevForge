@@ -28,21 +28,25 @@ export interface ChatSemanticSearchChunk {
  */
 export interface ChatFileChunk {
     fileId: string;        // REQUIRED
-    fileType: string;      // REQUIRED (MIME type: "application/pdf", "text/plain", etc.)
-    fileUrl: string;       // REQUIRED
+    fileType: string;      // REQUIRED (Injected during Message Fetch)
+    fileUrl: string;       // REQUIRED (Injected during Message Fetch)
     filename: string;      // REQUIRED
     id: string;            // REQUIRED
     similarity?: number;   // OPTIONAL (will be displayed with .toFixed(1))
     text: string;          // REQUIRED
+    // ⚠️ role is NOT AVAILABLE (SQL selection missing in Node.js model)
 }
 
 /**
  * Semantic search response from backend
  */
 export interface SemanticSearchResponse {
-    chunks: ChatFileChunk[];
+    chunks: ChatFileChunk[]; // ⚠️ Partially enriched (no fileType/fileUrl)
     queryId?: string;
 }
+
+> [!IMPORTANT]
+> **Authoritative Boundary:** UI components **MUST NOT** consume raw `SemanticSearchResponse.chunks`. Only message-fetch–hydrated chunks are UI-safe.
 
 // ============================================================================
 // 2. ASYNC TASK STATUS TYPES
@@ -93,8 +97,8 @@ export interface FileParsingTask {
  * Source: packages/types/src/rag.ts
  */
 export interface SemanticSearchRequest {
-    fileIds?: string[];       // Optional: specific files to search
-    knowledgeIds?: string[];  // Optional: knowledge base IDs
+    fileIds?: string[];       // ⚠️ IGNORED: Currently not used by backend filtering
+    knowledgeIds?: string[];  // ⚠️ IGNORED: Currently not used by backend filtering
     messageId: string;        // Required: for tracking
     model?: string;           // Optional: embedding model name
     rewriteQuery: string;     // Required: LLM-optimized query
@@ -196,8 +200,8 @@ export const FileParsingTaskSchema = z.object({
 });
 
 export const SemanticSearchRequestSchema = z.object({
-    fileIds: z.array(z.string()).optional(),
-    knowledgeIds: z.array(z.string()).optional(),
+    fileIds: z.array(z.string()).optional(),      // ⚠️ IGNORED by backend
+    knowledgeIds: z.array(z.string()).optional(), // ⚠️ IGNORED by backend
     messageId: z.string(),
     model: z.string().optional(),
     rewriteQuery: z.string(),

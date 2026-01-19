@@ -19,8 +19,21 @@ The RAG service acts as a thin abstraction layer over TRPC calls to the backend:
 - `retryParseFile(id)` - Retries failed parsing
 - `createEmbeddingChunksTask(id)` - Creates embedding task for chunks
 - `semanticSearch(query, fileIds?)` - Basic semantic search
-- `semanticSearchForChat(params)` - Chat-specific semantic search with message context
+- `semanticSearchForChat(params)` - Chat-specific semantic search. Returns partially enriched chunks.
 - `deleteMessageRagQuery(id)` - Removes RAG query association from message
+
+> [!IMPORTANT]
+> **Authoritative Boundary:** UI components **MUST NOT** consume raw `semanticSearchForChat` results. Only message-fetch–hydrated chunks are UI-safe.
+
+### Split Hydration Model
+
+```mermaid
+graph TD
+    A["semanticSearchForChat"] --> B["Partial Chunk (id, text, fileName, similarity)"]
+    B --> C["Persisted via message (DB)"]
+    C --> D["Message fetch (Hydration Phase)"]
+    D --> E["ChatFileChunk (UI-safe with fileType/fileUrl)"]
+```
 
 The service uses `lambdaClient` (TRPC client) to communicate with backend routers defined in `src/server/routers/lambda/chunk.ts`.
 
@@ -365,7 +378,8 @@ RAG is enabled per-agent through knowledge base configuration:
 4. **Status Polling**:
    - Frontend polls `getFileItem` to check status
    - Updates UI with progress/errors
-   - Completes when `finishEmbedding` is true
+   - ✅ **Authoritative Completion:** Completes ONLY when `finishEmbedding` is `true`.
+   - ⚠️ **Backend contract overrides frontend:** Even if statuses are "success", polling must continue until `finishEmbedding` is explicitly set to `true` by the backend task.
 
 ## Key Implementation Patterns
 

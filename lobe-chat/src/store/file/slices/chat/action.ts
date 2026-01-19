@@ -1,12 +1,9 @@
-import { t } from 'i18next';
 import { StateCreator } from 'zustand/vanilla';
 
-import { notification } from '@/components/AntdStaticMethods';
 import { FILE_UPLOAD_BLACKLIST } from '@/const/file';
 import { fileService } from '@/services/file';
-import { ServerService } from '@/services/file/server';
+import { ServerFileRESTService } from '@/services/file/server-rest';
 import { ragService } from '@/services/rag';
-import { UPLOAD_NETWORK_ERROR } from '@/services/upload';
 import {
   UploadFileListDispatch,
   uploadFileListReducer,
@@ -21,7 +18,7 @@ import { FileStore } from '../../store';
 
 const n = setNamespace('chat');
 
-const serverFileService = new ServerService();
+const serverFileService = new ServerFileRESTService();
 
 export interface FileAction {
   clearChatUploadFileList: () => void;
@@ -56,7 +53,14 @@ export const createFileSlice: StateCreator<
     const { dispatchChatUploadFileList } = get();
 
     dispatchChatUploadFileList({ id, type: 'removeFile' });
-    await fileService.removeFile(id);
+
+    const USE_CUSTOM_RAG = process.env.NEXT_PUBLIC_USE_CUSTOM_RAG === 'true';
+
+    if (USE_CUSTOM_RAG) {
+      await ragService.deleteFile(id);
+    } else {
+      await fileService.removeFile(id);
+    }
   },
 
   startAsyncTask: async (id, runner, onFileItemUpdate) => {
@@ -68,7 +72,7 @@ export const createFileSlice: StateCreator<
       // 每间隔 2s 查询一次任务状态
       await sleep(2000);
 
-      let fileItem: FileListItem | undefined = undefined;
+      let fileItem: any = undefined;
 
       try {
         fileItem = await serverFileService.getFileItem(id);
@@ -96,18 +100,16 @@ export const createFileSlice: StateCreator<
     const { dispatchChatUploadFileList } = get();
     // 0. skip file in blacklist
     const files = rawFiles.filter((file) => !FILE_UPLOAD_BLACKLIST.includes(file.name));
-    // 1. add files with base64
+
+    // 1. add files with base64 (Optimistic UI)
     const uploadFiles: UploadFileItem[] = await Promise.all(
       files.map(async (file) => {
         let previewUrl: string | undefined = undefined;
         let base64Url: string | undefined = undefined;
 
-        // only image and video can be previewed, we create a previewUrl and base64Url for them
         if (file.type.startsWith('image') || file.type.startsWith('video')) {
           const data = await file.arrayBuffer();
-
           previewUrl = URL.createObjectURL(new Blob([data!], { type: file.type }));
-
           const base64 = Buffer.from(data!).toString('base64');
           base64Url = `data:${file.type};base64,${base64}`;
         }
@@ -118,40 +120,104 @@ export const createFileSlice: StateCreator<
 
     dispatchChatUploadFileList({ files: uploadFiles, type: 'addFiles' });
 
-    // upload files and process it
+    // 2. Process Uploads
     const pools = files.map(async (file) => {
-      let fileResult: { id: string; url: string } | undefined;
+      const USE_CUSTOM_RAG = process.env.NEXT_PUBLIC_USE_CUSTOM_RAG === 'true';
 
-      try {
-        fileResult = await get().uploadWithProgress({
-          file,
-          onStatusUpdate: dispatchChatUploadFileList,
-        });
-      } catch (error) {
-        // skip `UNAUTHORIZED` error
-        if ((error as any)?.message !== 'UNAUTHORIZED')
-          notification.error({
-            description:
-              // it may be a network error or the cors error
-              error === UPLOAD_NETWORK_ERROR
-                ? t('upload.networkError', { ns: 'error' })
-                : // or the error from the server
-                  typeof error === 'string'
-                  ? error
-                  : t('upload.unknownError', { ns: 'error', reason: (error as Error).message }),
-            message: t('upload.uploadFailed', { ns: 'error' }),
+      if (USE_CUSTOM_RAG) {
+        try {
+          // A. Upload to Python Backend
+          const res = await ragService.uploadFile(file);
+
+          // B. Update UI: Swap "Filename ID" -> "UUID" & Set Status to Uploading
+          dispatchChatUploadFileList({
+            id: file.name, // Find item by old ID (filename)
+            type: 'updateFile',
+            value: {
+              fileUrl: res.url,
+              id: res.id, // Swap to new UUID
+              status: 'uploading',
+              uploadState: { progress: 50, restTime: 0, speed: 0 },
+            },
           });
 
-        dispatchChatUploadFileList({ id: file.name, type: 'removeFile' });
+          // C. Custom Polling Loop (Replaces startAsyncTask)
+          const pollStatus = async () => {
+            const MAX_ATTEMPTS = 60; // 2 minutes
+            let attempts = 0;
+
+            while (attempts < MAX_ATTEMPTS) {
+              await sleep(2000); // Wait 2s
+
+              try {
+                // Poll your Custom Backend
+                const fileItem = await ragService.getFile(res.id);
+
+                const isFinished = fileItem.finishEmbedding || fileItem.embeddingStatus === 'success';
+                const isError = fileItem.chunkingStatus === 'error' || fileItem.embeddingStatus === 'error';
+
+                if (isFinished) {
+                  // ✅ Success: Enable Send Button
+                  dispatchChatUploadFileList({
+                    finishEmbedding: true, 
+                    id: res.id,
+                    
+status: 'success',
+                    // Use UUID now
+type: 'updateFileStatus',
+                  });
+                  break;
+                }
+
+                if (isError) {
+                  dispatchChatUploadFileList({ id: res.id, status: 'error', type: 'updateFileStatus' });
+                  break;
+                }
+              } catch (e) {
+                console.error("Polling check failed", e);
+              }
+              attempts++;
+            }
+          };
+
+          // Trigger polling (Fire & Forget)
+          pollStatus();
+
+        } catch (error) {
+          console.error('Custom RAG upload error:', error);
+          dispatchChatUploadFileList({ id: file.name, type: 'removeFile' });
+          return;
+        }
+      } else {
+        // ... Standard Lobe Chat Logic ...
+        let fileResult;
+        try {
+          fileResult = await get().uploadWithProgress({
+            file,
+            onStatusUpdate: dispatchChatUploadFileList,
+          });
+        } catch {
+          // ... Error handling ...
+          dispatchChatUploadFileList({ id: file.name, type: 'removeFile' });
+          return;
+        }
+
+        if (!fileResult) return;
+        if (isChunkingUnsupported(file.type)) return;
+
+        // Standard startAsyncTask (Lobe default)
+        const { startAsyncTask } = get();
+        await startAsyncTask(fileResult.id, async (id) => {
+          const data = await fileService.parseFileContent(id);
+          return data;
+        }, (fileItem) => {
+          dispatchChatUploadFileList({
+            id: fileResult!.id,
+            type: 'updateFile',
+            value: fileItem,
+          });
+        });
       }
-
-      if (!fileResult) return;
-
-      // image don't need to be chunked and embedding
-      if (isChunkingUnsupported(file.type)) return;
-
-      const data = await ragService.parseFileContent(fileResult.id);
-      console.log(data);
     });
 
     await Promise.all(pools);
