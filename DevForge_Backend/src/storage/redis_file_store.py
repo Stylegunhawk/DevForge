@@ -3,6 +3,7 @@ import redis.asyncio as redis
 from typing import Optional, Dict, List
 from pathlib import Path
 from datetime import datetime
+from src.core.config import settings
 
 class RedisFileStore:
     """
@@ -13,8 +14,15 @@ class RedisFileStore:
         query:{query_id} → QueryMetadata JSON
     """
     
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
-        self.client = redis.from_url(redis_url, decode_responses=True)
+    def __init__(self, redis_url: Optional[str] = None):
+        # Fallback priority: explicit arg > REDIS_URL > CELERY_BROKER_URL > default
+        self.redis_url = (
+            redis_url 
+            or settings.REDIS_URL 
+            or settings.CELERY_BROKER_URL 
+            or "redis://localhost:6379/0"
+        )
+        self.client = redis.from_url(self.redis_url, decode_responses=True)
     
     # ========================================================================
     # FILE METADATA CRUD
@@ -152,7 +160,15 @@ class RedisFileStore:
 def _update_file_status_sync(file_id: str, updates: Dict):
     """Synchronous file status update for Celery tasks"""
     import redis
-    client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    
+    # Use settings to determine URL
+    redis_url = (
+        settings.REDIS_URL 
+        or settings.CELERY_BROKER_URL 
+        or "redis://localhost:6379/0"
+    )
+    
+    client = redis.from_url(redis_url, decode_responses=True)
     
     # Get current metadata
     data = client.get(f"file:{file_id}")

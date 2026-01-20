@@ -1,8 +1,55 @@
 version: '3.8'
 
+# ==============================================================================
+# DevForge Backend - Modular Docker Compose Configuration
+# ==============================================================================
+# Profiles:
+#   - core: API only (DataGen, GitHub, Cheatsheet, Prompt Refiner)
+#   - rag:  RAG services (Redis, Postgres, Celery, Flower) - OPTIONAL
+#
+# Usage:
+#   API only:      docker-compose up api
+#   Full stack:    docker-compose --profile rag up
+#   Or:            COMPOSE_PROFILES=rag docker-compose up
+# ==============================================================================
+
 services:
-  # Redis - Celery broker and result backend
+  # ==========================================================================
+  # CORE SERVICE - Always Available
+  # ==========================================================================
+
+  # FastAPI Backend Service (THE MAIN APPLICATION)
+  api:
+    image: devforge-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devforge-api
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env.docker # Use the Docker-specific environment file
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - devforge-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ==========================================================================
+  # RAG PROFILE - Optional Services for RAG Functionality
+  # ==========================================================================
+
+  # Redis - Celery broker and result backend (RAG ONLY)
   redis:
+    profiles: [ "rag" ]
     image: redis:7-alpine
     container_name: devforge-redis
     ports:
@@ -10,14 +57,17 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      - devforge-network
 
-  # PostgreSQL with pgvector extension
+  # PostgreSQL with pgvector extension (RAG ONLY)
   postgres:
+    profiles: [ "rag" ]
     image: pgvector/pgvector:pg16
     container_name: devforge-postgres
     environment:
@@ -30,24 +80,25 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U devforge"]
+      test: [ "CMD-SHELL", "pg_isready -U devforge" ]
       interval: 5s
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      - devforge-network
 
-  # Celery worker for async tasks
+  # Celery worker for async RAG tasks (RAG ONLY)
   celery-worker:
+    profiles: [ "rag" ]
+    image: devforge-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
     container_name: devforge-celery-worker
     command: celery -A src.workers.celery_app worker -l info -c 4
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - POSTGRES_URL=postgresql://devforge:devforge123@postgres:5432/devforge
-      - OLLAMA_HOST=http://host.docker.internal:11434
+    env_file:
+      - .env.docker
     depends_on:
       redis:
         condition: service_healthy
@@ -57,9 +108,13 @@ services:
       - .:/app
       - ./data:/app/data
     restart: unless-stopped
+    networks:
+      - devforge-network
 
-  # Flower - Celery monitoring UI (optional)
+  # Flower - Celery monitoring UI (RAG ONLY)
   flower:
+    profiles: [ "rag" ]
+    image: devforge-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -67,12 +122,19 @@ services:
     command: celery -A src.workers.celery_app flower --port=5555
     ports:
       - "5555:5555"
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
+    env_file:
+      - .env.docker
     depends_on:
       - celery-worker
     restart: unless-stopped
+    networks:
+      - devforge-network
 
 volumes:
   redis_data:
   postgres_data:
+
+
+networks:
+  devforge-network:
+    driver: bridge

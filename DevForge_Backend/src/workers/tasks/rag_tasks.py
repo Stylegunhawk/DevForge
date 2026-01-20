@@ -16,7 +16,8 @@ def async_ingest_documents(
     file_id: str,
     tenant_id: str = "default",
     knowledge_id: Optional[str] = None,
-    collection_name: str = "default_collection"
+    collection_name: str = "default_collection",
+    embed_model: Optional[str] = None  # Added missing argument
 ):
     """Async task for document ingestion with Multi-Tenant Isolation."""
     
@@ -56,7 +57,8 @@ def async_ingest_documents(
                         file_id=file_id,
                         tenant_id=tenant_id,
                         knowledge_id=knowledge_id,
-                        collection_name=collection_name
+                        collection_name=collection_name,
+                        embed_model=embed_model  # Pass explicit model
                     )
                     total += res.get("chunks_created", 0)
                 return total

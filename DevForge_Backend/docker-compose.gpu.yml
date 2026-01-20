@@ -1,0 +1,52 @@
+version: '3.8'
+
+# ==============================================================================
+# DevForge Backend - GPU Support Override
+# ==============================================================================
+# Usage: 
+#   docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Requires:
+#   - NVIDIA GPU with drivers installed
+#   - NVIDIA Container Toolkit installed on host
+# ==============================================================================
+
+services:
+  # API Service (Needs GPU for real-time embedding/inference if enabled)
+  api:
+    image: devforge-backend:gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    environment:
+      - ENABLE_GPU=true
+
+  # Celery Worker (Major consumer - runs embedding models)
+  celery-worker:
+    image: devforge-backend:gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    environment:
+      - ENABLE_GPU=true
+
+  # Flower (No GPU needed, simply reuse the GPU image to save disk space)
+  flower:
+    image: devforge-backend:gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu

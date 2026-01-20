@@ -1,12 +1,8 @@
 # =============================================================================
-# DevForge Unified Dockerfile
+# DevForge Unified Dockerfile (Production Pointer)
 # =============================================================================
-# Optimized for size and security.
-# Features:
-# - Multi-stage build (reduces size by removing compilers)
-# - CPU-only PyTorch (saves ~1-2GB)
-# - Non-root user (security)
-# - Runtime-only dependencies
+# This file is identical to the main Dockerfile to ensure consistency.
+# It is kept for backward compatibility with scripts that reference Dockerfile.prod.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -33,11 +29,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 
 # 1. Install CPU-only Torch first (Major size optimization)
-# This prevents downloading the massive NVIDIA/CUDA binaries
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # 2. Install remaining requirements
-# We use --no-deps for torch to avoid reinstalling the large version if requirements.txt lists it
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 3. Install production server
@@ -72,7 +66,7 @@ RUN useradd -m -u 1000 devforge && \
 # Copy application code
 COPY . .
 
-# Set permission for code (in case of volume mounting issues)
+# Set permission for code
 RUN chown -R devforge:devforge /app
 
 # Switch to non-root user
@@ -90,7 +84,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE 8001
 
 # Default Command (Overridden by docker-compose)
-# Uses Gunicorn by default for production safety
 CMD ["gunicorn", "src.main:app", \
     "-k", "uvicorn.workers.UvicornWorker", \
     "--bind", "0.0.0.0:8001", \
