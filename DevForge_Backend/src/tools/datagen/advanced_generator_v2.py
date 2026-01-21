@@ -4,11 +4,13 @@ Clean 3-layer architecture:
 - Layer 1: Semantic Understanding (LLM confined here for classification only)
 - Layer 2: Generator Selection (semantic_type → generator mapping)
 - Layer 3: Value Production (Faker, catalogs - never LLM)
+- Layer 4: Constraint Validation (post-generation verification)
 """
 
 import json
 import logging
-from typing import Any, Literal, Optional, List
+import re
+from typing import Any, Literal, Optional, List, Dict
 from dataclasses import dataclass
 
 import pandas as pd
@@ -19,7 +21,8 @@ from src.tools.datagen.catalog_factory import CatalogFactory
 from src.tools.datagen.semantic_router import SemanticRouter
 from src.tools.datagen.semantic_types import SemanticFieldInfo, FieldContext
 from src.tools.datagen.schema_designer import schema_designer
-from src.tools.datagen.schema_models import create_minimal_schema
+from src.tools.datagen.schema_models import create_minimal_schema, SchemaDesign
+from src.tools.datagen.relationship_engine import RelationshipEngine
 from src.core.model_router import model_router
 
 logger = logging.getLogger(__name__)
@@ -69,15 +72,17 @@ class AdvancedGeneratorV2:
     async def generate(
         self,
         schema: dict,
+        schema_design: Optional[SchemaDesign] = None,
         row_count: int = 100,
         user_prompt: str = None,
         realism_level: str = "basic"
     ) -> dict:
         """
-        Generate data with semantic awareness.
+        Generate data with semantic awareness and relationship integrity.
         
         Args:
             schema: Entity schema (entity_name -> {fields: {field_name: field_config}})
+            schema_design: Optional SchemaDesign object for relationship-aware generation
             row_count: Number of rows per entity
             user_prompt: Original user prompt for context
             realism_level: "basic", "medium", or "high"
@@ -85,7 +90,9 @@ class AdvancedGeneratorV2:
         Returns:
             {
                 "data": {entity_name: [rows]},
-                "metadata": GenerationMetadata
+                "metadata": GenerationMetadata,
+                "constraint_violations": list,
+                "fk_integrity": dict
             }
         """
         import time
@@ -97,48 +104,36 @@ class AdvancedGeneratorV2:
         semantic_info = await self._analyze_schema_semantically(schema, user_prompt)
         analysis_end_time = time.time()
         
-        # Step 2: Generate data per entity
-        generated_data = {}
+        # Step 2: Generate data with relationship awareness if schema_design provided
+        if schema_design and schema_design.relationships:
+            generated_data = await self._generate_with_relationships(
+                schema_design, semantic_info, row_count
+            )
+        else:
+            generated_data = await self._generate_independent_entities(
+                schema, semantic_info, row_count
+            )
         
-        for entity_name, entity_schema in schema.items():
-            entity_rows = []
-            fields = entity_schema.get("fields", entity_schema.get("properties", {}))
-            
-            # Get semantic info for this entity
-            entity_semantic = semantic_info.get(entity_name, [])
-            semantic_map = {
-                info.field_name: info for info in entity_semantic
-            } if entity_semantic else {}
-            
-            for i in range(row_count):
-                row = {}
-                
-                for field_name, field_config in fields.items():
-                    # Use semantic routing if available
-                    if field_name in semantic_map:
-                        sem_info = semantic_map[field_name]
-                        row[field_name] = self.semantic_router.generate_value(
-                            semantic_type=sem_info.semantic_type,
-                            entity_name=entity_name,
-                            constraints=sem_info.constraints
-                        )
-                    else:
-                        # Fallback to simple generation
-                        row[field_name] = self._fallback_generate_field(
-                            field_name, field_config
-                        )
-                
-                entity_rows.append(row)
-            
-            generated_data[entity_name] = entity_rows
-            logger.info(f"Generated {len(entity_rows)} rows for {entity_name}")
+        # Step 3: Validate constraints
+        constraint_violations = self._validate_constraints(
+            generated_data, schema, semantic_info
+        )
         
-        # Step 3: Apply realism (if needed)
+        # Step 4: Validate FK integrity (if relationships exist)
+        fk_integrity = {}
+        if schema_design and schema_design.relationships:
+            fk_integrity = self._validate_fk_integrity(generated_data, schema_design)
+        
+        # Step 5: Apply realism (if needed) - must respect schema constraints
         if realism_level != "basic":
-            generated_data = self._apply_realism(generated_data, realism_level, semantic_info)
+            generated_data = self._apply_realism(
+                generated_data, realism_level, semantic_info, schema
+            )
         
-        # Step 4: Build metadata
-        metadata = self._build_metadata(semantic_info)
+        # Step 6: Build metadata with actual enforcement status
+        metadata = self._build_metadata(
+            semantic_info, generated_data, schema, constraint_violations
+        )
         
         # Add performance metrics
         total_time = time.time() - start_time
@@ -154,7 +149,9 @@ class AdvancedGeneratorV2:
         return {
             "data": generated_data,
             "metadata": metadata,
-            "semantic_generation_used": self.enable_semantic
+            "semantic_generation_used": self.enable_semantic,
+            "constraint_violations": constraint_violations,
+            "fk_integrity": fk_integrity
         }
     
     async def _analyze_schema_semantically(
@@ -190,6 +187,180 @@ class AdvancedGeneratorV2:
             logger.info("Falling back to non-semantic generation")
             return {}
     
+    async def _generate_with_relationships(
+        self,
+        schema_design: SchemaDesign,
+        semantic_info: dict,
+        row_count: int
+    ) -> dict[str, list]:
+        """Generate data using RelationshipEngine for FK integrity."""
+        # Build field generator adapter that uses semantic router
+        class SemanticFieldGeneratorAdapter:
+            """Adapter to bridge RelationshipEngine with semantic router."""
+            def __init__(self, router, semantic_info, faker):
+                self.router = router
+                self.semantic_info = semantic_info
+                self.faker = faker
+            
+            def get_generator(self, entity_name: str, field_name: str):
+                """Return a generator function for a field."""
+                entity_semantic = self.semantic_info.get(entity_name, [])
+                semantic_map = {info.field_name: info for info in entity_semantic}
+                
+                if field_name in semantic_map:
+                    sem_info = semantic_map[field_name]
+                    return lambda: self.router.generate_value(
+                        semantic_type=sem_info.semantic_type,
+                        entity_name=entity_name,
+                        constraints=sem_info.constraints
+                    )
+                else:
+                    return lambda: self.faker.word()
+        
+        # Create adapter
+        field_generator = SemanticFieldGeneratorAdapter(
+            self.semantic_router, semantic_info, self.faker
+        )
+        
+        # Use RelationshipEngine for generation (it handles FK sampling)
+        engine = RelationshipEngine(schema_design, field_generator)
+        generated_data = engine.generate_all_entities()
+        
+        return generated_data
+    
+    async def _generate_independent_entities(
+        self,
+        schema: dict,
+        semantic_info: dict,
+        row_count: int
+    ) -> dict[str, list]:
+        """Generate entities independently (no relationships)."""
+        generated_data = {}
+        
+        for entity_name, entity_schema in schema.items():
+            entity_rows = []
+            fields = entity_schema.get("fields", entity_schema.get("properties", {}))
+            
+            # Get semantic info for this entity
+            entity_semantic = semantic_info.get(entity_name, [])
+            semantic_map = {
+                info.field_name: info for info in entity_semantic
+            } if entity_semantic else {}
+            
+            for i in range(row_count):
+                row = {}
+                
+                for field_name, field_config in fields.items():
+                    # Use semantic routing if available
+                    if field_name in semantic_map:
+                        sem_info = semantic_map[field_name]
+                        row[field_name] = self.semantic_router.generate_value(
+                            semantic_type=sem_info.semantic_type,
+                            entity_name=entity_name,
+                            constraints=sem_info.constraints
+                        )
+                    else:
+                        # Fallback to simple generation
+                        row[field_name] = self._fallback_generate_field(
+                            field_name, field_config
+                        )
+                
+                entity_rows.append(row)
+            
+            generated_data[entity_name] = entity_rows
+            logger.info(f"Generated {len(entity_rows)} rows for {entity_name}")
+        
+        return generated_data
+    
+    def _validate_constraints(
+        self,
+        generated_data: dict,
+        schema: dict,
+        semantic_info: dict
+    ) -> list[dict]:
+        """Validate that generated values respect constraints."""
+        violations = []
+        
+        for entity_name, rows in generated_data.items():
+            entity_schema = schema.get(entity_name, {})
+            fields = entity_schema.get("fields", entity_schema.get("properties", {}))
+            entity_semantic = semantic_info.get(entity_name, [])
+            semantic_map = {info.field_name: info for info in entity_semantic}
+            
+            for row_idx, row in enumerate(rows):
+                for field_name, value in row.items():
+                    if value is None:
+                        continue  # Nulls handled separately
+                    
+                    field_config = fields.get(field_name, {})
+                    constraints = field_config.get("constraints", {})
+                    
+                    # Check semantic info constraints
+                    if field_name in semantic_map:
+                        sem_info = semantic_map[field_name]
+                        constraints = sem_info.constraints or constraints
+                    
+                    # Validate enum
+                    if "enum" in constraints and constraints["enum"]:
+                        if value not in constraints["enum"]:
+                            violations.append({
+                                "entity": entity_name,
+                                "field": field_name,
+                                "row": row_idx,
+                                "value": value,
+                                "constraint": "enum",
+                                "expected": constraints["enum"]
+                            })
+                    
+                    # Validate pattern
+                    if "pattern" in constraints and constraints["pattern"]:
+                        try:
+                            if not re.match(constraints["pattern"], str(value)):
+                                violations.append({
+                                    "entity": entity_name,
+                                    "field": field_name,
+                                    "row": row_idx,
+                                    "value": value,
+                                    "constraint": "pattern",
+                                    "expected": constraints["pattern"]
+                                })
+                        except Exception as e:
+                            logger.warning(f"Pattern validation failed for {entity_name}.{field_name}: {e}")
+                    
+                    # Validate min/max for numeric values
+                    if isinstance(value, (int, float)):
+                        if "min" in constraints and value < constraints["min"]:
+                            violations.append({
+                                "entity": entity_name,
+                                "field": field_name,
+                                "row": row_idx,
+                                "value": value,
+                                "constraint": "min",
+                                "expected": constraints["min"]
+                            })
+                        if "max" in constraints and value > constraints["max"]:
+                            violations.append({
+                                "entity": entity_name,
+                                "field": field_name,
+                                "row": row_idx,
+                                "value": value,
+                                "constraint": "max",
+                                "expected": constraints["max"]
+                            })
+        
+        return violations
+    
+    def _validate_fk_integrity(
+        self,
+        generated_data: dict,
+        schema_design: SchemaDesign
+    ) -> dict:
+        """Validate foreign key integrity."""
+        # Create temporary RelationshipEngine to use its validation
+        engine = RelationshipEngine(schema_design)
+        engine.generated_entities = generated_data
+        return engine.validate_relationships()
+    
     def _fallback_generate_field(self, field_name: str, field_config: dict) -> Any:
         """Fallback to simple generation if semantic analysis unavailable."""
         field_type = field_config.get("type", "string") if isinstance(field_config, dict) else "string"
@@ -209,47 +380,78 @@ class AdvancedGeneratorV2:
         else:
             return self.faker.word()
     
-    def _apply_realism(self, data: dict, level: str, semantic_info: dict = None) -> dict:
-        """Apply data quality realism (nulls, duplicates, outliers)."""
-        # Simplified realism for this v2 implementation
+    def _apply_realism(
+        self,
+        data: dict,
+        level: str,
+        semantic_info: dict = None,
+        schema: dict = None
+    ) -> dict:
+        """Apply data quality realism (nulls, duplicates, outliers) respecting schema constraints."""
         import random
         
         null_rate = {"medium": 0.05, "high": 0.10}.get(level, 0)
         
+        # Critical fields that should never be null
+        critical_semantic_types = {
+            "email_address", "phone_number", "uuid", "numeric_id",
+            "timestamp", "date", "bank_account_number", "transaction_id"
+        }
+        
         for entity_name, rows in data.items():
+            # Get schema info for this entity
+            entity_schema = schema.get(entity_name, {}) if schema else {}
+            fields = entity_schema.get("fields", entity_schema.get("properties", {}))
+            
             # Get semantic map for this entity
             entity_semantic = semantic_info.get(entity_name, []) if semantic_info else []
             semantic_map = {info.field_name: info for info in entity_semantic}
             
             for row in rows:
                 for field_name in list(row.keys()):
-                    # Skip IDs
+                    # Skip IDs and foreign keys
                     if field_name == "id" or field_name.endswith("_id"):
                         continue
                     
-                    # Skip fields with enum constraints
+                    # Check schema nullable flag
+                    field_config = fields.get(field_name, {})
+                    if not field_config.get("nullable", False):
+                        continue  # Skip non-nullable fields
+                    
+                    # Check semantic constraints
                     if field_name in semantic_map:
                         info = semantic_map[field_name]
+                        # Skip enum fields
                         if info.constraints.get("enum"):
                             continue
-                            
+                        # Skip critical semantic types
+                        if info.semantic_type in critical_semantic_types:
+                            continue
+                    
+                    # Apply null injection only to nullable, non-critical fields
                     if random.random() < null_rate:
                         row[field_name] = None
         
         return data
     
     def _build_metadata(
-        self, 
-        semantic_info: dict[str, List[SemanticFieldInfo]]
+        self,
+        semantic_info: dict[str, List[SemanticFieldInfo]],
+        generated_data: dict = None,
+        schema: dict = None,
+        constraint_violations: list = None
     ) -> dict:
         """
-        Build metadata for transparency and debugging.
+        Build metadata for transparency and debugging with actual enforcement status.
         
         Args:
             semantic_info: Semantic analysis results
+            generated_data: Generated data for validation
+            schema: Schema for constraint checking
+            constraint_violations: List of constraint violations found
             
         Returns:
-            Metadata dict with analysis summary and warnings
+            Metadata dict with analysis summary, warnings, and enforcement status
         """
         if not semantic_info:
             return {
@@ -258,8 +460,14 @@ class AdvancedGeneratorV2:
                     "reason": "Semantic analysis disabled or failed"
                 },
                 "field_analysis": {},
-                "warnings": []
+                "warnings": [],
+                "constraint_enforcement": {
+                    "enforced": False,
+                    "violations_count": 0
+                }
             }
+        
+        constraint_violations = constraint_violations or []
         
         # Collect statistics
         total_fields = 0
@@ -274,8 +482,16 @@ class AdvancedGeneratorV2:
         low_confidence_fields = []
         field_analysis = {}
         
+        # Track constraint enforcement per field
+        field_violations = {}
+        for violation in constraint_violations:
+            key = f"{violation['entity']}.{violation['field']}"
+            if key not in field_violations:
+                field_violations[key] = []
+            field_violations[key].append(violation)
+        
         for entity_name, fields in semantic_info.items():
-            field_analysis[entity_name] = {} # Initialize entity for field_analysis
+            field_analysis[entity_name] = {}
             for field_info in fields:
                 total_fields += 1
                 
@@ -294,12 +510,19 @@ class AdvancedGeneratorV2:
                         "source": field_info.source
                     })
                 
+                # Check if constraints were actually enforced
+                key = f"{entity_name}.{field_info.field_name}"
+                has_violations = key in field_violations
+                constraints_enforced = bool(field_info.constraints) and not has_violations
+                
                 # Per-field details
                 field_analysis[entity_name][field_info.field_name] = {
                     "semantic_type": field_info.semantic_type,
                     "source": field_info.source,
                     "confidence": round(field_info.confidence, 3),
-                    "constraints_respected": bool(field_info.constraints)  # Flag if constraints were detected
+                    "constraints_respected": constraints_enforced,  # Actual enforcement status
+                    "constraints_detected": bool(field_info.constraints),
+                    "violations": len(field_violations.get(key, []))
                 }
         
         # Calculate average confidence
@@ -320,6 +543,14 @@ class AdvancedGeneratorV2:
                 )
             })
         
+        # Add constraint violation warnings
+        if constraint_violations:
+            warnings.append({
+                "type": "constraint_violations",
+                "count": len(constraint_violations),
+                "message": f"Found {len(constraint_violations)} constraint violations in generated data"
+            })
+        
         return {
             "semantic_analysis_summary": {
                 "enabled": True,
@@ -335,20 +566,35 @@ class AdvancedGeneratorV2:
                 ) if total_fields > 0 else 0.0
             },
             "field_analysis": field_analysis,
-            "warnings": warnings
+            "warnings": warnings,
+            "constraint_enforcement": {
+                "enforced": len(constraint_violations) == 0,
+                "violations_count": len(constraint_violations)
+            }
         }
     
     def format_output(
         self,
         data: dict[str, list],
         output_format: Literal["json", "csv"] = "json"
-    ) -> dict[str, str]:
-        """Format data as JSON or CSV strings."""
+    ) -> dict[str, Any]:
+        """
+        Format data as JSON (native arrays) or CSV (strings).
+        
+        Args:
+            data: Dictionary of entity_name -> list of records
+            output_format: "json" or "csv"
+            
+        Returns:
+            For JSON: dict[str, list] (native arrays)
+            For CSV: dict[str, str] (stringified CSV)
+        """
         formatted = {}
         
         for entity_name, records in data.items():
             if output_format == "json":
-                formatted[entity_name] = json.dumps(records, indent=2, default=str)
+                # Return native arrays for JSON, not stringified
+                formatted[entity_name] = records
             else:  # CSV
                 if records:
                     df = pd.DataFrame(records)
@@ -356,7 +602,6 @@ class AdvancedGeneratorV2:
                 else:
                     formatted[entity_name] = ""
         
-        return formatted
         return formatted
 
 
@@ -417,16 +662,24 @@ async def generate_advanced_data_v2(
         enable_semantic=enable_semantic_generation
     )
     
-    # Step 3: Generate
+    # Step 3: Generate with relationship awareness
     result = await generator.generate(
         schema=schema_dict,
+        schema_design=schema,  # Pass SchemaDesign for FK integrity
         row_count=default_rows,
         user_prompt=prompt,
         realism_level=realism_level
     )
     
-    # Step 4: Format output
+    # Step 4: Format output (JSON returns native arrays, CSV returns strings)
     formatted_data = generator.format_output(result["data"], output_format)
+    
+    # Step 5: Determine success based on metadata and violations
+    success = (
+        len(result.get("constraint_violations", [])) == 0 and
+        result.get("fk_integrity", {}).get("valid", True) and
+        result["metadata"].get("constraint_enforcement", {}).get("enforced", True)
+    )
     
     return {
         "entities": list(result["data"].keys()),
@@ -437,5 +690,8 @@ async def generate_advanced_data_v2(
         },
         "data": formatted_data,
         "semantic_generation_used": enable_semantic_generation,
-        "metadata": result["metadata"]
+        "metadata": result["metadata"],
+        "constraint_violations": result.get("constraint_violations", []),
+        "fk_integrity": result.get("fk_integrity", {}),
+        "_internal_success": success  # Internal flag for agent to check
     }

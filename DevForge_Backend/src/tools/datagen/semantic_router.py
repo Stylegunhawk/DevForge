@@ -93,12 +93,16 @@ class SemanticRouter:
             "identifier_code": lambda e, c: self.faker.bothify("???-###"),
             "money_amount": lambda e, c: round(random.uniform(c.get("min", 10), c.get("max", 1000)), 2),
             "percentage": lambda e, c: round(random.uniform(c.get("min", 0), c.get("max", 100)), 1),
+            # Ensure numeric_id respects min/max
             "credit_card": lambda e, c: self.faker.credit_card_number(),
             "currency_code": lambda e, c: self.faker.currency_code(),
             
             # Identifiers
             "uuid": lambda e, c: str(uuid.uuid4()),
-            "numeric_id": lambda e, c: random.randint(c.get("min", 1), c.get("max", 1000000)),
+            "numeric_id": lambda e, c: random.randint(
+                max(1, c.get("min", 1)),
+                max(c.get("min", 1), c.get("max", 1000000))
+            ),
             
             # Temporal
             "date": lambda e, c: self.faker.date_between(start_date="-10y", end_date="today").isoformat(),
