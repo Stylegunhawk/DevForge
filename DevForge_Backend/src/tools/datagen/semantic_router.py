@@ -40,6 +40,17 @@ class SemanticRouter:
             Generated value (never LLM text!)
         """
         constraints = constraints or {}
+
+        # Normalize nested constraint structures so that explicit constraints
+        # (especially regex patterns) are always visible for generator selection.
+        # Some callers may pass constraints in the form:
+        #   {"constraints": {"pattern": "...", "min": ..., "max": ...}}
+        # To ensure pattern precedence, we promote known keys to the top level.
+        if "constraints" in constraints and isinstance(constraints["constraints"], dict):
+            nested = constraints["constraints"]
+            for key in ("pattern", "enum", "min", "max"):
+                if key in nested and key not in constraints:
+                    constraints[key] = nested[key]
         
         # Check for enum override
         if "enum" in constraints and constraints["enum"]:

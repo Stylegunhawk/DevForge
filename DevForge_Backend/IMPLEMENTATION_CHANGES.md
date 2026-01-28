@@ -306,6 +306,56 @@ Formatter treated both JSON and CSV as "strings to return". `format_output()` us
 
 ---
 
+## 8. Pattern Constraint Precedence Fix
+
+### What Was Wrong
+- Fields with explicit regex pattern constraints were correctly:
+  - extracted from schema,
+  - validated post-generation, and
+  - reported in metadata and violations;
+  but at generation time, the value generator sometimes ignored the explicit pattern.
+- In those cases, semantic type routing (for example, treating a field as `numeric_id`) selected a semantic generator that produced values matching numeric ranges but not the declared regex pattern.
+- As a result, pattern validation could fail even though the system knew about the pattern constraint in metadata.
+
+### Why Semantic Routing Overrode the Pattern
+- The generator selection layer (`SemanticRouter`) expects a *flat* constraint dictionary with keys like `pattern`, `enum`, `min`, and `max`.
+- Some callers passed constraints in a nested form (for example, `{\"constraints\": {\"pattern\": \"^DEV-[0-9]{4}$\", ...}}`) that preserved the pattern for validation but did not surface it to the router.
+- Because the router only checked for `constraints[\"pattern\"]` at the top level, nested `constraints.pattern` was invisible during generator selection.
+- In that situation, the router did not see a pattern override and fell through to semantic type routing (e.g., `numeric_id`), resulting in values that satisfied numeric bounds but not the regex.
+
+### What Was Changed
+
+**File: `src/tools/datagen/semantic_router.py`**
+
+- The `generate_value` method now normalizes constraint structures *before* choosing a generator:
+  - If the incoming constraints dict contains a nested `\"constraints\"` object, known keys (`pattern`, `enum`, `min`, `max`) are promoted to the top level when they are not already present.
+  - After normalization, the existing precedence logic remains:
+    1. Enum override (when an explicit enum is provided)
+    2. Pattern override (when an explicit regex pattern is present)
+    3. Semantic type routing via the generator registry
+- No new generators were introduced; the existing regex-based pattern generator (`_generate_pattern`) continues to be used.
+- The change is limited strictly to how constraints are *interpreted* for generator selection, not to how values are validated or how metadata is produced.
+
+### Why This Fix Is Safe and Isolated
+- **Validation logic unchanged**: Post-generation validation still uses the original constraint structures (including nested forms) and remains untouched.
+- **Metadata semantics unchanged**: Fields like `constraints_respected`, violation counts, and analysis summaries are computed exactly as before.
+- **Success/failure semantics unchanged**: The rules for when `success: true` is returned are not modified; only the likelihood of generating values that already satisfy constraints is improved.
+- **FK and relationship logic unaffected**: Relationship-aware generation and FK sampling operate independently of this constraint normalization and are not altered.
+- **Generator behavior scoped**: Only the interpretation of incoming constraint dictionaries in `SemanticRouter.generate_value` is adjusted; the concrete generator functions (including semantic type generators such as `numeric_id`) are unchanged.
+- **Consistent precedence**: Because all entry points that use `SemanticRouter` now see a normalized constraint view, explicit regex patterns consistently take precedence over semantic type routing across:
+  - single-entity generation,
+  - multi-entity generation, and
+  - relationship-aware generation that goes through the router.
+
+With this fix in place, a request such as:
+- prompt describing `device_id` with pattern `^DEV-[0-9]{4}$`
+will cause `device_id` generation to use the regex-based pattern generator at generation time, ensuring:
+- all generated `device_id` values match `^DEV-[0-9]{4}$`,
+- constraint violations for that field remain at zero, and
+- metadata truth (constraints respected, violations = 0) aligns with data truth, allowing `success: true` under the existing success rules.
+
+---
+
 ## Summary of Files Modified
 
 1. **`src/tools/datagen/advanced_generator_v2.py`**
@@ -320,6 +370,9 @@ Formatter treated both JSON and CSV as "strings to return". `format_output()` us
 
 3. **`src/agents/datagen/agent.py`**
    - Added metadata-driven success validation
+
+4. **`src/tools/datagen/semantic_router.py`**
+   - Normalized constraint structures so explicit regex patterns always take precedence over semantic type routing
 
 ## Testing Strategy
 
