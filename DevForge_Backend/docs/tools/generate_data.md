@@ -37,8 +37,8 @@ Perfect for testing, prototyping, development workflows, and generating complex 
 - 🆕 **Domain templates** for ecommerce and SaaS use cases
 - 🆕 **Multi-entity generation** - generates data for multiple related entities
 - 🆕 **Semantic field analysis** - understands field context (e.g., `flowers.name` vs `person.name`)
-- 🆕 **Data quality realism** - null injection based on realism level
-- ⚠️ **Note:** Foreign key relationships are tracked in schema but not currently enforced during generation (Phase 1 limitation)
+- 🆕 **Data quality realism** - null injection based on realism level (Phase 1 simplified realism)
+- 🆕 **Relationship-aware generation** - foreign key relationships are tracked **and enforced** during generation
 
 ### Phase 1 (3-Layer Semantic Architecture)
 - 🏗️ **Layer 1: Semantic Understanding** - Multi-tier classification (lexical → pattern → context → LLM → fallback)
@@ -154,7 +154,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### Ecommerce Domain
 **Entities:** customers, products, orders  
-**Relationships:** orders → customers (1:N), orders → products (1:N) (tracked in schema, not enforced in Phase 1)  
+**Relationships:** orders → customers (1:N), orders → products (1:N) (enforced during generation)  
 **Distributions:** Lognormal prices, categorical order statuses  
 **Default Counts:** 100 customers, 50 products, 500 orders
 
@@ -174,7 +174,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### SaaS Domain
 **Entities:** users, subscriptions, usage_logs  
-**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N) (tracked in schema, not enforced in Phase 1)  
+**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N) (enforced during generation)  
 **Distributions:** Categorical plans, pareto API usage  
 **Default Counts:** 100 users, 120 subscriptions, 1000 usage logs
 
@@ -311,9 +311,18 @@ curl -X POST http://localhost:8001/api/gateway \
       "relationship_count": 2
     },
     "data": {
-      "customers": "[{\"id\": \"uuid-1\", \"email\": \"...\"}, ...]",
-      "orders": "[{\"id\": \"uuid-2\", \"customer_id\": \"uuid-1\", ...}, ...]",
-      "products": "[{\"id\": \"uuid-3\", ...}, ...]"
+      "customers": [
+        {"id": "uuid-1", "email": "..."},
+        ...
+      ],
+      "orders": [
+        {"id": "uuid-2", "customer_id": "uuid-1", ...},
+        ...
+      ],
+      "products": [
+        {"id": "uuid-3", ...},
+        ...
+      ]
     },
     "format": "json",
     "rows": 500,
@@ -345,6 +354,24 @@ curl -X POST http://localhost:8001/api/gateway \
         "analysis_ms": 150,
         "generation_ms": 1200,
         "total_ms": 1350
+      },
+      "constraint_enforcement": {
+        "enforced": true,
+        "violations_count": 0
+      }
+    },
+    "constraint_violations": [],
+    "fk_integrity": {
+      "valid": true,
+      "errors": [],
+      "statistics": {
+        "orders->customers": {
+          "total_children": 500,
+          "total_parents": 100,
+          "parents_with_children": 100,
+          "parents_with_zero_children": 0,
+          "orphaned_children": 0
+        }
       }
     }
   }
