@@ -87,17 +87,14 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
             
             # Check internal success flag from generator
             # Success requires: no constraint violations, FK integrity valid, constraints enforced
-            internal_success = result.get("_internal_success", True)
+            # Invariant 8: Deterministic Success Semantics
+            internal_success = (
+                 result.get("constraint_violations") == [] and
+                 result.get("fk_integrity", {}).get("valid", True)
+            )
             
-            # Also check metadata warnings for critical issues
-            metadata = result.get("metadata", {})
-            warnings = metadata.get("warnings", [])
-            critical_warnings = [
-                w for w in warnings
-                if w.get("type") in ("constraint_violations", "fk_integrity")
-            ]
-            
-            success = internal_success and len(critical_warnings) == 0
+            # If internal success is False, data should be empty/safe.
+            success = internal_success
             
             return {
                 "success": success,

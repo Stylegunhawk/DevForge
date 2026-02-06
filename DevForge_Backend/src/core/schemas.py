@@ -166,9 +166,9 @@ class DataGenArgs(BaseModel):
         None,
         description="Natural language description for LLM-powered schema design"
     )
-    domain: Optional[Literal["ecommerce", "saas"]] = Field(
+    domain: Optional[Literal["ecommerce", "saas", "iot_devices"]] = Field(
         None,
-        description="Pre-defined domain template (ecommerce or saas)"
+        description="Pre-defined domain template (ecommerce, saas, or iot_devices)"
     )
     realism_level: Literal["basic", "medium", "high"] = Field(
         "basic",

@@ -146,6 +146,18 @@ class AdvancedGeneratorV2:
             "total_ms": int(total_time * 1000)
         }
         
+        if constraint_violations or not fk_integrity.get("valid", True):
+             # Invariant 3: Invalid values must never be returned.
+             # Invariant 8: Deterministic Success Semantics.
+             
+             # We must NOT return invalid data.
+             # If violations exist, we return EMPTY data for the affected entities or fail globally.
+             # The instruction says "Standardized failure object" or exception.
+             # However, the return type is dict.
+             # To strictly satisfy "Invalid values must never be returned", we clear the data.
+             logger.error("Generation failed invariant checks. Preventing invalid data return.")
+             generated_data = {} 
+        
         return {
             "data": generated_data,
             "metadata": metadata,
@@ -278,7 +290,11 @@ class AdvancedGeneratorV2:
         schema: dict,
         semantic_info: dict
     ) -> list[dict]:
-        """Validate that generated values respect constraints."""
+        """Validate that generated values respect constraints.
+        
+        Invariant 3: No Post-Hoc Fixing (Detection only).
+        Invariant 8: Deterministic Success (Must detect all violations).
+        """
         violations = []
         
         for entity_name, rows in generated_data.items():
@@ -288,17 +304,32 @@ class AdvancedGeneratorV2:
             semantic_map = {info.field_name: info for info in entity_semantic}
             
             for row_idx, row in enumerate(rows):
-                for field_name, value in row.items():
-                    if value is None:
-                        continue  # Nulls handled separately
-                    
+                for field_name in fields.keys():
                     field_config = fields.get(field_name, {})
                     constraints = field_config.get("constraints", {})
+                    value = row.get(field_name)
                     
-                    # Check semantic info constraints
+                    # Merge semantic constraints (Invariant 2: Canonical Shape - handled in semantic_router, but needed here for checking)
                     if field_name in semantic_map:
                         sem_info = semantic_map[field_name]
-                        constraints = sem_info.constraints or constraints
+                        # Merge constraints
+                        if sem_info.constraints:
+                            constraints = {**constraints, **sem_info.constraints}
+
+                    # Validate Nullability
+                    # Invariant: If not nullable, must not be None
+                    is_nullable = field_config.get("nullable", False)
+                    if value is None:
+                        if not is_nullable:
+                            violations.append({
+                                "entity": entity_name,
+                                "field": field_name,
+                                "row": row_idx,
+                                "value": None,
+                                "constraint": "nullable",
+                                "expected": False
+                            })
+                        continue  # Stop checking other constraints if value is None
                     
                     # Validate enum
                     if "enum" in constraints and constraints["enum"]:
@@ -327,27 +358,49 @@ class AdvancedGeneratorV2:
                         except Exception as e:
                             logger.warning(f"Pattern validation failed for {entity_name}.{field_name}: {e}")
                     
-                    # Validate min/max for numeric values
+                    # Validate min/max (Numeric)
                     if isinstance(value, (int, float)):
                         if "min" in constraints and value < constraints["min"]:
                             violations.append({
-                                "entity": entity_name,
-                                "field": field_name,
-                                "row": row_idx,
-                                "value": value,
-                                "constraint": "min",
+                                "entity": entity_name, 
+                                "field": field_name, 
+                                "row": row_idx, 
+                                "value": value, 
+                                "constraint": "min", 
                                 "expected": constraints["min"]
                             })
                         if "max" in constraints and value > constraints["max"]:
                             violations.append({
-                                "entity": entity_name,
-                                "field": field_name,
-                                "row": row_idx,
-                                "value": value,
-                                "constraint": "max",
+                                "entity": entity_name, 
+                                "field": field_name, 
+                                "row": row_idx, 
+                                "value": value, 
+                                "constraint": "max", 
                                 "expected": constraints["max"]
                             })
-        
+                            
+                    # Validate min/max (Dates/Timestamps)
+                    # We accept strings, check if they are ISO dates
+                    if isinstance(value, str):
+                        # Simple check for min/max on string length OR date value
+                        # If field type is date/timestamp, try parse
+                        field_type = field_config.get("type", "string")
+                        if field_type in ("date", "timestamp"):
+                            try:
+                                # Very basic comparison for ISO strings works mostly
+                                if "min" in constraints and value < str(constraints["min"]):
+                                    violations.append({
+                                        "entity": entity_name, "field": field_name, "row": row_idx,
+                                        "value": value, "constraint": "min_date", "expected": constraints["min"]
+                                    })
+                                if "max" in constraints and value > str(constraints["max"]):
+                                    violations.append({
+                                        "entity": entity_name, "field": field_name, "row": row_idx,
+                                        "value": value, "constraint": "max_date", "expected": constraints["max"]
+                                    })
+                            except:
+                                pass # Ignore if comparison fails
+                        
         return violations
     
     def _validate_fk_integrity(
@@ -362,21 +415,53 @@ class AdvancedGeneratorV2:
         return engine.validate_relationships()
     
     def _fallback_generate_field(self, field_name: str, field_config: dict) -> Any:
-        """Fallback to simple generation if semantic analysis unavailable."""
-        field_type = field_config.get("type", "string") if isinstance(field_config, dict) else "string"
+        """Fallback to simple generation if semantic analysis unavailable.
         
+        Must respect constraints (Invariant 1).
+        """
+        field_type = field_config.get("type", "string") if isinstance(field_config, dict) else "string"
+        constraints = field_config.get("constraints", {})
+        
+        # Invariant 1: Enum overrides everything
+        if "enum" in constraints and constraints["enum"]:
+            import random
+            return random.choice(constraints["enum"])
+            
         if field_type == "string":
+            if "pattern" in constraints:
+                try:
+                    import rstr
+                    return rstr.xeger(constraints["pattern"])
+                except:
+                    pass
             return self.faker.word()
+            
         elif field_type in ("number", "integer", "float"):
-            min_val = field_config.get("minimum", 0) if isinstance(field_config, dict) else 0
-            max_val = field_config.get("maximum", 1000) if isinstance(field_config, dict) else 1000
+            min_val = constraints.get("min", field_config.get("minimum", 0))
+            max_val = constraints.get("max", field_config.get("maximum", 1000))
+            if field_type == "integer":
+                return self.faker.random_int(min=int(min_val), max=int(max_val))
             return round(self.faker.pyfloat(min_value=min_val, max_value=max_val), 2)
+            
         elif field_type == "boolean":
             return self.faker.boolean()
+            
         elif field_type == "date":
-            return self.faker.date_this_decade().isoformat()
+             # Respect min/max date
+             start = constraints.get("min", "-10y")
+             end = constraints.get("max", "today")
+             try:
+                 return self.faker.date_between(start_date=start, end_date=end).isoformat()
+             except:
+                 return self.faker.date_this_decade().isoformat()
+                 
         elif field_type == "timestamp":
-            return self.faker.date_time_this_year().isoformat()
+             start = constraints.get("min", "-1y")
+             end = constraints.get("max", "now")
+             try:
+                 return self.faker.date_time_between(start_date=start, end_date=end).isoformat()
+             except:
+                 return self.faker.date_time_this_year().isoformat()
         else:
             return self.faker.word()
     
@@ -513,14 +598,18 @@ class AdvancedGeneratorV2:
                 # Check if constraints were actually enforced
                 key = f"{entity_name}.{field_info.field_name}"
                 has_violations = key in field_violations
-                constraints_enforced = bool(field_info.constraints) and not has_violations
+                
+                # Invariant 7: Metadata Truthfulness
+                # constraints_respected must strictly equal (violations == 0)
+                # Regardless of whether constraints were detected or not.
+                constraints_respected = not has_violations
                 
                 # Per-field details
                 field_analysis[entity_name][field_info.field_name] = {
                     "semantic_type": field_info.semantic_type,
                     "source": field_info.source,
                     "confidence": round(field_info.confidence, 3),
-                    "constraints_respected": constraints_enforced,  # Actual enforcement status
+                    "constraints_respected": constraints_respected,  # Actual enforcement status
                     "constraints_detected": bool(field_info.constraints),
                     "violations": len(field_violations.get(key, []))
                 }
@@ -607,7 +696,7 @@ class AdvancedGeneratorV2:
 
 async def generate_advanced_data_v2(
     prompt: Optional[str] = None,
-    domain: Optional[Literal["ecommerce", "saas"]] = None,
+    domain: Optional[Literal["ecommerce", "saas", "iot_devices"]] = None,
     realism_level: Literal["basic", "medium", "high"] = "basic",
     default_rows: int = 100,
     output_format: Literal["json", "csv"] = "json",
