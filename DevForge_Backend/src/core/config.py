@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "bge-m3"
 
     # Phase 3: RAG Configuration
-    VECTOR_BACKEND: str = "chroma"  # Options: chroma (default), qdrant
+    VECTOR_BACKEND: str = "postgres"  # Options: chroma, postgres
     CHROMA_PERSIST_DIR: str = "./data/chromadb"
     CHROMA_COLLECTION: str = "devforge_docs"
     RAG_EMBED_MODEL: str = "nomic-embed-text"  # Primary for RAG

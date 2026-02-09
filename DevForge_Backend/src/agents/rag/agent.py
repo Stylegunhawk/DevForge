@@ -314,11 +314,15 @@ class RAGAgent:
         self.embed_model = settings.RAG_EMBED_MODEL
         self.backend = settings.VECTOR_BACKEND
         
-        from src.storage.chroma_store import ChromaVectorStore
-        self.vector_store = ChromaVectorStore(
-            collection_name=collection_name,
-            embed_model=self.embed_model
-        )
+        if self.backend == "postgres":
+            from src.storage.pgvector_store import PgVectorStore
+            self.vector_store = PgVectorStore(table_name="rag_vectors", collection_name=collection_name)
+        else:
+            from src.storage.chroma_store import ChromaVectorStore
+            self.vector_store = ChromaVectorStore(
+                collection_name=collection_name,
+                embed_model=self.embed_model
+            )
         
         self._code_graph = None
         self._reranker = None
@@ -623,7 +627,7 @@ class RAGAgent:
     
     async def _vector_search(self, query: str, top_k: int, score_threshold: float = 0.0) -> List:
         """
-        Vector-only search using ChromaVectorStore.
+        Vector-only search using configured vector store.
         
         Args:
             query: Search query
@@ -633,33 +637,33 @@ class RAGAgent:
         Returns:
             List of search results (ChunkResult objects, NOT dicts)
         """
-        # Phase 14: Direct store usage
-        # Note: vector_store.search returns ChunkResult objects
-        # We need to ensure callers handle objects (or convert them if needed)
-        # Existing callers (retrieve_with_reranking) expect ChunkResult objects for reraking.
-        
-        # We need query embedding first?
-        # ChromaVectorStore.search takes query_embedding.
-        # But wait, helper implementation of ChromaVectorStore.search takes query_embedding.
-        # Does it have a method for query string?
-        # Looking at chroma_store.py: 
-        # async def search(self, query_embedding: List[float], ...)
-        
-        # So we need to embed the query first.
-        # self.vector_store.embeddings.embed_query(query)
-        
+        # Get query embedding
         query_embedding = await asyncio.to_thread(
             self.vector_store.embeddings.embed_query,
             query
         )
         
-        results = await self.vector_store.search(
-            query_embedding=query_embedding,
-            top_k=top_k,
-            score_threshold=score_threshold
-        )
+        # Call search with backend-specific parameters
+        if self.backend == "postgres":
+            # PgVector requires tenant parameters
+            tenant_id = getattr(self, 'tenant_id', 'default')
+            results = await self.vector_store.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                score_threshold=score_threshold,
+                tenant_id=tenant_id,
+                collection_name=self.collection_name
+            )
+        else:
+            # ChromaDB doesn't need explicit tenant params (uses collection)
+            results = await self.vector_store.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                score_threshold=score_threshold
+            )
         
         return results
+
 
     
     async def retrieve_with_reranking(

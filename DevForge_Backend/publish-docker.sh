@@ -17,8 +17,8 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # Configuration
-DOCKER_USERNAME="${DOCKER_USERNAME:-stylegunhawk}"  # Change to your Docker Hub username
-IMAGE_NAME="devforge-backend"
+DOCKER_USERNAME="${DOCKER_USERNAME:-sidwohlig}"  # Change to your Docker Hub username
+IMAGE_NAME="devforge"
 VERSION="${1:-latest}"
 
 # Functions

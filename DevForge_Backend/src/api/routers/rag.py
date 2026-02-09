@@ -246,7 +246,7 @@ async def delete_file(file_id: str):
         # Delete from Vector Store using the FACTORY
         try:
             agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
-            await agent.vector_store.delete_by_source(file_path)
+            await agent.vector_store.delete_by_source(file_path, tenant_id=tenant_id, collection_name=collection_name)
             # Invalidate graph for this collection
             agent._code_graph = None
         except Exception as e:

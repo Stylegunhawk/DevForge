@@ -1,4 +1,8 @@
-# 🐳 DevForge Universal Docker Guide
+# 🐳 DevForge Universal Docker Guide (v2.0)
+
+> [!NOTE]
+> **Version 2.0 (Latest):** Now uses **PgVector** (PostgreSQL) as the default search engine, replacing ChromaDB for better performance and scalability.
+
 
 This master guide consolidates all Docker documentation for the DevForge Backend. It explains **what** we built, **how** it works, **when** to use each mode, and **how** to deploy it.
 
@@ -111,7 +115,7 @@ Transitioning from running `uvicorn` locally to Docker? Here is what changed:
 | **Uploads** | `./data/uploads` | `/app/data/uploads` | Mapped volume inside container |
 
 **Data Persistence:**  
-All your data (ChromaDB vectors, Uploaded files, Postgres data) is safely stored in the `./data` folder on your host machine. **Deleting the container does NOT delete your data.**
+All your data (PgVector data, Uploaded files, Postgres data) is safely stored in the `./data` folder on your host machine. **Deleting the container does NOT delete your data.**
 
 ---
 

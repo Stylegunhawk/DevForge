@@ -1,16 +1,5 @@
-version: '3.8'
-
 # ==============================================================================
 # DevForge Backend - Modular Docker Compose Configuration
-# ==============================================================================
-# Profiles:
-#   - core: API only (DataGen, GitHub, Cheatsheet, Prompt Refiner)
-#   - rag:  RAG services (Redis, Postgres, Celery, Flower) - OPTIONAL
-#
-# Usage:
-#   API only:      docker-compose up api
-#   Full stack:    docker-compose --profile rag up
-#   Or:            COMPOSE_PROFILES=rag docker-compose up
 # ==============================================================================
 
 services:
@@ -21,6 +10,7 @@ services:
   # FastAPI Backend Service (THE MAIN APPLICATION)
   api:
     image: devforge-backend:latest
+    pull_policy: never
     build:
       context: .
       dockerfile: Dockerfile
@@ -29,7 +19,7 @@ services:
     ports:
       - "8001:8001"
     env_file:
-      - .env.docker # Use the Docker-specific environment file
+      - .env.docker
     volumes:
       - .:/app
       - ./data:/app/data
@@ -44,16 +34,14 @@ services:
       start_period: 40s
 
   # ==========================================================================
-  # RAG PROFILE - Optional Services for RAG Functionality
+  # RAG PROFILE - Optional Services
   # ==========================================================================
 
-  # Redis - Celery broker and result backend (RAG ONLY)
+  # Redis - Celery broker and result backend
   redis:
     profiles: [ "rag" ]
     image: redis:7-alpine
     container_name: devforge-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -65,7 +53,7 @@ services:
     networks:
       - devforge-network
 
-  # PostgreSQL with pgvector extension (RAG ONLY)
+  # PostgreSQL with pgvector extension
   postgres:
     profiles: [ "rag" ]
     image: pgvector/pgvector:pg16
@@ -74,8 +62,6 @@ services:
       POSTGRES_USER: devforge
       POSTGRES_PASSWORD: devforge123
       POSTGRES_DB: devforge
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -88,13 +74,10 @@ services:
     networks:
       - devforge-network
 
-  # Celery worker for async RAG tasks (RAG ONLY)
+  # Celery worker
   celery-worker:
     profiles: [ "rag" ]
     image: devforge-backend:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     container_name: devforge-celery-worker
     command: celery -A src.workers.celery_app worker -l info -c 4
     env_file:
@@ -111,13 +94,10 @@ services:
     networks:
       - devforge-network
 
-  # Flower - Celery monitoring UI (RAG ONLY)
+  # Flower - Celery monitoring UI
   flower:
     profiles: [ "rag" ]
     image: devforge-backend:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     container_name: devforge-flower
     command: celery -A src.workers.celery_app flower --port=5555
     ports:

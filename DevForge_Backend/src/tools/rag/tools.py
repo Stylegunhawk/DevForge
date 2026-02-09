@@ -401,14 +401,16 @@ async def ingest_documents(
     )
 
     try:
-        # Initialize vector store using Standard Abstraction
-        from src.storage.chroma_store import ChromaVectorStore
-        
-        # Initialize store with dynamic collection
-        vector_store = ChromaVectorStore(
-            collection_name=target_collection,
-            embed_model=embed_model
-        )
+        # Initialize vector store based on backend
+        if backend == "postgres":
+            from src.storage.pgvector_store import PgVectorStore
+            vector_store = PgVectorStore(table_name="rag_vectors")
+        else:
+            from src.storage.chroma_store import ChromaVectorStore
+            vector_store = ChromaVectorStore(
+                collection_name=target_collection,
+                embed_model=embed_model
+            )
 
         # Read all documents in parallel
         read_tasks = [read_document(fp) for fp in file_paths]
@@ -454,6 +456,7 @@ async def ingest_documents(
                     
                     # PHASE 15: Tenant & KB Isolation Metadata
                     meta["tenant_id"] = tenant_id
+                    meta["collection_name"] = target_collection
                     if knowledge_id:
                         meta["knowledge_id"] = knowledge_id
                     
@@ -485,8 +488,20 @@ async def ingest_documents(
 
         # Add to vector store
         if all_chunks:
+            # For PgVector, we need to generate embeddings explicitly
+            # ChromaDB generates them internally, but PgVector needs them provided
+            if backend == "postgres":
+                # Generate embeddings for all chunks
+                chunk_texts = [chunk["content"] for chunk in all_chunks]
+                embeddings_model = vector_store.embeddings
+                embeddings = await asyncio.to_thread(embeddings_model.embed_documents, chunk_texts)
+                logger.info(f"Generated {len(embeddings)} embeddings for PgVector")
+            else:
+                # ChromaDB handles embeddings internally
+                embeddings = []
+            
             # Add chunks to scoped collection
-            await vector_store.add_chunks(chunks=all_chunks, embeddings=[])
+            await vector_store.add_chunks(chunks=all_chunks, embeddings=embeddings)
             
             logger.info(
                 f"Added {len(all_chunks)} chunks to {target_collection}",
