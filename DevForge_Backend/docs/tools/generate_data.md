@@ -86,6 +86,10 @@ The tool automatically selects the appropriate mode:
 | `medium` | ~5% on nullable fields | 0% | 0% |
 | `high` | ~10% on nullable fields | ~2% on key fields | ~1% on numeric fields |
 
+> [!NOTE]
+> **Critical Field Protection:** To maintain data integrity, the following semantic types are **never** injected with nulls, even if nullable in the schema:
+> `email_address`, `phone_number`, `uuid`, `numeric_id`, `timestamp`, `date`, `bank_account_number`, `transaction_id`.
+
 ---
 
 ## V1 Mode: Simple Generation (Backward Compatible)
@@ -535,6 +539,7 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
     - `ZIP_CODE` → `faker.zipcode()`
     - `PRODUCT_NAME` → `CatalogFactory` (cached list of products)
     - `PATTERN` → `rstr.xeger()` (regex generation)
+    - **Precedence:** `Enum` > `Pattern` > `Min/Max` (Enums always override other constraints).
 
 #### 4. Value Production
 - **Process:** The selected generator produces a value for each row.
@@ -542,7 +547,8 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
     - **Enums:** Randomly selects from allowed values.
     - **Patterns:** Generates string matching the regex.
     - **Ranges:** Generates number within min/max.
-- **Realism:** `_apply_realism` injects nulls (if nullable) and outliers based on `realism_level`.
+- **Realism:** `_apply_realism` injects nulls (if nullable) and outliers based on `realism_level`. Respecs "Critical Field Protection".
+- **Strict Validation (Invariant 3):** Post-generation validation ensures NO invalid data is returned. If *any* row violates constraints, the entire dataset for that entity is cleared to ensure safety.
 
 #### 5. Output Formatting
 - **Process:** Data is formatted as JSON or CSV.
@@ -604,6 +610,11 @@ curl -X POST "http://localhost:8001/api/gateway" \
 - **Enum Extraction from Prompt:** While the tool supports enums defined in the schema, the LLM Schema Designer may occasionally miss specific enum values provided in a complex natural language prompt (e.g., specific book genres might default to a generic list).
 - **Foreign Key Relationships:** In Phase 1, relationships are tracked in the schema but foreign keys are not validated or enforced during generation. The `RelationshipEngine` exists but is not used by `advanced_generator_v2.py`. Foreign key fields are generated as regular UUIDs/IDs without ensuring they reference existing parent records.
 - **enable_semantic_generation Parameter:** This parameter is not part of the `DataGenArgs` Pydantic schema but is handled dynamically via `getattr()` in the agent. It defaults to `True` if the `ENABLE_SEMANTIC_ANALYZER` environment variable is set.
+
+### Invariant Enforcement
+The tool now strictly enforces data quality invariants:
+- **Invariant 3 (No Post-Hoc Fixing):** Invalid data is detected and withheld, never silently "fixed" or returned.
+- **Invariant 8 (Deterministic Success):** Success is boolean. If validation fails, `success` is `False` and data is empty.
 
 ---
 
@@ -677,6 +688,26 @@ curl -X POST "http://localhost:8001/api/gateway" \
   "message": "realism_level must be one of: basic, medium, high"
 }
 ```
+
+#### Constraint & Integrity Failures
+If generated data violates schema constraints (pattern, enum, min/max) or foreign key integrity:
+
+```json
+{
+  "success": false,
+  "data": {},
+  "constraint_violations": [
+    {
+      "entity": "users",
+      "field": "age",
+      "value": 15,
+      "constraint": "min",
+      "expected": 18
+    }
+  ]
+}
+```
+*Data is withheld to prevent using invalid data.*
 
 ---
 
@@ -837,3 +868,21 @@ Add `domain` or `prompt` to enable V2 mode:
 **Last Updated:** December 11, 2025  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
+
+---
+
+## Recent Updates in generate_data Mode
+
+### 1. Strict Validation & Safety Invariants
+- **Previous Behavior:** Data with minor constraint violations might have been returned with warnings.
+- **Current Behavior:** Implements **Invariant 3 (Invalid values must never be returned)**. If any constraint violation is detected (Regex, Enum, Min/Max) or Foreign Key integrity fails, the generator strictly returns **empty data** and marks `success: false`.
+- **Impact:** Guarantees 100% compliant data consumption. Users must handle `success: false` explicitly.
+
+### 2. Protected Critical Semantic Types
+- **Previous Behavior:** Realism engine could inject nulls into any nullable field.
+- **Current Behavior:** The following semantic types are now **protected** and will NEVER be null, even if nullable and high realism is selected: `email_address`, `phone_number`, `uuid`, `numeric_id`, `timestamp`, `date`, `bank_account_number`, `transaction_id`.
+- **Impact:** Prevents "realistic" data from breaking core application logic (e.g., missing IDs or timestamps).
+
+### 3. Constraint Precedence
+- **Behavior:** Explicit precedence logic for generator selection: **Enum > Pattern > Min/Max**.
+- **Impact:** Ensures that if a field has both a regex pattern and an enum, the enum values are strictly respected, preventing generation of valid-looking but disallowed values.
