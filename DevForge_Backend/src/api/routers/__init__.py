@@ -836,8 +836,9 @@ async def mcp_endpoint(request: Request):
             return JSONResponse(content=response)
         
         # Handle initialized notification (no response needed)
-        if method == "initialized":
-            logging.info("MCP initialized notification received")
+        # Support both 'initialized' and 'notifications/initialized' (HuggingFace Chat UI)
+        if method == "initialized" or method == "notifications/initialized":
+            logging.info(f"MCP initialized notification received (method: {method})")
             # Notifications don't require a response
             return JSONResponse(status_code=200, content={})
         
@@ -965,15 +966,59 @@ async def mcp_endpoint(request: Request):
                 )
                 return JSONResponse(status_code=400, content=error_response)
             
-            # Call the tool via gateway
+            # Call the tool directly (same logic as gateway_endpoint)
             try:
                 tool_start_time = time.time()
-                gateway_req = GatewayRequest(apiName=tool_name, arguments=arguments)
-                gateway_response = await gateway(gateway_req)
+                
+                # Get the agent function
+                agent_func = SUPPORTED_TOOLS[tool_name]
+                
+                # Special handling for github_operation (v0.8 with context support)
+                if tool_name == "github_operation":
+                    query = arguments.get("query")
+                    if not query:
+                        error_response = {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {
+                                "code": -32602,
+                                "message": "github_operation requires 'query' parameter"
+                            }
+                        }
+                        return JSONResponse(content=error_response)
+                    
+                    context = arguments.get("context", {})
+                    result = await agent_func(query=query, context=context)
+                else:
+                    # All other tools receive arguments as dict
+                    result = await agent_func(arguments)
+                
                 tool_exec_time = time.time() - tool_start_time
                 
-                # Extract response body
-                response_body = json.loads(gateway_response.body.decode())
+                # Extract data from result
+                result_data = result.get("data")
+                if result_data is None:
+                    result_data = {k: v for k, v in result.items() 
+                                   if k not in ["success", "tool", "format", "error", "execution_time"]}
+                    if not result_data:
+                        result_data = result
+                
+                # Check success
+                success = result.get("success", True)
+                error = result.get("error")
+                
+                if error:
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "error": {
+                            "code": -32603,
+                            "message": f"Tool execution failed: {error}"
+                        }
+                    }
+                    logging.error(f"MCP tools/call: {tool_name} failed", 
+                                  extra={"error": error, "execution_time": tool_exec_time})
+                    return JSONResponse(content=error_response)
                 
                 # Return MCP-formatted response
                 exec_time = time.time() - start_time
@@ -984,7 +1029,7 @@ async def mcp_endpoint(request: Request):
                         "content": [
                             {
                                 "type": "text",
-                                "text": json.dumps(response_body, indent=2)
+                                "text": json.dumps(result_data, indent=2)
                             }
                         ]
                     }
@@ -994,10 +1039,10 @@ async def mcp_endpoint(request: Request):
                     "MCP tools/call response",
                     extra={
                         "tool_name": tool_name,
-                        "success": response_body.get("success", False),
+                        "success": result.get("success", True),
                         "tool_execution_time": tool_exec_time,
                         "total_execution_time": exec_time,
-                        "response_size": len(json.dumps(response_body)),
+                        "response_size": len(json.dumps(result_data)),
                     }
                 )
                 
@@ -1070,56 +1115,78 @@ async def mcp_endpoint(request: Request):
 
 
 def _get_tool_schema(tool_name: str) -> dict:
-    """Generate JSON schema for tool parameters."""
+    """Generate JSON schema for tool parameters.
+    
+    Note: generate_data supports two modes:
+    - V1 (Simple): Use 'rows' + 'format' + optional 'fields' for basic Faker data
+    - V2 (Advanced): Use 'rows' + 'prompt' OR 'domain' to trigger semantic generation
+    """
     schemas = {
         "generate_data": {
             "type": "object",
             "properties": {
                 "rows": {
                     "type": "integer",
-                    "description": "Number of rows to generate",
+                    "description": "Number of rows to generate (required for both V1 and V2)",
                     "minimum": 1,
                     "maximum": 10000
                 },
                 "format": {
                     "type": "string",
                     "enum": ["json", "csv"],
-                    "description": "Output format"
+                    "description": "Output format (default: json)"
                 },
                 "fields": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Custom fields to generate"
+                    "description": "Custom field names for simple generation (V1 mode)"
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "[V2 MODE] Natural language schema description (e.g., 'flower species with color and bloom season'). Triggers semantic generation with relationships and validation."
+                },
+                "domain": {
+                    "type": "string",
+                    "enum": ["ecommerce", "saas"],
+                    "description": "[V2 MODE] Pre-defined domain template (triggers V2 mode). Alternative to 'prompt'."
+                },
+                "realism_level": {
+                    "type": "string",
+                    "enum": ["basic", "medium", "high"],
+                    "description": "Data quality/realism level (default: medium)"
                 }
             },
             "required": ["rows"]
-        },
-        "retrieve_docs": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query"
-                },
-                "file_paths": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Paths to documents"
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Number of results",
-                    "default": 5
-                }
-            },
-            "required": ["query"]
         },
         "github_operation": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Natural language GitHub operation"
+                    "description": "Natural language GitHub operation (e.g., 'create PR for bug fix', 'list recent commits')"
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Optional context for enhanced intelligence",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID for tracking"
+                        },
+                        "diff": {
+                            "type": "string",
+                            "description": "Git diff content"
+                        },
+                        "error_log": {
+                            "type": "string",
+                            "description": "Error log for debugging"
+                        },
+                        "files": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Related file paths"
+                        }
+                    }
                 }
             },
             "required": ["query"]
@@ -1129,15 +1196,22 @@ def _get_tool_schema(tool_name: str) -> dict:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Query for reranking"
+                    "description": "Query for reranking documents"
                 },
                 "documents": {
                     "type": "array",
-                    "description": "Documents to rerank"
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string"},
+                            "metadata": {"type": "object"}
+                        }
+                    },
+                    "description": "Documents to rerank (with content and metadata)"
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Number of results"
+                    "description": "Number of top results to return (default: 5)"
                 }
             },
             "required": ["query", "documents"]
@@ -1147,17 +1221,42 @@ def _get_tool_schema(tool_name: str) -> dict:
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "Prompt to refine"
+                    "description": "Original user prompt to refine and optimize"
                 },
                 "domain": {
                     "type": "string",
                     "enum": ["general", "image", "code", "rag", "llm"],
-                    "description": "Domain"
+                    "description": "Target domain for refinement (default: general)"
                 },
                 "skill_level": {
                     "type": "string",
                     "enum": ["beginner", "intermediate", "expert"],
-                    "description": "Skill level"
+                    "description": "User skill level (default: intermediate)"
+                },
+                "file_context": {
+                    "type": "string",
+                    "description": "Optional context from files"
+                },
+                "conversation_history": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {"type": "string"},
+                            "content": {"type": "string"}
+                        }
+                    },
+                    "description": "Recent conversation messages for context"
+                },
+                "attached_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Code file contents for context-aware refinement"
+                },
+                "project_files": {
+                    "type": "object",
+                    "description": "Project configuration files (requirements.txt, package.json, etc.)",
+                    "additionalProperties": {"type": "string"}
                 }
             },
             "required": ["prompt"]
@@ -1167,19 +1266,87 @@ def _get_tool_schema(tool_name: str) -> dict:
             "properties": {
                 "language": {
                     "type": "string",
-                    "description": "Programming language"
+                    "description": "Programming language (python, javascript, go, etc.)"
                 },
                 "skill_level": {
                     "type": "string",
                     "enum": ["beginner", "intermediate", "expert"],
-                    "description": "Skill level"
+                    "description": "User skill level (default: beginner)"
                 },
                 "code_context": {
                     "type": "string",
-                    "description": "Code context"
+                    "description": "Code snippet for context-aware cheatsheet generation"
                 }
             },
-            "required": ["language"]
+            "required": []
+        },
+        "generate_changelog": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name in format 'owner/repo' (e.g., 'facebook/react')"
+                },
+                "from_tag": {
+                    "type": "string",
+                    "description": "Start tag or commit SHA"
+                },
+                "to_tag": {
+                    "type": "string",
+                    "description": "End tag or commit SHA (default: HEAD)"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "json"],
+                    "description": "Output format (default: markdown)"
+                }
+            },
+            "required": ["repo", "from_tag"]
+        },
+        "analyze_ci_failure": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name in format 'owner/repo'"
+                },
+                "run_id": {
+                    "type": "integer",
+                    "description": "GitHub Actions workflow run ID"
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number to analyze"
+                }
+            },
+            "required": ["repo"]
+        },
+        "scaffold_repository": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Repository name (created in authenticated user's account)"
+                },
+                "template": {
+                    "type": "string",
+                    "enum": ["fastapi", "react", "nextjs", "microservice", "docs"],
+                    "description": "Template to scaffold from"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Repository description"
+                },
+                "private": {
+                    "type": "boolean",
+                    "description": "Create as private repository (default: false)"
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Force creation, deleting existing repo if present (default: false)"
+                }
+            },
+            "required": ["name", "template"]
         }
     }
     

@@ -100,6 +100,35 @@ class RedisFileStore:
         
         await self.client.delete(f"file:{file_id}")
     
+    async def get_all_files_for_tenant(self, tenant_id: str) -> List[Dict]:
+        """
+        Get all file metadata for a specific tenant.
+        
+        Args:
+            tenant_id: Tenant ID to filter files
+        
+        Returns:
+            List of file metadata dictionaries for the tenant
+        """
+        files = []
+        
+        # Use SCAN to iterate all file keys
+        async for key in self.client.scan_iter("file:*"):
+            try:
+                metadata = await self.get_file_metadata(key.replace("file:", ""))
+                if not metadata:
+                    continue
+                
+                # Filter by tenant_id
+                if metadata.get("tenant_id") == tenant_id:
+                    files.append(metadata)
+            except Exception as e:
+                # Log but don't fail entire operation for one bad key
+                print(f"Error processing key {key}: {e}")
+                continue
+        
+        return files
+    
     # ========================================================================
     # QUERY METADATA CRUD
     # ========================================================================

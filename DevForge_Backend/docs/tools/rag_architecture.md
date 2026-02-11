@@ -1,8 +1,8 @@
 # DevForge RAG Architecture
 
-**Version:** 15.1 Complete (Multi-Tenant) ✅  
+**Version:** 15.2 Complete (Multi-Tenant + Batch Retrieval) ✅  
 **Phase:** Phase 15 Multi-Tenancy + Phase 3 strict filtering  
-**Date:** 2026-01-09  
+**Date:** 2026-02-11  
 **Status:** Production Ready - Backend Contract Frozen
 
 This document outlines the architecture of the Retrieval-Augmented Generation (RAG) system in DevForge Backend, covering ingestion, retrieval, reranking, and query intelligence.
@@ -38,6 +38,15 @@ Polling endpoint for processing status.
 *   **Guaranteed Behavior:**
     *   Returns `finishEmbedding: true` only when both chunking and embedding tasks are successful.
     *   Includes `size` (bytes) and `url` for preview.
+
+#### `GET /api/v1/rag/files`
+Batch endpoint for retrieving all files belonging to a tenant.
+*   **Response Schema:** `List[FileStatusResponse]`
+*   **Guaranteed Behavior:**
+    *   Returns all file metadata for the tenant specified in `X-User-ID` header.
+    *   Performs Redis SCAN to filter files by `tenant_id`.
+    *   Returns empty array `[]` if tenant has no files.
+    *   Full tenant isolation - no cross-tenant leakage.
 
 #### `POST /api/v1/rag/file/upload`
 Universal ingestion entry point.
@@ -88,6 +97,20 @@ curl "http://localhost:8000/api/v1/rag/file/{file_id}"
 - `finishEmbedding: true` ONLY after vectors are fully written to ChromaDB.
 - `chunkCount > 0`
 - Stable schema (no missing fields like `size`).
+
+### 2b. Get All Files for Tenant
+**Purpose:** Retrieve all file metadata for the current tenant.
+
+```bash
+curl "http://localhost:8000/api/v1/rag/files" \
+  -H "X-User-ID: dev_user_1"
+```
+
+**Expected Guarantees:**
+- Returns array of `FileStatusResponse` objects.
+- Only includes files belonging to `dev_user_1`.
+- Empty array `[]` if tenant has no files.
+- Strict tenant isolation (filtered via Redis SCAN).
 
 ### 3. Semantic Search (Primary Entry Point)
 **Purpose:** Query tenant-scoped vector store, apply reranking, apply context shaper, and filter orphans.
@@ -563,6 +586,7 @@ OLLAMA_HOST=http://localhost:11434
 The following endpoints are the ONLY ones used by Lobe Chat:
 - /api/v1/rag/file/upload
 - /api/v1/rag/file/{id}
+- /api/v1/rag/files (NEW - batch retrieval)
 - /api/v1/rag/chunk/semanticSearchForChat
 - /api/v1/rag/file/{id} (DELETE)
 

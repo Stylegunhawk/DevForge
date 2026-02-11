@@ -115,6 +115,18 @@ async def get_file_metadata(file_id: str):
         raise HTTPException(status_code=404, detail="File not found")
     return status
 
+@router.get("/files", response_model=List[FileStatusResponse])
+async def get_all_files(
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID")
+):
+    """
+    Get all files for the current tenant.
+    Returns file metadata with processing status for each file.
+    """
+    tenant_id = x_user_id or "default"
+    files = await redis_store.get_all_files_for_tenant(tenant_id)
+    return files
+
 # ============================================================================
 # 3. SEMANTIC SEARCH
 # ============================================================================
