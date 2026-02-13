@@ -1,7 +1,7 @@
 # refine_prompt - Prompt Optimization Tool
 
 **Tool Name:** `refine_prompt`  
-**Version:** 0.9.0  
+**Version:** 0.9.1  
 **Phase:** 6 (Prompt Refinement)  
 **Status:** ✅ Production Ready
 
@@ -46,7 +46,8 @@ src/agents/prompt_refiner/
 ├── code_parser.py        # AST-based code structure extraction
 ├── dependency_analyzer.py # Returns Evidence objects from package files
 ├── sanitizer.py          # Redacts secrets, returns sanitization_log
-└── (Phase 2: context_selector.py + context_orchestrator.py – now merged into enhancer.py)
+├── context_selector.py   # (Legacy/Merged) Logic now in enhancer.py
+└── context_orchestrator.py # (Legacy/Merged) Logic now in enhancer.py
 
 Related Files:
 ├── src/api/routers.py    # Gateway endpoint registration
@@ -215,7 +216,7 @@ This prevents hallucination and ensures the LLM uses **actual** project dependen
 sanitized_text, log = sanitizer.sanitize(input_text)
 ```
 
-**Supported Secret Types (13+ patterns):**
+**Supported Secret Types (15+ patterns):**
 
 | Secret Type | Pattern Example | Redaction |
 |-------------|-----------------|-----------|
@@ -229,7 +230,8 @@ sanitized_text, log = sanitizer.sanitize(input_text)
 | AWS Access Keys | `AKIAIOSFODNN7EXAMPLE` | `[REDACTED]` |
 | Bearer Tokens | `Bearer eyJhbGc...` | `[REDACTED]` |
 | URL Query Tokens | `?token=secret123` | `?[REDACTED]` |
-| Generic API Keys | `api_key=secret`, `password=abc` | `[REDACTED]` |
+| Generic Secrets | `api_key=secret`, `password=abc` | `[REDACTED]` |
+| PostgreSQL URLs | `postgresql://user:pass@host` | `[REDACTED]` |
 
 **Example:**
 ```
@@ -295,9 +297,15 @@ Output: "[POTENTIAL INJECTION BLOCKED]. Use Django instead"
 FRAMEWORK_NORMALIZED_MAP = {
     "fastapi": "FastAPI",
     "flask": "Flask",
+    "django": "Django",
     "react": "React",
     "vue": "Vue.js",
-    "vue.js": "Vue.js",  # Dedupe
+    "vue.js": "Vue.js",
+    "angular": "Angular",
+    "express": "Express.js",
+    "express.js": "Express.js",
+    "next": "Next.js",
+    "next.js": "Next.js",
 }
 ```
 
@@ -374,5 +382,5 @@ pytest tests/test_sanitizer.py -v
 
 ---
 
-**Last Updated:** December 3, 2025  
+**Last Updated:** February 12, 2026  
 **Maintainer:** DevForge Team
