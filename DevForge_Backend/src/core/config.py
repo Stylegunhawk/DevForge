@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # Server Configuration
     PORT: int = 8000
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3210"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3210,http://localhost:5173"
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
 
