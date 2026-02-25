@@ -56,6 +56,49 @@ SUPPORTED_TOOLS = {
     "scaffold_repository": scaffold_repository_invoke,
 }
 
+# Factual tool descriptions (Sync with devforge.json manifest)
+TOOL_DESCRIPTIONS = {
+    "generate_data": (
+        "Generate realistic synthetic data with two modes. "
+        "V1 (Simple): Faker-based mock data. "
+        "V2 (Advanced): LLM-powered semantic analysis, domain templates (ecommerce, saas), "
+        "multi-entity relationships, and data quality simulation."
+    ),
+    "github_operation": (
+        "Intelligent GitHub automation with natural language. "
+        "Supports: list repos, create issues, commit files, create PRs. "
+        "v0.8 features: fuzzy repo matching, AI commit messages from diffs, "
+        "log-to-issue parsing (Python/JS/Java/Go), confidence-based safety gating."
+    ),
+    "refine_prompt": (
+        "Evidence-based prompt optimization for specific domains. "
+        "Analyzes tech stack (dependencies, code, chat) to provide context-aware "
+        "refinements with deterministic confidence and security sanitization."
+    ),
+    "generate_cheatsheet": (
+        "Context-aware dynamic cheat sheet generator. "
+        "Analyzes code to detect libraries, complexity, and generates "
+        "relevant markdown references with best practices and pitfalls."
+    ),
+    "retrieve_docs": (
+        "Search documents using RAG (ChromaDB / Qdrant). "
+        "Ingest documents and query them semantically."
+    ),
+    "rerank_docs": "Rerank retrieved documents by relevance using cross-encoder",
+    "generate_changelog": (
+        "Generate release notes and changelog from git history between tags or commits. "
+        "Parses conventional commits and categorizes changes (features, fixes, docs, etc.)."
+    ),
+    "analyze_ci_failure": (
+        "Analyze CI/CD pipeline failures and suggest fixes. "
+        "Detects test failures, build errors, dependency issues, and timeouts."
+    ),
+    "scaffold_repository": (
+        "Create new repository from template with CI/CD setup. "
+        "Templates: fastapi, react, nextjs, microservice, docs."
+    ),
+}
+
 
 # Job status endpoint for async operations
 @router.get("/jobs/{job_id}")
@@ -628,11 +671,13 @@ async def gateway_endpoint(request: GatewayRequest):
                         "message": error_msg,
                     },
                 )
-            # v0.8: Support optional context parameter
+            # v0.8: Support optional context parameter + per-user token
             context = args.get("context", {})
+            # Strip token from context BEFORE any logging — never log raw tokens
+            github_token = context.pop("github_token", None)
 
             logging.info(f"Calling {tool_name} with query: {query[:100]}...")
-            result = await agent_func(query=query, context=context)
+            result = await agent_func(query=query, context=context, github_token=github_token)
         else:
             logging.info(f"Calling {tool_name} with args: {args}")
             result = await agent_func(args)  # ← dict, no extra parsing
@@ -801,9 +846,7 @@ async def mcp_endpoint(request: Request):
                 tools.append(
                     {
                         "name": name,
-                        "description": func.__doc__.strip()
-                        if func.__doc__
-                        else f"{name} tool",
+                        "description": TOOL_DESCRIPTIONS.get(name, func.__doc__.strip() if func.__doc__ else f"{name} tool"),
                         "inputSchema": _get_tool_schema(name),
                     }
                 )
@@ -866,7 +909,9 @@ async def mcp_endpoint(request: Request):
                         )
 
                     context = arguments.get("context", {})
-                    result = await agent_func(query=query, context=context)
+                    # Strip token from context BEFORE any logging — never log raw tokens
+                    github_token = context.pop("github_token", None)
+                    result = await agent_func(query=query, context=context, github_token=github_token)
 
                 else:
                     result = await agent_func(arguments)
@@ -1008,6 +1053,14 @@ def _get_tool_schema(tool_name: str) -> dict:
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "Related file paths",
+                        },
+                        "github_token": {
+                            "type": "string",
+                            "description": (
+                                "Optional GitHub Personal Access Token (PAT). "
+                                "Overrides the server-level GITHUB_TOKEN env var. "
+                                "Stripped from context before any logging or auditing."
+                            ),
                         },
                     },
                 },

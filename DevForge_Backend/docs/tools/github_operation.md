@@ -94,7 +94,8 @@ class GitHubState:
 ```python
 async def github_agent_invoke(
     query: str, 
-    context: Optional[Dict[str, Any]] = None
+    context: Optional[Dict[str, Any]] = None,
+    github_token: Optional[str] = None
 ) -> dict:
     """
     Main entry point for github_operation tool.

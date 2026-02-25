@@ -51,8 +51,11 @@ devforge-backend/
 ```python
 from src.agents.github.agent import github_agent_invoke
 
-# List repositories
-result = await github_agent_invoke("List my GitHub repositories")
+# List repositories with optional token
+result = await github_agent_invoke(
+    query="List my GitHub repositories",
+    github_token="ghp_..."
+)
 print(result)
 # {
 #   "success": True,
@@ -141,7 +144,7 @@ result = await supervisor_invoke("List my GitHub repositories")
 ### Error Handling
 
 ```python
-result = await github_agent_invoke("Invalid operation")
+result = await github_agent_invoke("Invalid operation", github_token=None)
 if not result["success"]:
     print(f"Error: {result.get('error')}")
     # Error: Operation not supported or missing required parameters
