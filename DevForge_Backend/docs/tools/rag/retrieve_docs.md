@@ -1,9 +1,9 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
-**Version:** 15.0 (Strict Multi-Tenancy)  
-**Version:** 3.3 (Lobe Chat Integrated)  
+**Version:** 15.3 (Strict Multi-Tenancy)  
+**Version:** 3.4 (Sequential Support)  
 **Status:** ✅ Implemented & Frozen  
-**Last Updated:** January 9, 2026
+**Last Updated:** February 26, 2026
 
 ---
 
@@ -133,6 +133,7 @@ The RAG system is fully integrated with Lobe Chat's TypeScript data contracts vi
 |----------|--------|-------------|
 | `/api/v1/rag/file/upload` | `POST` | Upload files with MIME detection and async ingestion |
 | `/api/v1/rag/file/{id}` | `GET` | Poll processing status until `finishEmbedding: true` |
+| `/api/v1/rag/file/{id}/chunks` | `GET` | [Sequential chunk retrieval](get_file_chunks_api.md) |
 | `/api/v1/rag/chunk/semanticSearchForChat` | `POST` | Primary search endpoint for Lobe Chat sessions |
 | `/api/v1/rag/file/{id}` | `DELETE` | Removes file, vectors, and metadata |
 | `/api/v1/rag/message/{id}/query` | `DELETE` | Cleans up RAG queries for the specified message |
@@ -633,7 +634,7 @@ All other endpoints are legacy or internal tools.
 
 
 
-**Last Updated:** December 14, 2025  
-**Version:** 10.1 (Phase 10.1 Complete)  
+**Last Updated:** February 26, 2026  
+**Version:** 15.3 (Phase 15.3 Complete)  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository

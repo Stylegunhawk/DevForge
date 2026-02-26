@@ -56,6 +56,7 @@ class AdvancedGeneratorV2:
         """
         self.faker = Faker()
         self.enable_semantic = enable_semantic
+        self._progress_callback = None
         
         # Initialize semantic components
         if enable_semantic:
@@ -68,6 +69,16 @@ class AdvancedGeneratorV2:
             self.semantic_router = SemanticRouter()  # Basic router, no catalogs
         
         logger.info(f"AdvancedGeneratorV2 initialized: semantic={enable_semantic}, llm={llm_client is not None}")
+
+    def _report(self, stage: str, percent: int, message: str):
+        """Safe wrapper for progress reporting."""
+        if self._progress_callback:
+            try:
+                self._progress_callback(stage, percent, message)
+            except Exception as e:
+                # Callback should be safe, but we're defensive
+                logger.warning(f"Progress callback failed: {e}")
+
     
     async def generate(
         self,
@@ -75,7 +86,9 @@ class AdvancedGeneratorV2:
         schema_design: Optional[SchemaDesign] = None,
         row_count: int = 100,
         user_prompt: str = None,
-        realism_level: str = "basic"
+        realism_level: str = "basic",
+        *,
+        progress_callback: Optional[Any] = None
     ) -> dict:
         """
         Generate data with semantic awareness and relationship integrity.
@@ -97,32 +110,53 @@ class AdvancedGeneratorV2:
         """
         import time
         start_time = time.time()
+        self._progress_callback = progress_callback
         
         logger.info(f"Starting generation: entities={list(schema.keys())}, rows={row_count}")
+        self._report("schema_design", 20, "Initializing generator components")
         
-        # Step 1: Semantic analysis
-        semantic_info = await self._analyze_schema_semantically(schema, user_prompt)
-        analysis_end_time = time.time()
-        
-        # Step 2: Generate data with relationship awareness if schema_design provided
-        if schema_design and schema_design.relationships:
-            generated_data = await self._generate_with_relationships(
-                schema_design, semantic_info, row_count
+        try:
+            # Step 1: Semantic analysis
+            semantic_info = await self._analyze_schema_semantically(schema, user_prompt)
+            analysis_end_time = time.time()
+            self._report("semantic_analysis", 40, "Schema semantic analysis complete")
+            
+            # Step 2: Generate data with relationship awareness if schema_design provided
+            self._report("catalog_generation", 60, "Generating domain-specific catalogs")
+            if schema_design and schema_design.relationships:
+                generated_data = await self._generate_with_relationships(
+                    schema_design, semantic_info, row_count
+                )
+            else:
+                generated_data = await self._generate_independent_entities(
+                    schema, semantic_info, row_count
+                )
+            
+            self._report("row_generation", 80, f"Bulk row generation complete ({row_count} rows)")
+            
+            # Step 3: Validate constraints
+            constraint_violations = self._validate_constraints(
+                generated_data, schema, semantic_info
             )
-        else:
-            generated_data = await self._generate_independent_entities(
-                schema, semantic_info, row_count
-            )
-        
-        # Step 3: Validate constraints
-        constraint_violations = self._validate_constraints(
-            generated_data, schema, semantic_info
-        )
-        
-        # Step 4: Validate FK integrity (if relationships exist)
-        fk_integrity = {}
-        if schema_design and schema_design.relationships:
-            fk_integrity = self._validate_fk_integrity(generated_data, schema_design)
+            
+            # Step 4: Validate FK integrity (if relationships exist)
+            fk_integrity = {}
+            if schema_design and schema_design.relationships:
+                fk_integrity = self._validate_fk_integrity(generated_data, schema_design)
+            
+            # Step 5: Apply realism (if needed) - must respect schema constraints
+            if realism_level != "basic":
+                generated_data = self._apply_realism(
+                    generated_data, realism_level, semantic_info, schema
+                )
+        except Exception as e:
+            logger.error(f"Pipeline failure during data generation: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": f"Internal pipeline error: {str(e)}",
+                "data": {},
+                "metadata": {"error": True}
+            }
         
         # Step 5: Apply realism (if needed) - must respect schema constraints
         if realism_level != "basic":
@@ -139,6 +173,9 @@ class AdvancedGeneratorV2:
         total_time = time.time() - start_time
         analysis_time = analysis_end_time - start_time
         generation_time = total_time - analysis_time
+        
+        self._report("complete", 100, "Generation complete")
+        self._progress_callback = None  # Reset for reuse
         
         metadata["performance"] = {
             "analysis_ms": int(analysis_time * 1000),
@@ -359,8 +396,9 @@ class AdvancedGeneratorV2:
                             logger.warning(f"Pattern validation failed for {entity_name}.{field_name}: {e}")
                     
                     # Validate min/max (Numeric)
-                    if isinstance(value, (int, float)):
-                        if "min" in constraints and value < constraints["min"]:
+                    # Note: bool is an int subclass, so we must explicitly exclude it for numeric min/max
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        if "min" in constraints and constraints["min"] is not None and value < constraints["min"]:
                             violations.append({
                                 "entity": entity_name, 
                                 "field": field_name, 
@@ -369,7 +407,7 @@ class AdvancedGeneratorV2:
                                 "constraint": "min", 
                                 "expected": constraints["min"]
                             })
-                        if "max" in constraints and value > constraints["max"]:
+                        if "max" in constraints and constraints["max"] is not None and value > constraints["max"]:
                             violations.append({
                                 "entity": entity_name, 
                                 "field": field_name, 
@@ -388,12 +426,12 @@ class AdvancedGeneratorV2:
                         if field_type in ("date", "timestamp"):
                             try:
                                 # Very basic comparison for ISO strings works mostly
-                                if "min" in constraints and value < str(constraints["min"]):
+                                if "min" in constraints and constraints["min"] is not None and value < str(constraints["min"]):
                                     violations.append({
                                         "entity": entity_name, "field": field_name, "row": row_idx,
                                         "value": value, "constraint": "min_date", "expected": constraints["min"]
                                     })
-                                if "max" in constraints and value > str(constraints["max"]):
+                                if "max" in constraints and constraints["max"] is not None and value > str(constraints["max"]):
                                     violations.append({
                                         "entity": entity_name, "field": field_name, "row": row_idx,
                                         "value": value, "constraint": "max_date", "expected": constraints["max"]
@@ -437,8 +475,12 @@ class AdvancedGeneratorV2:
             return self.faker.word()
             
         elif field_type in ("number", "integer", "float"):
-            min_val = constraints.get("min", field_config.get("minimum", 0))
-            max_val = constraints.get("max", field_config.get("maximum", 1000))
+            raw_min = constraints.get("min") if constraints.get("min") is not None else field_config.get("minimum")
+            raw_max = constraints.get("max") if constraints.get("max") is not None else field_config.get("maximum")
+            
+            min_val = float(raw_min) if raw_min is not None else 0.0
+            max_val = float(raw_max) if raw_max is not None else 1000.0
+            
             if field_type == "integer":
                 return self.faker.random_int(min=int(min_val), max=int(max_val))
             return round(self.faker.pyfloat(min_value=min_val, max_value=max_val), 2)
@@ -448,16 +490,16 @@ class AdvancedGeneratorV2:
             
         elif field_type == "date":
              # Respect min/max date
-             start = constraints.get("min", "-10y")
-             end = constraints.get("max", "today")
+             start = constraints.get("min") if constraints.get("min") is not None else "-10y"
+             end = constraints.get("max") if constraints.get("max") is not None else "today"
              try:
                  return self.faker.date_between(start_date=start, end_date=end).isoformat()
              except:
                  return self.faker.date_this_decade().isoformat()
                  
         elif field_type == "timestamp":
-             start = constraints.get("min", "-1y")
-             end = constraints.get("max", "now")
+             start = constraints.get("min") if constraints.get("min") is not None else "-1y"
+             end = constraints.get("max") if constraints.get("max") is not None else "now"
              try:
                  return self.faker.date_time_between(start_date=start, end_date=end).isoformat()
              except:
@@ -700,7 +742,9 @@ async def generate_advanced_data_v2(
     realism_level: Literal["basic", "medium", "high"] = "basic",
     default_rows: int = 100,
     output_format: Literal["json", "csv"] = "json",
-    enable_semantic_generation: bool = True
+    enable_semantic_generation: bool = True,
+    *,
+    progress_callback: Optional[Any] = None
 ) -> dict[str, Any]:
     """
     Generate advanced synthetic data using Phase 1 components.
@@ -757,7 +801,8 @@ async def generate_advanced_data_v2(
         schema_design=schema,  # Pass SchemaDesign for FK integrity
         row_count=default_rows,
         user_prompt=prompt,
-        realism_level=realism_level
+        realism_level=realism_level,
+        progress_callback=progress_callback
     )
     
     # Step 4: Format output (JSON returns native arrays, CSV returns strings)

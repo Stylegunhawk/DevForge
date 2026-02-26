@@ -1,8 +1,8 @@
 # RAG Integration Flow
 
-**Version:** 12A Complete ✅  
-**Phase:** Phase 12A Query Intelligence  
-**Date:** 2025-12-17  
+**Version:** 15.3 Complete ✅  
+**Phase:** Phase 15.3 Sequential Support  
+**Date:** 2026-02-26  
 **Status:** Production Ready
 
 This document details the integration flow of the RAG pipeline, including Phase 12A query intelligence features.
@@ -537,8 +537,9 @@ QID: utils.py::validate
 
 - [RAG Architecture](./rag_architecture.md) - Architecture rules and component overview
 - [retrieve_docs Tool](./tools/retrieve_docs.md) - API reference and usage
+- [Sequential Chunk Retrieval](./get_file_chunks_api.md) - Direct chunk access for files
 
 ---
 
 **All integration paths verified ✅**  
-**Last Updated:** December 14, 2025
+**Last Updated:** February 26, 2026

@@ -250,6 +250,46 @@ class ChromaVectorStore(BaseVectorStore):
             logger.info(f"Deleted {len(ids)} chunks from {source}")
         
         return len(ids)
+
+    async def get_chunks_by_file_id(
+        self,
+        file_id: str,
+        limit: int = 5,
+        offset: int = 0
+    ) -> List[ChunkResult]:
+        """
+        Retrieve chunks for a specific file from Chroma, ordered by chunk_index.
+        """
+        results = await asyncio.to_thread(
+            self._collection.get,
+            where={"file_id": {"$eq": file_id}},
+            limit=limit,
+            offset=offset,
+            include=["metadatas", "documents"]
+        )
+        
+        chunk_results = []
+        if not results or not results["ids"]:
+            return []
+            
+        ids = results["ids"]
+        documents = results["documents"]
+        metadatas = results["metadatas"]
+        
+        for i in range(len(ids)):
+            chunk_results.append(ChunkResult(
+                id=ids[i],
+                content=documents[i],
+                metadata=metadatas[i] or {},
+                score=None
+            ))
+            
+        # Sort by chunk_index manually if Chroma doesn't support complex ordering in .get()
+        # Chroma .get() results are usually returned in insertion order or index order, 
+        # but chunk_index is safer.
+        chunk_results.sort(key=lambda x: int(x.metadata.get("chunk_index", 0)))
+        
+        return chunk_results
     
     async def count(self) -> int:
         """Get total number of chunks."""

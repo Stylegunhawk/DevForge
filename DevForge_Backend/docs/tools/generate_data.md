@@ -68,7 +68,7 @@ The following constraints are enforced during generation:
 | `format` | string | No | `"json"` | Output format: `"json"` or `"csv"` | V1, V2 |
 | `fields` | array[string] | No | Default fields | Custom fields to generate | V1 only |
 | `prompt` | string | No | `null` | Natural language schema description | V2 only |
-| `domain` | string | No | `null` | Pre-defined domain: `"ecommerce"` or `"saas"` | V2 only |
+| `domain` | string | No | `null` | Pre-defined domain: `"ecommerce"`, `"saas"`, or `"iot_devices"` | V2 only |
 | `realism_level` | string | No | `"basic"` | Data quality level: `"basic"`, `"medium"`, `"high"` | V2 only |
 | `enable_semantic_generation` | boolean | No | `true` | Enable Phase 1 semantic analysis for context-aware values | V2 only |
 
@@ -191,6 +191,25 @@ curl -X POST http://localhost:8001/api/gateway \
       "rows": 1000,
       "format": "csv",
       "domain": "saas",
+      "realism_level": "medium"
+    }
+  }'
+```
+
+#### IoT Devices Domain
+**Entities:** devices, readings  
+**Relationships:** readings → devices (1:N)  
+**Distributions:** Normal distribution for reading values  
+**Default Counts:** 100 devices, 1000 readings
+
+```bash
+curl -X POST http://localhost:8001/api/gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "generate_data",
+    "arguments": {
+      "rows": 500,
+      "domain": "iot_devices",
       "realism_level": "medium"
     }
   }'
@@ -709,7 +728,7 @@ The tool now strictly enforces data quality invariants:
 ```json
 {
   "success": false,
-  "message": "Unknown domain: 'healthcare'. Available: ['ecommerce', 'saas']"
+  "message": "Unknown domain: 'healthcare'. Available: ['ecommerce', 'saas', 'iot_devices']"
 }
 ```
 

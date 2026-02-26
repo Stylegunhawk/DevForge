@@ -115,6 +115,49 @@ async def get_file_metadata(file_id: str):
         raise HTTPException(status_code=404, detail="File not found")
     return status
 
+@router.get("/file/{file_id}/chunks", response_model=SemanticSearchResponse)
+async def get_file_chunks(
+    file_id: str,
+    limit: int = 5,
+    offset: int = 0,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """
+    Get all chunks for a specific file, ordered by chunk_index.
+    """
+    tenant_id = x_user_id or "default"
+    collection_name = f"user_{tenant_id}"
+    
+    # Verify file exists and belongs to tenant
+    file_meta = await redis_store.get_file_metadata(file_id)
+    if not file_meta or file_meta.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=404, detail="File not found or access denied")
+    
+    agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
+    chunks = await agent.get_file_chunks(file_id=file_id, limit=limit, offset=offset)
+    
+    response_chunks = []
+    for doc in chunks:
+        metadata = doc.get("metadata", {})
+        content = doc.get("content") or ""
+        
+        response_chunks.append(ChatFileChunk(
+            id=doc.get("id") or str(uuid.uuid4()),
+            fileId=file_id,
+            filename=file_meta["name"],
+            fileType=file_meta["fileType"],
+            fileUrl=file_meta["url"],
+            text=content,
+            similarity=1.0,  # Full relevance (direct selection)
+            pageNumber=metadata.get("page", None),
+            role=metadata.get("role", "supporting")
+        ))
+    
+    return SemanticSearchResponse(
+        chunks=response_chunks,
+        queryId=None  # No query tracking for direct chunk retrieval
+    )
+
 @router.get("/files", response_model=List[FileStatusResponse])
 async def get_all_files(
     x_user_id: Optional[str] = Header(None, alias="X-User-ID")

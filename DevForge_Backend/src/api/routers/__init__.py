@@ -63,6 +63,7 @@ TOOL_DESCRIPTIONS = {
         "V1 (Simple): Faker-based mock data. "
         "V2 (Advanced): LLM-powered semantic analysis, domain templates (ecommerce, saas), "
         "multi-entity relationships, and data quality simulation."
+        "For custom data, always pass user description as 'prompt' parameter to trigger V2 semantic mode."
     ),
     "github_operation": (
         "Intelligent GitHub automation with natural language. "
@@ -914,7 +915,17 @@ async def mcp_endpoint(request: Request):
                     result = await agent_func(query=query, context=context, github_token=github_token)
 
                 else:
-                    result = await agent_func(arguments)
+                    if tool_name == "generate_data":
+                        # Refinement: Include request_id in log messages as requested
+                        def progress_callback(stage: str, percent: int, message: str):
+                            logging.info(
+                                f"[{req_id}] DataGen Progress: {percent}% - {stage}: {message}",
+                                extra={"req_id": req_id, "stage": stage, "percent": percent}
+                            )
+                        
+                        result = await agent_func(arguments, progress_callback=progress_callback)
+                    else:
+                        result = await agent_func(arguments)
 
                 # If tool returns error
                 if result.get("error"):
@@ -929,9 +940,27 @@ async def mcp_endpoint(request: Request):
                         }
                     )
 
-                # ✅ FIXED: Wrap the result in MCP Content Format (Text)
-                # The LLM needs the JSON to be stringified inside a text block.
                 result_json_str = json.dumps(result, indent=2)
+
+                # Instruction for LLM to avoid re-printing massive datasets (as requested)
+                if tool_name == "generate_data" and result.get("success"):
+                    rows = result.get("rows", "N/A")
+                    data_container = result.get("data", {})
+                    data_obj = data_container.get("data", {}) if isinstance(data_container, dict) else {}
+                    
+                    # For V2, data_obj is a dict of entities. For V1, it might be a string or list.
+                    if isinstance(data_obj, dict) and data_obj:
+                        entities = list(data_obj.keys())
+                        entity_info = f"{len(entities)} entities: {', '.join(entities)}"
+                    else:
+                        entity_info = "the requested format"
+
+                    summary = (
+                        f"Data generation complete. {rows} rows generated across {entity_info}. "
+                        "Results are displayed in the interactive table in the UI. "
+                        "DO NOT reproduce the data. Just confirm to the user what was generated."
+                    )
+                    result_json_str = summary + "\n\n" + result_json_str
 
                 # Determine isError from tool's success field
                 # (constraint violations / FK failures → isError=True)
@@ -1014,16 +1043,21 @@ def _get_tool_schema(tool_name: str) -> dict:
                 "fields": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Custom field names for simple generation (V1 mode)",
+                    "description": "Custom fields to generate (V1 mode)",
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "[V2 MODE] Natural language schema description (e.g., 'flower species with color and bloom season'). Triggers semantic generation with relationships and validation.",
+                    "description": (
+                        "REQUIRED for custom/domain-specific data generation. "
+                        "Pass the user's exact description here (e.g., '50 vintage cars with year and manufacturer'). "
+                        "WITHOUT this field, only generic Faker data is generated (V1 mode). "
+                        "WITH this field, LLM-powered semantic generation is used (V2 mode)."
+                    ),
                 },
                 "domain": {
                     "type": "string",
-                    "enum": ["ecommerce", "saas"],
-                    "description": "[V2 MODE] Pre-defined domain template (triggers V2 mode). Alternative to 'prompt'.",
+                    "enum": ["ecommerce", "saas", "iot_devices"],
+                    "description": "[V2 MODE] Pre-defined domain template (ecommerce, saas, or iot_devices). Alternative to 'prompt'.",
                 },
                 "realism_level": {
                     "type": "string",

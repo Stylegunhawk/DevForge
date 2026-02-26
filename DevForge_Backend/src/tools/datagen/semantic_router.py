@@ -66,30 +66,32 @@ class SemanticRouter:
         
         # 4. Generate with retry to satisfy min/max/length
         # We try up to 10 times to get a value that fits constraints
-        for _ in range(10):
-            value = generator_func(entity_name, constraints)
-            if self._is_valid(value, constraints):
-                return value
-                
-        # If we fail to generate a valid value after retries, return it anyway
-        # Validation downstream will catch it if it's strictly invalid.
-        return value
+        try:
+            for _ in range(10):
+                value = generator_func(entity_name, constraints)
+                if self._is_valid(value, constraints):
+                    return value
+                    
+            # If we fail to generate a valid value after retries, return it anyway
+            return value
+        except Exception as e:
+            logger.error(f"Error in generation for {semantic_type}: {e}")
+            return self._fallback_generator(entity_name, constraints)
 
     def _is_valid(self, value: Any, constraints: dict) -> bool:
         """Check if value satisfies constraints (best effort check for retry loop)."""
         # Min/Max for numbers
         if isinstance(value, (int, float)):
-             if "min" in constraints and value < constraints["min"]: return False
-             if "max" in constraints and value > constraints["max"]: return False
+             if "min" in constraints and constraints["min"] is not None and value < constraints["min"]: return False
+             if "max" in constraints and constraints["max"] is not None and value > constraints["max"]: return False
              
         # Length for strings check
         if isinstance(value, str):
-            min_len = constraints.get("min_length", 0)
-            max_len = constraints.get("max_length", 1000)
-            # Also check generic min/max if implied as length? 
-            # Avoiding ambiguity, mostly relying on specific generators respecting min/max arguments.
-            # But here we double check.
-            pass
+            min_len = constraints.get("min_length")
+            if min_len is not None and len(value) < int(min_len): return False
+            
+            max_len = constraints.get("max_length")
+            if max_len is not None and len(value) > int(max_len): return False
             
         return True
     
@@ -130,15 +132,19 @@ class SemanticRouter:
             "order_code": lambda e, c: self._generate_order_code(c),
             "identifier_code": lambda e, c: self.faker.bothify("???-###"),
             "money_amount": lambda e, c: self._generate_money(c),
-            "percentage": lambda e, c: round(random.uniform(c.get("min", 0), c.get("max", 100)), 1),
+            "percentage": lambda e, c: round(random.uniform(
+                float(c.get("min")) if c.get("min") is not None else 0.0,
+                float(c.get("max")) if c.get("max") is not None else 100.0
+            ), 1),
             "credit_card": lambda e, c: self.faker.credit_card_number(),
             "currency_code": lambda e, c: self.faker.currency_code(),
             
             # Identifiers
             "uuid": lambda e, c: str(uuid.uuid4()),
             "numeric_id": lambda e, c: random.randint(
-                max(1, int(c.get("min", 1))),
-                max(int(c.get("min", 1)) + 1, int(c.get("max", 1000000)))
+                max(1, int(c.get("min")) if c.get("min") is not None else 1),
+                max(int(c.get("min")) + 1 if c.get("min") is not None else 2, 
+                    int(c.get("max")) if c.get("max") is not None else 1000000)
             ),
             
             # Temporal - Strict Min/Max Enforcement
@@ -186,23 +192,26 @@ class SemanticRouter:
     
     def _generate_account_number(self, constraints: dict) -> str:
         """Generate bank account number."""
-        length = constraints.get("length", random.randint(10, 12))
+        raw_len = constraints.get("length")
+        length = int(raw_len) if raw_len is not None else random.randint(10, 12)
         return ''.join([str(random.randint(0, 9)) for _ in range(length)])
     
     def _generate_transaction_id(self, constraints: dict) -> str:
         """Generate transaction ID."""
-        prefix = constraints.get("prefix", "TXN")
+        raw_prefix = constraints.get("prefix")
+        prefix = str(raw_prefix) if raw_prefix is not None else "TXN"
         return f"{prefix}{random.randint(100000000, 999999999)}"
     
     def _generate_order_code(self, constraints: dict) -> str:
         """Generate order code."""
-        prefix = constraints.get("prefix", "ORD")
+        raw_prefix = constraints.get("prefix")
+        prefix = str(raw_prefix) if raw_prefix is not None else "ORD"
         return f"{prefix}-{random.randint(10000, 99999)}"
     
     def _generate_money(self, constraints: dict) -> float:
         """Generate money amount respecting constraints."""
-        min_val = float(constraints.get("min", 0))
-        max_val = float(constraints.get("max", 10000))
+        min_val = float(constraints.get("min")) if constraints.get("min") is not None else 0.0
+        max_val = float(constraints.get("max")) if constraints.get("max") is not None else 10000.0
         if min_val > max_val: max_val = min_val + 100.0
         value = random.uniform(min_val, max_val)
         return round(value, 2)
@@ -233,11 +242,17 @@ class SemanticRouter:
                     logger.warning(f"Pattern generation via rstr failed for '{pattern}': {e}. Falling back to faker.regex_ify")
                 SemanticRouter._rstr_warning_logged = True
             
-            # Use Faker's regex_ify as a robust fallback
+            # Use Faker's regex_ify if available, otherwise fallback to bothify
             try:
-                return self.faker.regex_ify(pattern)
+                # Some versions of Faker place regex_ify differently or it might be missing from proxy
+                if hasattr(self.faker, 'regex_ify'):
+                    return self.faker.regex_ify(pattern)
+                # Last resort: convert major regex tokens to bothify tokens
+                # Very basic but prevents crash
+                simple_pattern = pattern.replace('\\d', '#').replace('.', '?')
+                return self.faker.bothify(simple_pattern)
             except Exception as fe:
-                logger.error(f"Faker regex_ify also failed for '{pattern}': {fe}")
+                logger.error(f"Faker fallback generation failed for '{pattern}': {fe}")
                 return self.faker.bothify("???-###")
 
     def _generate_date(self, constraints: dict) -> str:
@@ -253,14 +268,14 @@ class SemanticRouter:
         max_date = default_max
         
         # Parse constraints
-        if "min" in constraints:
+        if "min" in constraints and constraints["min"] is not None:
             try:
                 # Handle YYYY-MM-DD
                 min_date = date.fromisoformat(str(constraints["min"]))
             except ValueError:
                 pass
         
-        if "max" in constraints:
+        if "max" in constraints and constraints["max"] is not None:
             try:
                 max_date = date.fromisoformat(str(constraints["max"]))
             except ValueError:
@@ -301,36 +316,36 @@ class SemanticRouter:
         min_dt = default_min
         max_dt = default_max
         
-        if "min" in constraints:
+        if "min" in constraints and constraints["min"] is not None:
             try:
                 # Handle ISO format YYYY-MM-DDTHH:MM:SS
                 min_dt = datetime.fromisoformat(str(constraints["min"]))
             except ValueError:
                 # Try date parse and add time
                 try: 
-                     from datetime import date
-                     d = date.fromisoformat(str(constraints["min"]))
-                     min_dt = datetime.combine(d, datetime.min.time())
+                    from datetime import date
+                    d = date.fromisoformat(str(constraints["min"]))
+                    min_dt = datetime.combine(d, datetime.min.time())
                 except: pass
         
-        if "max" in constraints:
+        if "max" in constraints and constraints["max"] is not None:
             try:
                 max_dt = datetime.fromisoformat(str(constraints["max"]))
             except ValueError:
                 try: 
-                     from datetime import date
-                     d = date.fromisoformat(str(constraints["max"]))
-                     max_dt = datetime.combine(d, datetime.max.time())
+                    from datetime import date
+                    d = date.fromisoformat(str(constraints["max"]))
+                    max_dt = datetime.combine(d, datetime.max.time())
                 except: pass
                 
         # Logic to ensure valid range
         if min_dt > max_dt:
-             if "min" in constraints and "max" not in constraints:
-                 max_dt = min_dt.replace(year=min_dt.year + 1)
-             elif "max" in constraints and "min" not in constraints:
-                 min_dt = max_dt.replace(year=max_dt.year - 1)
-             else:
-                 max_dt = min_dt
+            if "min" in constraints and "max" not in constraints:
+                max_dt = min_dt.replace(year=min_dt.year + 1)
+            elif "max" in constraints and "min" not in constraints:
+                min_dt = max_dt.replace(year=max_dt.year - 1)
+            else:
+                max_dt = min_dt
                  
         delta_seconds = int((max_dt - min_dt).total_seconds())
         if delta_seconds <= 0:

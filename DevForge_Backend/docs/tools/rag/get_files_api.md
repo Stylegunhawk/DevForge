@@ -62,8 +62,9 @@ curl "http://localhost:8000/api/v1/rag/files"
 
 - `POST /api/v1/rag/file/upload` - Upload files
 - `GET /api/v1/rag/file/{fileId}` - Single file status
+- `GET /api/v1/rag/file/{fileId}/chunks` - [Sequential chunk retrieval](get_file_chunks_api.md)
 - `DELETE /api/v1/rag/file/{fileId}` - Delete file
 
 ---
 
-**Version:** 15.2 (2026-02-11)
+**Version:** 15.3 (2026-02-26)

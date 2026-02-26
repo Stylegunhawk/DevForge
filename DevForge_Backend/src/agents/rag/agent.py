@@ -1140,6 +1140,41 @@ class RAGAgent:
         logger.info(f"Graph expansion: {len(results)} anchors -> found {len(expanded)} new dependency chunks")
         return expanded
 
+    async def get_file_chunks(
+        self,
+        file_id: str,
+        limit: int = 5,
+        offset: int = 0
+    ) -> List[dict]:
+        """
+        Get all chunks for a specific file, ordered by chunk_index.
+        
+        Args:
+            file_id: File UUID
+            limit: Number of chunks to return
+            offset: Offset for pagination
+            
+        Returns:
+            List of chunk dictionaries
+        """
+        results = await self.vector_store.get_chunks_by_file_id(
+            file_id=file_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        # Standardize return format (ChunkResult -> dict)
+        formatted_results = []
+        for res in results:
+            formatted_results.append({
+                "id": res.id,
+                "content": res.content,
+                "metadata": res.metadata,
+                "score": res.score
+            })
+            
+        return formatted_results
+
 
 # ✅ DEPRECATED: get_shared_rag_agent is removed. Use get_rag_agent(tenant_id).
 

@@ -1,8 +1,8 @@
 # DevForge RAG Architecture
 
-**Version:** 15.2 Complete (Multi-Tenant + Batch Retrieval) ✅  
-**Phase:** Phase 15 Multi-Tenancy + Phase 3 strict filtering  
-**Date:** 2026-02-11  
+**Version:** 15.3 Complete (Sequential Support) ✅  
+**Phase:** Phase 15.3 Sequential Chunk Retrieval  
+**Date:** 2026-02-26  
 **Status:** Production Ready - Backend Contract Frozen
 
 This document outlines the architecture of the Retrieval-Augmented Generation (RAG) system in DevForge Backend, covering ingestion, retrieval, reranking, and query intelligence.
@@ -47,6 +47,14 @@ Batch endpoint for retrieving all files belonging to a tenant.
     *   Performs Redis SCAN to filter files by `tenant_id`.
     *   Returns empty array `[]` if tenant has no files.
     *   Full tenant isolation - no cross-tenant leakage.
+|
+#### `GET /api/v1/rag/file/{fileId}/chunks`
+Sequential chunk retrieval for navigation & summarization.
+*   **Response Schema:** `SemanticSearchResponse`
+*   **Parameters:** `limit` (default: 5), `offset` (default: 0)
+*   **Guaranteed Behavior:**
+    *   **Strict Ordering:** Chunks are guaranteed to be returned in [chunk_index] order.
+    *   **Persistence:** Uses existing vector store metadata for mapping.
 
 #### `POST /api/v1/rag/file/upload`
 Universal ingestion entry point.
@@ -111,6 +119,19 @@ curl "http://localhost:8000/api/v1/rag/files" \
 - Only includes files belonging to `dev_user_1`.
 - Empty array `[]` if tenant has no files.
 - Strict tenant isolation (filtered via Redis SCAN).
+
+### 2c. Get Sequential Chunks
+**Purpose:** Retrieve chunks in order for a specific file (summarization mode).
+
+```bash
+curl "http://localhost:8000/api/v1/rag/file/{file_id}/chunks?limit=10" \
+  -H "X-User-ID: dev_user_1"
+```
+
+**Expected Guarantees:**
+- Ordered by `chunk_index` ASC.
+- Supports pagination via `limit` and `offset`.
+- Enriched metadata (filename, URL).
 
 ### 3. Semantic Search (Primary Entry Point)
 **Purpose:** Query tenant-scoped vector store, apply reranking, apply context shaper, and filter orphans.
@@ -586,7 +607,8 @@ OLLAMA_HOST=http://localhost:11434
 The following endpoints are the ONLY ones used by Lobe Chat:
 - /api/v1/rag/file/upload
 - /api/v1/rag/file/{id}
-- /api/v1/rag/files (NEW - batch retrieval)
+- /api/v1/rag/file/{id}/chunks (NEW - sequential retrieval)
+- /api/v1/rag/files (batch retrieval)
 - /api/v1/rag/chunk/semanticSearchForChat
 - /api/v1/rag/file/{id} (DELETE)
 

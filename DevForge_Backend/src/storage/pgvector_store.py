@@ -281,6 +281,41 @@ class PgVectorStore(BaseVectorStore):
         finally:
             await conn.close()
 
+    async def get_chunks_by_file_id(
+        self,
+        file_id: str,
+        limit: int = 5,
+        offset: int = 0
+    ) -> List[ChunkResult]:
+        """
+        Retrieve chunks for a specific file from PostgreSQL, ordered by chunk_index.
+        """
+        conn = await self._get_conn()
+        try:
+            # SQL filtering on JSONB metadata
+            query = f"""
+                SELECT chunk_id, content, metadata
+                FROM {self.table_name}
+                WHERE metadata->>'file_id' = $1
+                ORDER BY (metadata->>'chunk_index')::int ASC
+                LIMIT $2 OFFSET $3;
+            """
+            
+            rows = await conn.fetch(query, file_id, limit, offset)
+            
+            results = []
+            for row in rows:
+                results.append(ChunkResult(
+                    id=row["chunk_id"],
+                    content=row["content"],
+                    metadata=json.loads(row["metadata"]),
+                    score=None
+                ))
+            
+            return results
+        finally:
+            await conn.close()
+
     async def count(self, tenant_id: str = "default", collection_name: Optional[str] = None) -> int:
         """Get total number of chunks (tenant-scoped)."""
         conn = await self._get_conn()
