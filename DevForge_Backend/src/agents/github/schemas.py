@@ -5,7 +5,7 @@ Ensures strict validation before executing any API calls.
 """
 
 from typing import List, Optional, Literal, Union, Annotated
-from pydantic import BaseModel, Field, validator, RootModel
+from pydantic import BaseModel, Field, validator, RootModel, model_validator
 
 
 class ListReposParams(BaseModel):
@@ -32,9 +32,16 @@ class CreateIssueParams(BaseModel):
 class CommitFileParams(BaseModel):
     repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
     file_path: Annotated[str, Field(min_length=1)]
-    content: str
+    content: Optional[str] = None
     commit_message: Annotated[str, Field(min_length=1)]
     branch: str = "main"
+    file_url: Optional[str] = None
+
+    @model_validator(mode="after")
+    def check_content_or_url(self) -> "CommitFileParams":
+        if not self.content and not self.file_url:
+            raise ValueError("Either 'content' or 'file_url' must be provided")
+        return self
 
 
 class CreatePullRequestParams(BaseModel):

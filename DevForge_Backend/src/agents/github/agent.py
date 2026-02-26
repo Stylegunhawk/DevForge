@@ -208,7 +208,7 @@ Extract all relevant parameters from the user request."""
                     "success": False,
                     "error": "LLM Timeout",
                     "audit_id": audit_id,
-                    "timeline": timeline.to_dict()
+                    "timeline": timeline.to_dict() if timeline else None
                 }
             }
         
@@ -421,12 +421,14 @@ def validate_parameters(state: GitHubState) -> GitHubState:
         return state
         
     try:
-        timeline.start_step("validation", f"Validating parameters for {operation}")
+        if timeline:
+            timeline.start_step("validation", f"Validating parameters for {operation}")
         
         # Phase 4: Strict Pydantic validation
         validated = validate_op_params(operation, parameters)
         
-        timeline.complete_step("validation", "Validation passed")
+        if timeline:
+            timeline.complete_step("validation", "Validation passed")
         return {
             **state,
             "parameters": validated,
@@ -434,12 +436,14 @@ def validate_parameters(state: GitHubState) -> GitHubState:
         }
     except ValidationError as e:
         error_details = e.errors()[0]
-        field = error_details.get("loc", ["unknown"])[-1]
+        loc = error_details.get("loc", [])
+        field = loc[-1] if loc else "general"
         msg = error_details.get("msg", "invalid value")
         friendly_error = f"Validation failed for {operation}: {field} -> {msg}"
         
         logger.warning(f"[{audit_id}] Validation failed: {friendly_error}")
-        timeline.fail_step("validation", friendly_error)
+        if timeline:
+            timeline.fail_step("validation", friendly_error)
         
         return {
             **state,
@@ -485,7 +489,8 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
         extra={"operation": operation}  # parameters intentionally omitted — may contain tokens
     )
 
-    timeline.start_step(f"execute_{operation}", f"Executing {operation}")
+    if timeline:
+        timeline.start_step(f"execute_{operation}", f"Executing {operation}")
 
     try:
         loop = asyncio.get_event_loop()
@@ -510,6 +515,11 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 )
 
             elif operation == "commit_file":
+                # Inject file_url from context if available and not already in parameters
+                context = state.get("context")
+                if context and "file_url" in context and "file_url" not in parameters:
+                    parameters["file_url"] = context["file_url"]
+                
                 return await loop.run_in_executor(
                     None, lambda: gh_tools.commit_file(**parameters)
                 )
@@ -549,8 +559,9 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
 
         result = await asyncio.wait_for(run_operation(), timeout=15.0)
         
-        timeline.complete_step(f"execute_{operation}", f"Completed successfully")
-        timeline.add_event(EventType.OPERATION_COMPLETE, f"{operation} completed")
+        if timeline:
+            timeline.complete_step(f"execute_{operation}", f"Completed successfully")
+            timeline.add_event(EventType.OPERATION_COMPLETE, f"{operation} completed")
         
         executed_at = time.time()
         logger.info(
@@ -565,7 +576,7 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 "operation": operation,
                 "data": result,
                 "audit_id": audit_id,
-                "timeline": timeline.to_dict(),
+                "timeline": timeline.to_dict() if timeline else None,
                 "intent_confidence": state.get("intent_confidence"),
                 "repo_confidence": state.get("repo_confidence"),
                 "commit_confidence": state.get("commit_confidence"),
@@ -580,7 +591,8 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
         
     except asyncio.TimeoutError:
         logger.error(f"[{audit_id}] GitHub operation {operation} timed out after 15s")
-        timeline.fail_step(f"execute_{operation}", "GitHub API Timeout")
+        if timeline:
+            timeline.fail_step(f"execute_{operation}", "GitHub API Timeout")
         return {
             **state,
             "error": f"The GitHub operation '{operation}' timed out. The API is responding slowly.",
@@ -588,7 +600,7 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 "success": False,
                 "error": "Timeout Error",
                 "audit_id": audit_id,
-                "timeline": timeline.to_dict()
+                "timeline": timeline.to_dict() if timeline else None
             }
         }
     except GithubException as e:
@@ -614,7 +626,8 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 friendly_msg = "Access forbidden. You don't have permission to perform this action on the repository."
         
         logger.error(f"[{audit_id}] {category} ({status}): {error_msg}")
-        timeline.fail_step(f"execute_{operation}", friendly_msg)
+        if timeline:
+            timeline.fail_step(f"execute_{operation}", friendly_msg)
         
         return {
             **state,
@@ -624,12 +637,13 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 "error": category,
                 "status": status,
                 "audit_id": audit_id,
-                "timeline": timeline.to_dict()
+                "timeline": timeline.to_dict() if timeline else None
             }
         }
     except Exception as e:
-        timeline.fail_step(f"execute_{operation}", str(e))
-        timeline.add_event(EventType.OPERATION_FAILED, f"{operation} failed: {e}")
+        if timeline:
+            timeline.fail_step(f"execute_{operation}", str(e))
+            timeline.add_event(EventType.OPERATION_FAILED, f"{operation} failed: {e}")
         
         logger.error(
             f"[{audit_id}] GitHub operation failed: {e}",

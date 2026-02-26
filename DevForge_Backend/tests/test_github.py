@@ -1,10 +1,5 @@
-# tests/test_github.py
-"""
-Tests for GitHub tools and agent.
-Phase 3.3 implementation.
-"""
-
 import pytest
+import asyncio
 from unittest.mock import Mock, patch, MagicMock
 from github import GithubException
 
@@ -276,8 +271,14 @@ class TestGitHubAgent:
         with patch("src.agents.github.agent.ModelRouter") as MockRouter:
             mock_router = MockRouter.return_value
             mock_router.select_model_by_task.return_value = "qwen3-coder:480b-cloud"
-            mock_router.invoke_with_fallback.return_value = mock_response
+            # Use AsyncMock for async function
+            mock_router.invoke_with_fallback = MagicMock(side_effect=lambda *args, **kwargs: asyncio.sleep(0, result=mock_response))
             
+            # Helper to wrap in coroutine
+            async def mock_invoke(*args, **kwargs):
+                return mock_response
+            mock_router.invoke_with_fallback.side_effect = mock_invoke
+
             result = await parse_github_request(state)
             
             assert result["operation"] == "list_repos"
@@ -300,7 +301,10 @@ class TestGitHubAgent:
         with patch("src.agents.github.agent.ModelRouter") as MockRouter:
             mock_router = MockRouter.return_value
             mock_router.select_model_by_task.return_value = "qwen3-coder:480b-cloud"
-            mock_router.invoke_with_fallback.return_value = mock_response
+            
+            async def mock_invoke(*args, **kwargs):
+                return mock_response
+            mock_router.invoke_with_fallback.side_effect = mock_invoke
             
             result = await parse_github_request(state)
             
@@ -422,7 +426,10 @@ class TestGitHubAgentIntegration:
             
             mock_router = MockRouter.return_value
             mock_router.select_model_by_task.return_value = "qwen3-coder:480b-cloud"
-            mock_router.invoke_with_fallback.return_value = mock_llm_response
+            
+            async def mock_invoke(*args, **kwargs):
+                return mock_llm_response
+            mock_router.invoke_with_fallback.side_effect = mock_invoke
             
             result = await github_agent_invoke(query)
             
@@ -454,7 +461,10 @@ class TestGitHubAgentIntegration:
             
             mock_router = MockRouter.return_value
             mock_router.select_model_by_task.return_value = "qwen3-coder:480b-cloud"
-            mock_router.invoke_with_fallback.return_value = mock_llm_response
+            
+            async def mock_invoke(*args, **kwargs):
+                return mock_llm_response
+            mock_router.invoke_with_fallback.side_effect = mock_invoke
             
             result = await github_agent_invoke(query)
             

@@ -8,7 +8,9 @@ import logging
 import os
 import time
 from functools import wraps
-from typing import Any, Dict, List, Optional
+import base64
+import httpx
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 
 from github import Github, GithubException, Auth, RateLimitExceededException
@@ -314,25 +316,38 @@ class GitHubTools:
         self,
         repo_name: str,
         file_path: str,
-        content: str,
-        commit_message: str,
+        content: Optional[str] = None,
+        commit_message: str = "",
         branch: str = "main",
-        create_if_missing: bool = True
+        create_if_missing: bool = True,
+        file_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """Commit a file to a repository.
         
         Args:
             repo_name: Repository name (format: 'owner/repo' or just 'repo')
             file_path: Path to file in repo (e.g., 'src/app.py')
-            content: File content as string
+            content: File content as string (optional if file_url provided)
             commit_message: Commit message
             branch: Branch name (default: 'main')
             create_if_missing: Create file if it doesn't exist, else update
+            file_url: Optional URL to fetch binary content from
             
         Returns:
             Commit information
         """
         try:
+            if not content and not file_url:
+                raise ValueError("Either 'content' or 'file_url' must be provided")
+
+            if file_url:
+                logger.info(f"Fetching binary content from: {file_url}")
+                with httpx.Client(timeout=30.0) as client:
+                    response = client.get(file_url)
+                    response.raise_for_status()
+                    content = base64.b64encode(response.content).decode("utf-8")
+                    logger.info(f"Successfully fetched and encoded binary content ({len(response.content)} bytes)")
+
             if '/' not in repo_name:
                 repo_name = f"{self.user.login}/{repo_name}"
             
@@ -628,9 +643,10 @@ def create_issue(
 def commit_file(
     repo_name: str,
     file_path: str,
-    content: str,
-    commit_message: str,
+    content: Optional[str] = None,
+    commit_message: str = "",
     token: Optional[str] = None,
+    file_url: Optional[str] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """Commit file (convenience wrapper)."""
@@ -640,6 +656,7 @@ def commit_file(
         file_path=file_path,
         content=content,
         commit_message=commit_message,
+        file_url=file_url,
         **kwargs
     )
 

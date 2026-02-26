@@ -1,129 +1,110 @@
-# 🐳 DevForge Universal Docker Guide (v2.0)
+# 🐳 DevForge Backend: Docker Guide (v2.0)
 
-> [!NOTE]
-> **Version 2.0 (Latest):** Now uses **PgVector** (PostgreSQL) as the default search engine, replacing ChromaDB for better performance and scalability.
-
-
-This master guide consolidates all Docker documentation for the DevForge Backend. It explains **what** we built, **how** it works, **when** to use each mode, and **how** to deploy it.
+This guide will help you run the DevForge Backend using Docker. Docker ensures the app runs exactly the same way on every machine, without you needing to manually install Python, Postgres, or Redis.
 
 ---
 
-## 🏗️ 1. What We Built: The 3 Dockerfiles
-We use a modular architecture with three specialized Dockerfiles. All share the same optimization strategies (multi-stage builds, non-root user, slim base images).
+## 🏗️ 1. Choose Your Mode
+We use **Profiles** to keep things lightweight. You only run what you need.
 
-| File | Purpose | Key Features |
-| :--- | :--- | :--- |
-| **`Dockerfile`** | **The Default** (Dev/Full) | • **CPU-Only PyTorch** (~1GB size)<br>• Multi-stage build (build tools removed)<br>• Used for local dev & general deployment |
-| **`Dockerfile.prod`** | **Production** | • **Identical** to default (pointer)<br>• Explicitly intended for immutable prod deployments<br>• Uses `gunicorn` for high availability |
-| **`Dockerfile.gpu`** | **GPU Acceleration** | • **CUDA-Enabled PyTorch** (~3-4GB size)<br>• Installs NVIDIA dependencies<br>• Unlocks hardware acceleration for embeddings/LLMs |
-
-#### 🧠 The "Why":
-- **Optimization:** We stripped 1.5GB of build tools and unused CUDA binaries from the default image.
-- **Security:** Everything runs as non-root user `devforge`.
-- **Modularity:** One compose file controls everything via profiles.
+| Mode | Use Case | Resources | Commands |
+| :--- | :--- | :--- | :--- |
+| **Minimal** | Fast testing, GitHub tools, Cheatsheet | ~300MB RAM | `api` service only |
+| **Full (RAG)** | Document search, file uploads, full RAG | ~1.5GB RAM | `api` + `redis` + `postgres` + `celery` |
+| **GPU** | Hardware-accelerated RAG (NVIDIA only) | Host GPU | Same as Full |
 
 ---
 
-## 🚦 2. Use Cases: Which Mode Do I Need?
+## 🚀 2. Quick Start
 
-### A. Minimal Mode (API Only)
-> "I just want to run the tools (Cheatsheet, DataGen, GitHub Agent) and don't need RAG."
-- **Resources:** ~300MB RAM.
-- **Services:** `api` only.
-- **Start:** `./docker-start.sh minimal`
-
-### B. Full Mode (RAG Support)
-> "I need to upload files, search documentation, and use the full RAG pipeline."
-- **Resources:** ~1.5GB RAM.
-- **Services:** `api`, `redis`, `postgres`, `celery-worker`, `flower`.
-- **Start:** `./docker-start.sh full`
-
-### C. GPU Mode (Hardware Accelerated)
-> "I have an NVIDIA GPU and want faster processing."
-- **Resources:** host GPU + ~2GB RAM.
-- **Services:** Same as Full, but with GPU access.
-- **Start:** `./docker-start.sh gpu`
-
----
-
-## 🚀 3. Quick Start (Run Locally)
-
-Prerequisite: Docker Desktop installed.
-
-**1. Setup Environment** (First time only)
+### Step 1: Initialize Environment
+Before running Docker, you need a configuration file.
 ```bash
+# Mac / Linux / Windows WSL
 cp .env.docker .env
-# Edit .env if you need custom keys (GROQ_API_KEY, etc.)
-# Critical: OLLAMA_HOST=http://host.docker.internal:11434
-```
 
-**2. Run!**
+# Windows (PowerShell)
+copy .env.docker .env
+```
+> [!IMPORTANT]
+> If you are using **Ollama** installed on your host (Mac/Windows), ensure your `.env` has:  
+> `OLLAMA_HOST=http://host.docker.internal:11434`
+
+### Step 2: Run the Backend
+
+#### 🍎 For Mac / Linux Users
+Use the included helper script:
 ```bash
 chmod +x docker-start.sh
 
-# Run the full stack
+# Run Full Stack (Recommended)
 ./docker-start.sh full
+
+# Run Minimal (API Only)
+./docker-start.sh minimal
 ```
 
-**3. Verify**
-- **API:** http://localhost:8001
-- **Docs:** http://localhost:8001/docs
-- **Flower (Tasks):** http://localhost:5555
+#### 🪟 For Windows Users (Native PowerShell)
+Run these commands directly in your terminal:
+```powershell
+# Run Full Stack (Recommended)
+docker compose --profile rag up -d --build
+
+# Run Minimal (API Only)
+docker compose up api -d --build
+```
 
 ---
 
-## 📦 4. Deployment Guide
+## 🛠️ 3. Managing Your Backend
 
-### A. Publish to Docker Hub
-1. **Build the Image:**
+### 🔄 How to Update Dependencies
+If you add a new library to `requirements.txt`, you **must** rebuild the image to see the changes inside Docker:
+```bash
+docker compose up -d --build api
+```
+
+### 📝 Viewing Logs (Troubleshooting)
+If something isn't working, check the logs:
+```bash
+# All services
+docker compose logs -f
+
+# Only the API
+docker compose logs -f api
+```
+
+### 🛑 Stopping Everything
+```bash
+docker compose --profile rag down
+```
+
+---
+
+## 📦 4. Publishing to GitHub / Docker Hub
+To share your image or deploy it to a server:
+
+1. **Build & Tag:**
    ```bash
-   docker build -t youruser/devforge-backend:0.9 .
+   docker build -t your-username/devforge:latest .
    ```
-2. **Push:**
+2. **Push to Docker Hub:**
    ```bash
    docker login
-   docker push youruser/devforge-backend:0.9
+   docker push your-username/devforge:latest
    ```
 
-### B. Run in Production (Server/Cloud)
-On your VPS or Cloud (AWS/DigitalOcean/Railway), you only need:
-1. `docker-compose.yml`
-2. `docker-compose.prod.yml`
-3. `.env` (secured!)
+---
 
-**Command:**
-```bash
-docker-compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  --profile rag \
-  up -d
-```
-*This activates production settings: Gunicorn server (4 workers), restarts on failure, and Redis persistence.*
+## 🔍 Troubleshooting (Windows)
+
+- **Port 8001 is busy:** If the container won't start because the port is in use, stop any local Python servers running on `8001`.
+- **Can't connect to Database:** In **Minimal** mode, the database is NOT running. Switch to **Full** mode if you need RAG features.
+- **Ollama Error:** Ensure Ollama is running on your Mac/PC and that your firewall allows Docker to reach it.
 
 ---
 
-## 🔄 5. Migration: Local vs Docker
-
-Transitioning from running `uvicorn` locally to Docker? Here is what changed:
-
-| Config | Local (`.env.local`) | Docker (`.env.docker`) | Why? |
-| :--- | :--- | :--- | :--- |
-| **Ollama** | `localhost:11434` | `host.docker.internal:11434` | Container needs to "break out" to reach host |
-| **Redis** | `localhost:6379` | `redis:6379` | Accessible via service name inside network |
-| **DB** | `localhost:5432` | `postgres:5432` | Accessible via service name inside network |
-| **Uploads** | `./data/uploads` | `/app/data/uploads` | Mapped volume inside container |
-
-**Data Persistence:**  
-All your data (PgVector data, Uploaded files, Postgres data) is safely stored in the `./data` folder on your host machine. **Deleting the container does NOT delete your data.**
-
----
-
-## 🛠️ Cheat Sheet
-| Task | Command |
-| :--- | :--- |
-| Start Everything | `./docker-start.sh full` |
-| View Logs | `./docker-start.sh logs` |
-| Stop Everything | `./docker-start.sh down` |
-| Rebuild Images | `./docker-start.sh rebuild full` |
-| Check Status | `./docker-start.sh status` |
+## 🔗 Useful Links
+- **API Dashboard:** [http://localhost:8001](http://localhost:8001)
+- **Interactive Docs:** [http://localhost:8001/docs](http://localhost:8001/docs)
+- **Task Monitor (Flower):** [http://localhost:5555](http://localhost:5555)
