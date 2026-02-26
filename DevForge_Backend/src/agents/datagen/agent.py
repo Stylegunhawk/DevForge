@@ -85,8 +85,19 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
                 f"V2 generation completed: {result['schema']['entity_count']} entities"
             )
             
+            # Check internal success flag from generator
+            # Success requires: no constraint violations, FK integrity valid, constraints enforced
+            # Invariant 8: Deterministic Success Semantics
+            internal_success = (
+                 result.get("constraint_violations") == [] and
+                 result.get("fk_integrity", {}).get("valid", True)
+            )
+            
+            # If internal success is False, data should be empty/safe.
+            success = internal_success
+            
             return {
-                "success": True,
+                "success": success,
                 "data": result,  # Full multi-entity result
                 "format": datagen_args.format,
                 "rows": datagen_args.rows,

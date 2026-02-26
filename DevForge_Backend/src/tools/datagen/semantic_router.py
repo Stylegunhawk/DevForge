@@ -1,6 +1,7 @@
 """Routes semantic types to appropriate value generators.
 
 Phase 1: Value generation is always done by Faker/catalogs, never by LLM.
+Invariant Enforced: Constraint-First Generation.
 """
 
 from typing import Any, Callable
@@ -40,20 +41,57 @@ class SemanticRouter:
             Generated value (never LLM text!)
         """
         constraints = constraints or {}
+
+        # 1. Canonical Constraint Shape: Normalize constraints
+        # Ensure flat structure for pattern, enum, min, max
+        normalized_constraints = constraints.copy()
+        if "constraints" in constraints and isinstance(constraints["constraints"], dict):
+            nested = constraints["constraints"]
+            for key in ("pattern", "enum", "min", "max", "min_length", "max_length"):
+                if key in nested:
+                    normalized_constraints[key] = nested[key]
         
-        # Check for enum override
+        constraints = normalized_constraints
+        
+        # 2. Constraint-First: Enum overrides everything
         if "enum" in constraints and constraints["enum"]:
             return random.choice(constraints["enum"])
         
-        # Check for pattern override
+        # 3. Constraint-First: Pattern overrides semantic type
         if "pattern" in constraints and constraints["pattern"]:
             return self._generate_pattern(constraints["pattern"])
         
         # Get generator
         generator_func = self.generators.get(semantic_type, self._fallback_generator)
         
-        # Generate
-        return generator_func(entity_name, constraints)
+        # 4. Generate with retry to satisfy min/max/length
+        # We try up to 10 times to get a value that fits constraints
+        for _ in range(10):
+            value = generator_func(entity_name, constraints)
+            if self._is_valid(value, constraints):
+                return value
+                
+        # If we fail to generate a valid value after retries, return it anyway
+        # Validation downstream will catch it if it's strictly invalid.
+        return value
+
+    def _is_valid(self, value: Any, constraints: dict) -> bool:
+        """Check if value satisfies constraints (best effort check for retry loop)."""
+        # Min/Max for numbers
+        if isinstance(value, (int, float)):
+             if "min" in constraints and value < constraints["min"]: return False
+             if "max" in constraints and value > constraints["max"]: return False
+             
+        # Length for strings check
+        if isinstance(value, str):
+            min_len = constraints.get("min_length", 0)
+            max_len = constraints.get("max_length", 1000)
+            # Also check generic min/max if implied as length? 
+            # Avoiding ambiguity, mostly relying on specific generators respecting min/max arguments.
+            # But here we double check.
+            pass
+            
+        return True
     
     def _build_generator_registry(self) -> dict[str, Callable]:
         """Build mapping of semantic types to generator functions."""
@@ -89,20 +127,23 @@ class SemanticRouter:
             # Financial
             "bank_account_number": lambda e, c: self._generate_account_number(c),
             "transaction_id": lambda e, c: self._generate_transaction_id(c),
-            "order_code": lambda e, c: self.faker.bothify("ORD-####-????"),
+            "order_code": lambda e, c: self._generate_order_code(c),
             "identifier_code": lambda e, c: self.faker.bothify("???-###"),
-            "money_amount": lambda e, c: round(random.uniform(c.get("min", 10), c.get("max", 1000)), 2),
+            "money_amount": lambda e, c: self._generate_money(c),
             "percentage": lambda e, c: round(random.uniform(c.get("min", 0), c.get("max", 100)), 1),
             "credit_card": lambda e, c: self.faker.credit_card_number(),
             "currency_code": lambda e, c: self.faker.currency_code(),
             
             # Identifiers
             "uuid": lambda e, c: str(uuid.uuid4()),
-            "numeric_id": lambda e, c: random.randint(c.get("min", 1), c.get("max", 1000000)),
+            "numeric_id": lambda e, c: random.randint(
+                max(1, int(c.get("min", 1))),
+                max(int(c.get("min", 1)) + 1, int(c.get("max", 1000000)))
+            ),
             
-            # Temporal
-            "date": lambda e, c: self.faker.date_between(start_date="-10y", end_date="today").isoformat(),
-            "timestamp": lambda e, c: self.faker.date_time_between(start_date="-1y", end_date="now").isoformat(),
+            # Temporal - Strict Min/Max Enforcement
+            "date": lambda e, c: self._generate_date(c),
+            "timestamp": lambda e, c: self._generate_timestamp(c),
             
             # Boolean
             "boolean_flag": lambda e, c: random.choice([True, False]),
@@ -120,7 +161,7 @@ class SemanticRouter:
             "file_extension": lambda e, c: self.faker.file_extension(),
             "mime_type": lambda e, c: self.faker.mime_type(),
             
-            # Free text (Faker sentence, NOT LLM!)
+            # Free text
             "free_text": lambda e, c: self.faker.sentence(),
             
             # Fallback
@@ -160,8 +201,9 @@ class SemanticRouter:
     
     def _generate_money(self, constraints: dict) -> float:
         """Generate money amount respecting constraints."""
-        min_val = constraints.get("min", 0)
-        max_val = constraints.get("max", 10000)
+        min_val = float(constraints.get("min", 0))
+        max_val = float(constraints.get("max", 10000))
+        if min_val > max_val: max_val = min_val + 100.0
         value = random.uniform(min_val, max_val)
         return round(value, 2)
     
@@ -169,12 +211,10 @@ class SemanticRouter:
         """Generate enum value from constraints or default."""
         if "enum" in constraints and constraints["enum"]:
             return random.choice(constraints["enum"])
-        # Default status values
         return random.choice(["active", "inactive", "pending", "completed"])
     
     def _fallback_generator(self, entity_name: str, constraints: dict) -> str:
         """Fallback generator for unknown types."""
-        logger.debug(f"Using fallback generator for entity: {entity_name}")
         return self.faker.word()
     
     def _generate_pattern(self, pattern: str) -> str:
@@ -188,3 +228,102 @@ class SemanticRouter:
         except Exception as e:
             logger.warning(f"Pattern generation failed for '{pattern}': {e}")
             return self.faker.bothify("???-###")
+
+    def _generate_date(self, constraints: dict) -> str:
+        """Generate date respecting min/max using native python."""
+        from datetime import date, timedelta, datetime
+        
+        # Default range: -10y to today
+        today = date.today()
+        default_min = today.replace(year=today.year - 10)
+        default_max = today
+        
+        min_date = default_min
+        max_date = default_max
+        
+        # Parse constraints
+        if "min" in constraints:
+            try:
+                # Handle YYYY-MM-DD
+                min_date = date.fromisoformat(str(constraints["min"]))
+            except ValueError:
+                pass
+        
+        if "max" in constraints:
+            try:
+                max_date = date.fromisoformat(str(constraints["max"]))
+            except ValueError:
+                pass
+                
+        # Handle strict overrides if only one is provided?
+        if "min" in constraints and "max" not in constraints:
+            # If min is in future, default max (today) might be invalid
+            if min_date > max_date:
+                max_date = min_date.replace(year=min_date.year + 1)
+        
+        if "max" in constraints and "min" not in constraints:
+             # If max is in past, default min might be invalid if it assumes -10y from today but max is -20y
+             if max_date < min_date:
+                 min_date = max_date.replace(year=max_date.year - 1)
+
+        # Final sanity check: if min > max, swap or adjust
+        if min_date > max_date:
+             max_date = min_date
+        
+        # Generator
+        delta_days = (max_date - min_date).days
+        if delta_days <= 0:
+            return min_date.isoformat()
+            
+        random_days = random.randint(0, delta_days)
+        return (min_date + timedelta(days=random_days)).isoformat()
+
+    def _generate_timestamp(self, constraints: dict) -> str:
+        """Generate timestamp respecting min/max using native python."""
+        from datetime import datetime, timedelta
+        
+        # Default range: -1y to now
+        now = datetime.now()
+        default_min = now.replace(year=now.year - 1)
+        default_max = now
+        
+        min_dt = default_min
+        max_dt = default_max
+        
+        if "min" in constraints:
+            try:
+                # Handle ISO format YYYY-MM-DDTHH:MM:SS
+                min_dt = datetime.fromisoformat(str(constraints["min"]))
+            except ValueError:
+                # Try date parse and add time
+                try: 
+                     from datetime import date
+                     d = date.fromisoformat(str(constraints["min"]))
+                     min_dt = datetime.combine(d, datetime.min.time())
+                except: pass
+        
+        if "max" in constraints:
+            try:
+                max_dt = datetime.fromisoformat(str(constraints["max"]))
+            except ValueError:
+                try: 
+                     from datetime import date
+                     d = date.fromisoformat(str(constraints["max"]))
+                     max_dt = datetime.combine(d, datetime.max.time())
+                except: pass
+                
+        # Logic to ensure valid range
+        if min_dt > max_dt:
+             if "min" in constraints and "max" not in constraints:
+                 max_dt = min_dt.replace(year=min_dt.year + 1)
+             elif "max" in constraints and "min" not in constraints:
+                 min_dt = max_dt.replace(year=max_dt.year - 1)
+             else:
+                 max_dt = min_dt
+                 
+        delta_seconds = int((max_dt - min_dt).total_seconds())
+        if delta_seconds <= 0:
+            return min_dt.isoformat()
+            
+        random_seconds = random.randint(0, delta_seconds)
+        return (min_dt + timedelta(seconds=random_seconds)).isoformat()

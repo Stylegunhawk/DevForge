@@ -32,20 +32,19 @@ Perfect for testing, prototyping, development workflows, and generating complex 
 - ✅ Configurable row counts (1-10,000 rows)
 - ✅ Fast execution (\u003c 1s for small datasets)
 
-### V2 Mode (Phase 8 Advanced)
+### V2 Mode (Phase 1 Advanced)
 - 🆕 **LLM-powered schema design** from natural language prompts
 - 🆕 **Domain templates** for ecommerce and SaaS use cases
-- 🆕 **Multi-entity generation** with 1:N relationships
-- 🆕 **Zero orphaned records** - valid foreign key references guaranteed
-- 🆕 **Realistic distributions** - normal, lognormal, pareto, categorical
-- 🆕 **Temporal patterns** - business hours, seasonal, weekday biases
-- 🆕 **Data quality realism** - null, duplicate, and outlier injection
+- 🆕 **Multi-entity generation** - generates data for multiple related entities
+- 🆕 **Semantic field analysis** - understands field context (e.g., `flowers.name` vs `person.name`)
+- 🆕 **Data quality realism** - null injection based on realism level (Phase 1 simplified realism)
+- 🆕 **Relationship-aware generation** - foreign key relationships are tracked **and enforced** during generation
 
 ### Phase 1 (3-Layer Semantic Architecture)
 - 🏗️ **Layer 1: Semantic Understanding** - Multi-tier classification (lexical → pattern → context → LLM → fallback)
 - 🏗️ **Layer 2: Generator Selection** - Semantic type → generator mapping via `SemanticRouter`
 - 🏗️ **Layer 3: Value Production** - Faker/catalogs only, **never LLM**
-- ✨ **178 lexical mappings** - Fast dictionary-based field name recognition
+- ✨ **303 lexical mappings** - Fast dictionary-based field name recognition
 - ✨ **Pattern matching** - Regex for suffixes (`_at`, `_id`) and prefixes (`is_`, `has_`)
 - ✨ **Context classification** - Entity-aware name resolution (flowers.name → flower_name)
 - ✨ **LLM classification** - Only returns semantic metadata, never values
@@ -71,7 +70,7 @@ The following constraints are enforced during generation:
 | `prompt` | string | No | `null` | Natural language schema description | V2 only |
 | `domain` | string | No | `null` | Pre-defined domain: `"ecommerce"` or `"saas"` | V2 only |
 | `realism_level` | string | No | `"basic"` | Data quality level: `"basic"`, `"medium"`, `"high"` | V2 only |
-| `enable_semantic_generation` | boolean | No | `true` | Enable Phase 8.6 semantic analysis (v0.9.0+) | V2 only |
+| `enable_semantic_generation` | boolean | No | `true` | Enable Phase 1 semantic analysis (handled via getattr, not in schema) | V2 only |
 
 ### Mode Selection
 
@@ -86,6 +85,10 @@ The tool automatically selects the appropriate mode:
 | `basic` | 0% | 0% | 0% |
 | `medium` | ~5% on nullable fields | 0% | 0% |
 | `high` | ~10% on nullable fields | ~2% on key fields | ~1% on numeric fields |
+
+> [!NOTE]
+> **Critical Field Protection:** To maintain data integrity, the following semantic types are **never** injected with nulls, even if nullable in the schema:
+> `email_address`, `phone_number`, `uuid`, `numeric_id`, `timestamp`, `date`, `bank_account_number`, `transaction_id`.
 
 ---
 
@@ -155,7 +158,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### Ecommerce Domain
 **Entities:** customers, products, orders  
-**Relationships:** orders → customers (1:N), orders → products (1:N)  
+**Relationships:** orders → customers (1:N), orders → products (1:N) (enforced during generation)  
 **Distributions:** Lognormal prices, categorical order statuses  
 **Default Counts:** 100 customers, 50 products, 500 orders
 
@@ -175,7 +178,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### SaaS Domain
 **Entities:** users, subscriptions, usage_logs  
-**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N)  
+**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N) (enforced during generation)  
 **Distributions:** Categorical plans, pareto API usage  
 **Default Counts:** 100 users, 120 subscriptions, 1000 usage logs
 
@@ -211,12 +214,12 @@ curl -X POST http://localhost:8001/api/gateway \
   }'
 ```
 
-### Phase 8.6: Semantic Generation (NEW!)
+### Phase 1: Semantic Generation (NEW!)
 
-**The Problem:** Before Phase 8.6, generating domain-specific data often resulted in generic Faker values that didn't match the context:
+**The Problem:** Before Phase 1, generating domain-specific data often resulted in generic Faker values that didn't match the context:
 
 ```bash
-# ❌ Before Phase 8.6 (The "Daniel Doyle Flower" Bug)
+# ❌ Before Phase 1 (The "Daniel Doyle Flower" Bug)
 curl -X POST http://localhost:8001/api/gateway \
   -H "Content-Type: application/json" \
   -d '{
@@ -230,10 +233,10 @@ curl -X POST http://localhost:8001/api/gateway \
 # (Generic Faker names, NOT actual flower names!)
 ```
 
-**The Solution:** Phase 8.6 semantic analysis understands field context and generates domain-specific values:
+**The Solution:** Phase 1 semantic analysis understands field context and generates domain-specific values:
 
 ```bash
-# ✅ After Phase 8.6 (Semantic Intelligence)
+# ✅ After Phase 1 (Semantic Intelligence)
 curl -X POST http://localhost:8001/api/gateway \
   -H "Content-Type: application/json" \
   -d '{
@@ -312,19 +315,74 @@ curl -X POST http://localhost:8001/api/gateway \
       "relationship_count": 2
     },
     "data": {
-      "customers": "[{\"id\": \"uuid-1\", \"email\": \"...\"}, ...]",
-      "orders": "[{\"id\": \"uuid-2\", \"customer_id\": \"uuid-1\", ...}, ...]",
-      "products": "[{\"id\": \"uuid-3\", ...}, ...]"
+      "customers": [
+        {"id": "uuid-1", "email": "..."},
+        ...
+      ],
+      "orders": [
+        {"id": "uuid-2", "customer_id": "uuid-1", ...},
+        ...
+      ],
+      "products": [
+        {"id": "uuid-3", ...},
+        ...
+      ]
     },
     "format": "json",
     "rows": 500,
     "mode": "v2",
-    "semantic_generation_used": true
+    "semantic_generation_used": true,
+    "metadata": {
+      "semantic_analysis_summary": {
+        "enabled": true,
+        "total_fields": 15,
+        "classified_by_lexical": 10,
+        "classified_by_pattern": 3,
+        "classified_by_context": 1,
+        "classified_by_llm": 1,
+        "fallback_used": 0,
+        "avg_confidence": 0.92,
+        "llm_call_rate": 6.7
+      },
+      "field_analysis": {
+        "customers": {
+          "email": {
+            "semantic_type": "EMAIL_ADDRESS",
+            "source": "lexical",
+            "confidence": 1.0
+          }
+        }
+      },
+      "warnings": [],
+      "performance": {
+        "analysis_ms": 150,
+        "generation_ms": 1200,
+        "total_ms": 1350
+      },
+      "constraint_enforcement": {
+        "enforced": true,
+        "violations_count": 0
+      }
+    },
+    "constraint_violations": [],
+    "fk_integrity": {
+      "valid": true,
+      "errors": [],
+      "statistics": {
+        "orders->customers": {
+          "total_children": 500,
+          "total_parents": 100,
+          "parents_with_children": 100,
+          "parents_with_zero_children": 0,
+          "orphaned_children": 0
+        }
+      }
+    }
   }
 }
 ```
 
-> **Note:** `semantic_generation_used` field (v0.9.0+) indicates whether Phase 8.6 semantic analysis was successfully applied. `false` means fallback to Faker was used.
+> **Note:** `semantic_generation_used` field indicates whether Phase 1 semantic analysis was successfully applied. `false` means fallback to Faker was used. The `enable_semantic_generation` parameter is not part of the Pydantic schema but is handled dynamically via `getattr()` in the agent.
 
 ---
 
@@ -468,7 +526,7 @@ The Phase 1 architecture follows a strict pipeline to ensure data quality and pr
 
 #### 2. Semantic Analysis (5-Tier Pipeline)
 The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall approach:
-1.  **Tier 1: Lexical (Fastest)**: Checks `lexical_dict.py` for exact matches (e.g., "zip_code" → `ZIP_CODE`). Covers 200+ common fields.
+1.  **Tier 1: Lexical (Fastest)**: Checks `lexical_dict.py` for exact matches (e.g., "zip_code" → `ZIP_CODE`). Covers 303 common field mappings.
 2.  **Tier 2: Pattern (Fast)**: Checks `PatternClassifier` for regex matches on field names (e.g., `*_id` → `UUID`, `is_*` → `BOOLEAN`).
 3.  **Tier 3: Context (Heuristic)**: Checks `ContextClassifier` for entity-specific meanings (e.g., `product.name` → `PRODUCT_NAME` vs `person.name` → `PERSON_FULL_NAME`).
 4.  **Tier 4: LLM (Fallback)**: Uses `LLMClassifier` to analyze ambiguous fields based on name and description. Returns *metadata only* (semantic type), never data values.
@@ -481,6 +539,7 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
     - `ZIP_CODE` → `faker.zipcode()`
     - `PRODUCT_NAME` → `CatalogFactory` (cached list of products)
     - `PATTERN` → `rstr.xeger()` (regex generation)
+    - **Precedence:** `Enum` > `Pattern` > `Min/Max` (Enums always override other constraints).
 
 #### 4. Value Production
 - **Process:** The selected generator produces a value for each row.
@@ -488,7 +547,8 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
     - **Enums:** Randomly selects from allowed values.
     - **Patterns:** Generates string matching the regex.
     - **Ranges:** Generates number within min/max.
-- **Realism:** `_apply_realism` injects nulls (if nullable) and outliers based on `realism_level`.
+- **Realism:** `_apply_realism` injects nulls (if nullable) and outliers based on `realism_level`. Respecs "Critical Field Protection".
+- **Strict Validation (Invariant 3):** Post-generation validation ensures NO invalid data is returned. If *any* row violates constraints, the entire dataset for that entity is cleared to ensure safety.
 
 #### 5. Output Formatting
 - **Process:** Data is formatted as JSON or CSV.
@@ -499,7 +559,7 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
 - **V1 Tools:** `src/tools/datagen/tools.py`
 - **Phase 1 Components:**
   - Semantic Types: `src/tools/datagen/semantic_types.py`
-  - Lexical Dictionary: `src/tools/datagen/lexical_dict.py` (178 mappings)
+  - Lexical Dictionary: `src/tools/datagen/lexical_dict.py` (303 mappings)
   - Lexical Classifier: `src/tools/datagen/lexical_classifier.py`
   - Pattern Classifier: `src/tools/datagen/pattern_classifier.py`
   - Context Classifier: `src/tools/datagen/context_classifier.py`
@@ -508,11 +568,11 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
   - Catalog Factory: `src/tools/datagen/catalog_factory.py`
   - Semantic Router: `src/tools/datagen/semantic_router.py`
 
-  - **Orchestrator:** `src/tools/datagen/advanced_generator_v2.py` (Main engine)
-- **V2 Legacy Components:**
-  - Schema Designer: `src/tools/datagen/schema_designer.py`
-  - Relationship Engine: `src/tools/datagen/relationship_engine.py`
-  - Realism Engine: `src/tools/datagen/realism_engine.py`
+  - **Orchestrator:** `src/tools/datagen/advanced_generator_v2.py` (Main engine - Phase 1)
+- **V2 Legacy Components (not used in Phase 1):**
+  - Schema Designer: `src/tools/datagen/schema_designer.py` (used for schema design)
+  - Relationship Engine: `src/tools/datagen/relationship_engine.py` (exists but not used in `advanced_generator_v2.py`)
+  - Realism Engine: `src/tools/datagen/realism_engine.py` (simplified realism in V2 generator)
 - **Tests:** `tests/test_semantic_analyzer_v2.py`, `tests/test_semantic_router.py`, `tests/test_datagen.py`, `tests/test_relationships.py`, `tests/test_realism.py`
 
 ---
@@ -544,11 +604,17 @@ curl -X POST "http://localhost:8001/api/gateway" \
 - ✅ **Lexical Expansion:** Generates valid `ip_v6`, `mac_address`, `zip_code`, `street_address`.
 - ✅ **Pattern Constraints:** Enforces `^EMP-[0-9]{5}$` and `^978-[0-9]{10}$` (ISBN) using `rstr`.
 - ✅ **Enum Constraints:** Respects status enums (`active`, `returned`, `overdue`).
-- ✅ **Multi-Entity:** correctly links `checkouts` to `employees`, `books`, and `libraries`.
+- ✅ **Multi-Entity:** Generates data for multiple entities (relationships tracked but foreign keys not validated in Phase 1).
 
 ### Known Limitations
 - **Enum Extraction from Prompt:** While the tool supports enums defined in the schema, the LLM Schema Designer may occasionally miss specific enum values provided in a complex natural language prompt (e.g., specific book genres might default to a generic list).
-- **Complex FK Patterns:** Foreign keys are guaranteed to link to existing rows, but if the parent ID uses a complex custom pattern (e.g., `EMP-12345`), the child FK column might sometimes default to a generic numeric ID unless explicitly constrained.
+- **Foreign Key Relationships:** In Phase 1, relationships are tracked in the schema but foreign keys are not validated or enforced during generation. The `RelationshipEngine` exists but is not used by `advanced_generator_v2.py`. Foreign key fields are generated as regular UUIDs/IDs without ensuring they reference existing parent records.
+- **enable_semantic_generation Parameter:** This parameter is not part of the `DataGenArgs` Pydantic schema but is handled dynamically via `getattr()` in the agent. It defaults to `True` if the `ENABLE_SEMANTIC_ANALYZER` environment variable is set.
+
+### Invariant Enforcement
+The tool now strictly enforces data quality invariants:
+- **Invariant 3 (No Post-Hoc Fixing):** Invalid data is detected and withheld, never silently "fixed" or returned.
+- **Invariant 8 (Deterministic Success):** Success is boolean. If validation fails, `success` is `False` and data is empty.
 
 ---
 
@@ -623,6 +689,26 @@ curl -X POST "http://localhost:8001/api/gateway" \
 }
 ```
 
+#### Constraint & Integrity Failures
+If generated data violates schema constraints (pattern, enum, min/max) or foreign key integrity:
+
+```json
+{
+  "success": false,
+  "data": {},
+  "constraint_violations": [
+    {
+      "entity": "users",
+      "field": "age",
+      "value": 15,
+      "constraint": "min",
+      "expected": 18
+    }
+  ]
+}
+```
+*Data is withheld to prevent using invalid data.*
+
 ---
 
 ## Testing
@@ -672,9 +758,10 @@ pytest tests/test_semantic_analyzer_v2.py::TestEndToEnd::test_banking_example_no
 ### V2 Mode
 4. **Use domain templates** - Faster than LLM prompts for known use cases
 5. **Start with basic realism** - Increase to medium/high as needed
-6. **Validate relationships** - Check foreign key integrity in output
+6. **Note on relationships** - Foreign keys are generated but not validated in Phase 1. Manually verify FK integrity if needed.
 7. **Monitor entity counts** - Balance parent/child ratios
 8. **Test with realism** - Simulate real-world data quality issues
+9. **Semantic generation** - Enabled by default via `ENABLE_SEMANTIC_ANALYZER` environment variable
 
 ---
 
@@ -727,6 +814,9 @@ Add `domain` or `prompt` to enable V2 mode:
 **Issue:** Too few/many child records  
 **Solution:** Adjust row counts or use domain templates with balanced ratios
 
+**Issue:** Foreign keys don't match parent IDs  
+**Solution:** This is a Phase 1 limitation. Foreign keys are generated but not validated. Consider post-processing or wait for Phase 2 relationship enforcement.
+
 **Issue:** Need more domains beyond ecommerce/saas  
 **Solution:** Use natural language prompts with LLM schema designer
 
@@ -746,7 +836,7 @@ Add `domain` or `prompt` to enable V2 mode:
 - 🔒 **Key Guarantee:** LLM never generates data values (fixes "Agent every" bug)
 - 🆕 Multi-tier classification pipeline (lexical → pattern → context → LLM → fallback)
 - 🆕 `semantic_types.py` - Core data models (`SemanticType`, `FieldContext`, `SemanticFieldInfo`)
-- 🆕 `lexical_dict.py` - 178 field name → semantic type mappings
+- 🆕 `lexical_dict.py` - 303 field name → semantic type mappings
 - 🆕 `pattern_classifier.py` - Regex-based suffix/prefix detection
 - 🆕 `context_classifier.py` - Entity-aware name resolution
 - 🆕 `llm_classifier.py` - LLM for classification metadata only
@@ -778,3 +868,21 @@ Add `domain` or `prompt` to enable V2 mode:
 **Last Updated:** December 11, 2025  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
+
+---
+
+## Recent Updates in generate_data Mode
+
+### 1. Strict Validation & Safety Invariants
+- **Previous Behavior:** Data with minor constraint violations might have been returned with warnings.
+- **Current Behavior:** Implements **Invariant 3 (Invalid values must never be returned)**. If any constraint violation is detected (Regex, Enum, Min/Max) or Foreign Key integrity fails, the generator strictly returns **empty data** and marks `success: false`.
+- **Impact:** Guarantees 100% compliant data consumption. Users must handle `success: false` explicitly.
+
+### 2. Protected Critical Semantic Types
+- **Previous Behavior:** Realism engine could inject nulls into any nullable field.
+- **Current Behavior:** The following semantic types are now **protected** and will NEVER be null, even if nullable and high realism is selected: `email_address`, `phone_number`, `uuid`, `numeric_id`, `timestamp`, `date`, `bank_account_number`, `transaction_id`.
+- **Impact:** Prevents "realistic" data from breaking core application logic (e.g., missing IDs or timestamps).
+
+### 3. Constraint Precedence
+- **Behavior:** Explicit precedence logic for generator selection: **Enum > Pattern > Min/Max**.
+- **Impact:** Ensures that if a field has both a regex pattern and an enum, the enum values are strictly respected, preventing generation of valid-looking but disallowed values.

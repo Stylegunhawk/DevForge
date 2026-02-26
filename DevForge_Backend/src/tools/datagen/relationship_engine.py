@@ -171,9 +171,10 @@ class RelationshipEngine:
             
         Uses semantic-aware generator if available, otherwise falls back to Faker.
         """
-        # Handle nullable fields (some chance of null)
-        if field.nullable and random.random() < 0.1:  # 10% null rate for nullable fields
-            return None
+        # Invariant 4: No Null Injection here. 
+        # Nulls are handled ONLY by AdvancedGeneratorV2._apply_realism.
+        # This function must return a valid concrete value.
+
 
         # Use semantic-aware generator if available
         if self.field_generator and SEMANTIC_GENERATION_AVAILABLE:
