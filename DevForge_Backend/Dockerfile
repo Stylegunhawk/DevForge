@@ -32,9 +32,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install Python dependencies
 COPY requirements.txt .
 
+# Build argument to select the PyTorch index (defaults to CPU for this image)
+ARG PIP_INDEX_URL=https://download.pytorch.org/whl/cpu
+
 # 1. Install CPU-only Torch first (Major size optimization)
 # This prevents downloading the massive NVIDIA/CUDA binaries
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url ${PIP_INDEX_URL}
 
 # 2. Install remaining requirements
 # We use --no-deps for torch to avoid reinstalling the large version if requirements.txt lists it
