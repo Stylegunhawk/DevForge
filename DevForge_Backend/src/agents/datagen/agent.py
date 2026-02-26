@@ -69,7 +69,7 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
         if use_v2:
             # V2: Advanced multi-entity generation
             # Check semantic analyzer feature flag
-            semantic_enabled = ENABLE_SEMANTIC_ANALYZER and getattr(datagen_args, 'enable_semantic_generation', True)
+            semantic_enabled = ENABLE_SEMANTIC_ANALYZER and datagen_args.enable_semantic_generation
             logging.info(f"Using V2 (advanced) data generation with Phase 8 components (semantic={semantic_enabled})")
             
             result = await generate_advanced_data(
@@ -85,16 +85,10 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
                 f"V2 generation completed: {result['schema']['entity_count']} entities"
             )
             
-            # Check internal success flag from generator
-            # Success requires: no constraint violations, FK integrity valid, constraints enforced
             # Invariant 8: Deterministic Success Semantics
-            internal_success = (
-                 result.get("constraint_violations") == [] and
-                 result.get("fk_integrity", {}).get("valid", True)
-            )
-            
-            # If internal success is False, data should be empty/safe.
-            success = internal_success
+            # Trust the generator's internal success flag which checks:
+            # constraint violations, FK integrity, and constraint enforcement
+            success = result.get("_internal_success", True)
             
             return {
                 "success": success,

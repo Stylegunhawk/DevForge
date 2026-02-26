@@ -933,13 +933,17 @@ async def mcp_endpoint(request: Request):
                 # The LLM needs the JSON to be stringified inside a text block.
                 result_json_str = json.dumps(result, indent=2)
 
+                # Determine isError from tool's success field
+                # (constraint violations / FK failures → isError=True)
+                is_error = not result.get("success", True)
+
                 return JSONResponse(
                     content={
                         "jsonrpc": "2.0",
                         "id": req_id,
                         "result": {
                             "content": [{"type": "text", "text": result_json_str}],
-                            "isError": False,
+                            "isError": is_error,
                         },
                     }
                 )
@@ -1024,7 +1028,11 @@ def _get_tool_schema(tool_name: str) -> dict:
                 "realism_level": {
                     "type": "string",
                     "enum": ["basic", "medium", "high"],
-                    "description": "Data quality/realism level (default: medium)",
+                    "description": "Data quality/realism level (default: basic)",
+                },
+                "enable_semantic_generation": {
+                    "type": "boolean",
+                    "description": "[V2 MODE] Enable Phase 1 semantic analysis for context-aware value generation (default: true)",
                 },
             },
             "required": ["rows"],

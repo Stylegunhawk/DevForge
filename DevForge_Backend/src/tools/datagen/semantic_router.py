@@ -217,17 +217,28 @@ class SemanticRouter:
         """Fallback generator for unknown types."""
         return self.faker.word()
     
+    _rstr_warning_logged = False
+    
     def _generate_pattern(self, pattern: str) -> str:
         """Generate value from regex pattern."""
         try:
             import rstr
             return rstr.xeger(pattern)
-        except ImportError:
-            logger.warning("rstr not installed, falling back to simple pattern generation")
-            return self.faker.bothify("???-###")
-        except Exception as e:
-            logger.warning(f"Pattern generation failed for '{pattern}': {e}")
-            return self.faker.bothify("???-###")
+        except (ImportError, Exception) as e:
+            # Only log the warning once to avoid spamming logs (especially in Docker)
+            if not SemanticRouter._rstr_warning_logged:
+                if isinstance(e, ImportError):
+                    logger.warning("rstr not installed, falling back to faker.regex_ify for pattern generation")
+                else:
+                    logger.warning(f"Pattern generation via rstr failed for '{pattern}': {e}. Falling back to faker.regex_ify")
+                SemanticRouter._rstr_warning_logged = True
+            
+            # Use Faker's regex_ify as a robust fallback
+            try:
+                return self.faker.regex_ify(pattern)
+            except Exception as fe:
+                logger.error(f"Faker regex_ify also failed for '{pattern}': {fe}")
+                return self.faker.bothify("???-###")
 
     def _generate_date(self, constraints: dict) -> str:
         """Generate date respecting min/max using native python."""

@@ -174,6 +174,10 @@ class DataGenArgs(BaseModel):
         "basic",
         description="Data quality realism level (null/duplicate/outlier injection)"
     )
+    enable_semantic_generation: bool = Field(
+        True,
+        description="Enable Phase 1 semantic analysis for V2 mode (default: True)"
+    )
 
     model_config = {
         "json_schema_extra": {

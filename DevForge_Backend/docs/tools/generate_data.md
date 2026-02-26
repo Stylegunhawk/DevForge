@@ -70,7 +70,7 @@ The following constraints are enforced during generation:
 | `prompt` | string | No | `null` | Natural language schema description | V2 only |
 | `domain` | string | No | `null` | Pre-defined domain: `"ecommerce"` or `"saas"` | V2 only |
 | `realism_level` | string | No | `"basic"` | Data quality level: `"basic"`, `"medium"`, `"high"` | V2 only |
-| `enable_semantic_generation` | boolean | No | `true` | Enable Phase 1 semantic analysis (handled via getattr, not in schema) | V2 only |
+| `enable_semantic_generation` | boolean | No | `true` | Enable Phase 1 semantic analysis for context-aware values | V2 only |
 
 ### Mode Selection
 
@@ -302,6 +302,47 @@ curl -X POST http://localhost:8001/api/gateway \
   }'
 # Falls back to Faker (generic values)
 ```
+
+---
+
+## MCP Protocol (JSON-RPC 2.0)
+
+The tool is fully compliant with the **Model Context Protocol (MCP)**. Use the `/mcp` endpoint for standardized tool calling.
+
+### MCP: List Tools
+```bash
+curl -X POST http://localhost:8001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/list"
+  }'
+```
+
+### MCP: Generate Data (V2 Mode)
+```bash
+curl -X POST http://localhost:8001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "generate_data",
+      "arguments": {
+        "rows": 50,
+        "prompt": "Generate a list of 50 vintage cars with year and manufacturer",
+        "enable_semantic_generation": true
+      }
+    }
+  }'
+```
+
+> [!TIP]
+> **Success Mapping:** The MCP endpoint maps the tool's internal `success` status directly to MCP's `isError` field. If constraints are violated or FK integrity fails, `isError` will be `true`, allowing the LLM to recognize the failure automatically.
+
+---
 
 **V2 Response Format:**
 ```json
@@ -865,7 +906,7 @@ Add `domain` or `prompt` to enable V2 mode:
 
 ---
 
-**Last Updated:** December 11, 2025  
+**Last Updated:** February 26, 2026  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
 
