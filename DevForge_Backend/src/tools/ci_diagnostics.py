@@ -40,8 +40,8 @@ class SuggestedFix:
 class CIAnalyzer:
     """Analyze CI/CD pipeline failures"""
     
-    def __init__(self):
-        self.github_tools = GitHubTools()
+    def __init__(self, github_tools: Optional[GitHubTools] = None):
+        self.github_tools = github_tools or GitHubTools()
         self.model_router = ModelRouter()
     
     async def analyze(
@@ -126,7 +126,7 @@ class CIAnalyzer:
             Combined workflow logs
         """
         try:
-            github_repo = self.github_tools.g.get_repo(repo)
+            github_repo = self.github_tools.client.get_repo(repo)
             
             if run_id:
                 # Get specific workflow run
@@ -436,19 +436,23 @@ Respond in JSON format:
 
 
 # Convenience function for API
-async def analyze_ci_failure_invoke(args: Dict[str, Any]) -> Dict[str, Any]:
+async def analyze_ci_failure_invoke(
+    args: Dict[str, Any],
+    github_tools: Optional[GitHubTools] = None
+) -> Dict[str, Any]:
     """API entry point for CI failure analysis
     
     Args:
         args: Arguments dict with repo, run_id, pr_number
+        github_tools: Optional GitHubTools instance
         
     Returns:
         Analysis result
     """
-    analyzer = CIAnalyzer()
+    analyzer = CIAnalyzer(github_tools=github_tools)
     
     return await analyzer.analyze(
-        repo=args["repo"],
+        repo=args["repo_name"],
         run_id=args.get("run_id"),
         pr_number=args.get("pr_number")
     )

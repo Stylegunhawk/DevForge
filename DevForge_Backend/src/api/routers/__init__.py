@@ -35,9 +35,9 @@ from src.core.schemas import GatewayRequest, GatewayResponse
 from src.core.utils import track_performance
 
 # Import Phase 2 specialized tools
-from src.tools.changelog import generate_changelog_invoke
-from src.tools.ci_diagnostics import analyze_ci_failure_invoke
-from src.tools.scaffold import scaffold_repository_invoke
+# from src.tools.changelog import generate_changelog_invoke
+# from src.tools.ci_diagnostics import analyze_ci_failure_invoke
+# from src.tools.scaffold import scaffold_repository_invoke
 
 router = APIRouter()
 mcp_router = APIRouter()
@@ -50,10 +50,10 @@ SUPPORTED_TOOLS = {
     "rerank_docs": rerank_docs_invoke,
     "refine_prompt": refine_prompt_invoke,
     "generate_cheatsheet": generate_cheatsheet_invoke,
-    # Phase 2: Specialized GitHub Tools
-    "generate_changelog": generate_changelog_invoke,
-    "analyze_ci_failure": analyze_ci_failure_invoke,
-    "scaffold_repository": scaffold_repository_invoke,
+    # Phase 2: Specialized GitHub Tools (Integrated into github_operation)
+    # "generate_changelog": generate_changelog_invoke,
+    # "analyze_ci_failure": analyze_ci_failure_invoke,
+    # "scaffold_repository": scaffold_repository_invoke,
 }
 
 # Factual tool descriptions (Sync with devforge.json manifest)
@@ -67,7 +67,7 @@ TOOL_DESCRIPTIONS = {
     ),
     "github_operation": (
         "Intelligent GitHub automation with natural language. "
-        "Supports: list repos, create issues, commit files, create PRs. "
+        "Supports: list repos, browse files, read file, search code, create issues, commit files, create PRs. "
         "v0.8 features: fuzzy repo matching, AI commit messages from diffs, "
         "log-to-issue parsing (Python/JS/Java/Go), confidence-based safety gating."
     ),
@@ -86,18 +86,6 @@ TOOL_DESCRIPTIONS = {
         "Ingest documents and query them semantically."
     ),
     "rerank_docs": "Rerank retrieved documents by relevance using cross-encoder",
-    "generate_changelog": (
-        "Generate release notes and changelog from git history between tags or commits. "
-        "Parses conventional commits and categorizes changes (features, fixes, docs, etc.)."
-    ),
-    "analyze_ci_failure": (
-        "Analyze CI/CD pipeline failures and suggest fixes. "
-        "Detects test failures, build errors, dependency issues, and timeouts."
-    ),
-    "scaffold_repository": (
-        "Create new repository from template with CI/CD setup. "
-        "Templates: fastapi, react, nextjs, microservice, docs."
-    ),
 }
 
 
@@ -704,6 +692,17 @@ async def gateway_endpoint(request: GatewayRequest):
         if error:
             success = False
             message = f"{tool_name} execution failed: {error}"
+            
+            # Phase 2 & 4: Enhanced error feedback for GitHub permission issues
+            is_github_tool = tool_name == "github_operation"
+            is_permission_error = any(phrase in str(error).lower() for phrase in ["403", "permission denied", "bad credentials", "requires secondary factor"])
+            
+            if is_github_tool and is_permission_error:
+                message += (
+                    "\n\n💡 Tip: Check your GitHub Personal Access Token (PAT) in settings. "
+                    "Ensure it has the required scopes (repo, admin:org, etc.) and is not expired."
+                )
+                
             logging.error(
                 message,
                 extra={"tool": tool_name, "error": error, "execution_time": exec_time},
@@ -728,6 +727,17 @@ async def gateway_endpoint(request: GatewayRequest):
     except Exception as e:
         exec_time = time.time() - start_time
         error_msg = f"{tool_name} execution error: {str(e)}"
+        
+        # Phase 2 & 4: Enhanced error feedback for GitHub permission issues
+        is_github_tool = tool_name == "github_operation"
+        is_permission_error = any(phrase in str(e).lower() for phrase in ["403", "permission denied", "bad credentials", "requires secondary factor"])
+        
+        if is_github_tool and is_permission_error:
+            error_msg += (
+                "\n\n💡 Tip: Check your GitHub Personal Access Token (PAT) in settings. "
+                "Ensure it has the required scopes (repo, admin:org, etc.) and is not expired."
+            )
+            
         logging.error(
             error_msg,
             extra={"tool": tool_name, "error": str(e), "execution_time": exec_time},
@@ -823,7 +833,7 @@ async def mcp_endpoint(request: Request):
                         "protocolVersion": "2024-11-05",
                         "serverInfo": {
                             "name": "DevForge",
-                            "version": "0.7.0",
+                            "version": "0.8.0",
                         },
                         "capabilities": {
                             "tools": {},
@@ -1197,74 +1207,6 @@ def _get_tool_schema(tool_name: str) -> dict:
                 },
             },
             "required": [],
-        },
-        "generate_changelog": {
-            "type": "object",
-            "properties": {
-                "repo": {
-                    "type": "string",
-                    "description": "Repository name in format 'owner/repo' (e.g., 'facebook/react')",
-                },
-                "from_tag": {
-                    "type": "string",
-                    "description": "Start tag or commit SHA",
-                },
-                "to_tag": {
-                    "type": "string",
-                    "description": "End tag or commit SHA (default: HEAD)",
-                },
-                "format": {
-                    "type": "string",
-                    "enum": ["markdown", "json"],
-                    "description": "Output format (default: markdown)",
-                },
-            },
-            "required": ["repo", "from_tag"],
-        },
-        "analyze_ci_failure": {
-            "type": "object",
-            "properties": {
-                "repo": {
-                    "type": "string",
-                    "description": "Repository name in format 'owner/repo'",
-                },
-                "run_id": {
-                    "type": "integer",
-                    "description": "GitHub Actions workflow run ID",
-                },
-                "pr_number": {
-                    "type": "integer",
-                    "description": "Pull request number to analyze",
-                },
-            },
-            "required": ["repo"],
-        },
-        "scaffold_repository": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Repository name (created in authenticated user's account)",
-                },
-                "template": {
-                    "type": "string",
-                    "enum": ["fastapi", "react", "nextjs", "microservice", "docs"],
-                    "description": "Template to scaffold from",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Repository description",
-                },
-                "private": {
-                    "type": "boolean",
-                    "description": "Create as private repository (default: false)",
-                },
-                "force": {
-                    "type": "boolean",
-                    "description": "Force creation, deleting existing repo if present (default: false)",
-                },
-            },
-            "required": ["name", "template"],
         },
     }
 

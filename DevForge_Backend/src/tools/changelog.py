@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 class ChangelogGenerator:
     """Generate changelogs from git history"""
     
-    def __init__(self):
-        self.github_tools = GitHubTools()
+    def __init__(self, github_tools: Optional[GitHubTools] = None):
+        self.github_tools = github_tools or GitHubTools()
         self.model_router = ModelRouter()
     
     async def generate(
         self,
         repo: str,
-        from_tag: str,
+        from_tag: Optional[str] = None,
         to_tag: str = "HEAD",
         format: str = "markdown"
     ) -> Dict[str, Any]:
@@ -108,13 +108,18 @@ class ChangelogGenerator:
         """
         try:
             # Use PyGithub to get commits
-            github_repo = self.github_tools.g.get_repo(repo)
+            github_repo = self.github_tools.client.get_repo(repo)
             
             # Get commit range
-            comparison = github_repo.compare(from_tag, to_tag)
+            if from_tag:
+                comparison = github_repo.compare(from_tag, to_tag)
+                commits_raw = comparison.commits
+            else:
+                # None = from beginning (full history until to_tag)
+                commits_raw = github_repo.get_commits(sha=to_tag)
             
             commits = []
-            for commit in comparison.commits:
+            for commit in commits_raw:
                 commits.append({
                     "sha": commit.sha[:7],
                     "message": commit.commit.message,
@@ -252,20 +257,24 @@ class ChangelogGenerator:
 
 
 # Convenience function for API
-async def generate_changelog_invoke(args: Dict[str, Any]) -> Dict[str, Any]:
+async def generate_changelog_invoke(
+    args: Dict[str, Any],
+    github_tools: Optional[GitHubTools] = None
+) -> Dict[str, Any]:
     """API entry point for changelog generation
     
     Args:
         args: Arguments dict with repo, from_tag, to_tag, format
+        github_tools: Optional GitHubTools instance
         
     Returns:
         Changelog result
     """
-    generator = ChangelogGenerator()
+    generator = ChangelogGenerator(github_tools=github_tools)
     
     return await generator.generate(
-        repo=args["repo"],
-        from_tag=args["from_tag"],
+        repo=args["repo_name"],
+        from_tag=args.get("from_tag"),
         to_tag=args.get("to_tag", "HEAD"),
         format=args.get("format", "markdown")
     )

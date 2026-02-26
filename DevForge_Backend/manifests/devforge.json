@@ -328,7 +328,7 @@
     },
     {
       "name": "scaffold_repository",
-      "description": "Create new repository from template with CI/CD setup. Templates: fastapi, react, nextjs, microservice, docs. Includes token validation, idempotency checks, and async fallback for large templates.",
+      "description": "Create new repository from template with CI/CD setup. Templates: fastapi, react, nextjs, microservice, docs. (Requires 'admin:org' scope for organization repos).",
       "parameters": {
         "type": "object",
         "properties": {
