@@ -134,6 +134,26 @@ class BaseVectorStore(ABC):
         pass
     
     @abstractmethod
+    async def get_chunks_by_file_id(
+        self,
+        file_id: str,
+        limit: int = 5,
+        offset: int = 0
+    ) -> List[ChunkResult]:
+        """
+        Get all chunks for a specific file, ordered by chunk_index.
+        
+        Args:
+            file_id: File UUID
+            limit: Number of chunks to return
+            offset: Offset for pagination
+            
+        Returns:
+            List of matching chunks ordered by index
+        """
+        pass
+
+    @abstractmethod
     async def health_check(self) -> bool:
         """
         Check if vector store is healthy and accessible.

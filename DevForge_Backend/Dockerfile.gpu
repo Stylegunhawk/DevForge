@@ -1,0 +1,98 @@
+# =============================================================================
+# DevForge Backend - GPU Dockerfile
+# =============================================================================
+# Optimized for NVIDIA GPU acceleration.
+# Usage: docker build -f Dockerfile.gpu -t devforge-backend:gpu .
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: Builder
+# -----------------------------------------------------------------------------
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libmagic-dev \
+    python3-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
+COPY requirements.txt .
+
+# 1. Install GPU-enabled Torch (with CUDA support)
+# We use the default PyTorch index which includes CUDA binaries
+# This WILL be large (~2-3GB) but enables GPU acceleration
+RUN pip install --no-cache-dir torch torchvision torchaudio
+
+# 2. Install remaining requirements
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 3. Install production server
+RUN pip install --no-cache-dir gunicorn
+
+# -----------------------------------------------------------------------------
+# Stage 2: Runtime
+# -----------------------------------------------------------------------------
+FROM python:3.12-slim AS runner
+
+# Metadata
+LABEL maintainer="DevForge Team"
+LABEL version="0.9.0-gpu"
+LABEL description="DevForge Backend with NVIDIA GPU Support"
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Create non-root user
+RUN useradd -m -u 1000 devforge && \
+    mkdir -p data/uploads data/chromadb && \
+    chmod -R 755 data && \
+    chown -R devforge:devforge /app
+
+# Copy application code
+COPY . .
+
+# Set permission for code
+RUN chown -R devforge:devforge /app
+
+# Switch to non-root user
+USER devforge
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8001
+# Ensure PyTorch uses CUDA if available
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# Expose port
+EXPOSE 8001
+
+# Default Command
+CMD ["gunicorn", "src.main:app", \
+    "-k", "uvicorn.workers.UvicornWorker", \
+    "--bind", "0.0.0.0:8001", \
+    "--workers", "4", \
+    "--timeout", "120"]

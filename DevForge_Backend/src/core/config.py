@@ -6,12 +6,16 @@ Loads environment variables and provides settings singleton.
 import os
 from functools import lru_cache
 from typing import List, Optional, Dict
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+    # Base paths
+    BASE_DIR: Path = Path(__file__).resolve().parents[2]
+    MANIFEST_DIR: Path = BASE_DIR / "manifests"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -20,9 +24,23 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @property
+    def is_docker(self) -> bool:
+        """Check if running inside Docker container."""
+        return os.path.exists("/.dockerenv")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Auto-correct Celery broker for local dev if it points to docker service
+        if not self.is_docker:
+            if "redis:6379" in self.CELERY_BROKER_URL:
+                self.CELERY_BROKER_URL = self.CELERY_BROKER_URL.replace("redis:6379", "localhost:6379")
+            if "redis:6379" in self.CELERY_RESULT_BACKEND:
+                self.CELERY_RESULT_BACKEND = self.CELERY_RESULT_BACKEND.replace("redis:6379", "localhost:6379")
+
     # Server Configuration
     PORT: int = 8000
-    CORS_ORIGINS: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3210,http://localhost:5173"
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
 
@@ -49,7 +67,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "bge-m3"
 
     # Phase 3: RAG Configuration
-    VECTOR_BACKEND: str = "chroma"  # Options: chroma (default), qdrant
+    VECTOR_BACKEND: str = "postgres"  # Options: chroma, postgres
     CHROMA_PERSIST_DIR: str = "./data/chromadb"
     CHROMA_COLLECTION: str = "devforge_docs"
     RAG_EMBED_MODEL: str = "nomic-embed-text"  # Primary for RAG
@@ -58,6 +76,10 @@ class Settings(BaseSettings):
     RAG_CHUNK_OVERLAP: int = 50
     RAG_TOP_K: int = 5
     RAG_SCORE_THRESHOLD: float = 0.0  # Set to 0 to accept all results; ChromaDB L2 scores are small
+
+    # Storage Configuration
+    STORAGE_ROOT: str = "./data/uploads/users"
+    FILE_BASE_URL: str = "http://localhost:8000/static/uploads"
 
     # Phase 3.1b: Qdrant Cloud Configuration
     QDRANT_URL: str | None = None  # e.g., https://xxx.europe-west3-0.gcp.cloud.qdrant.io

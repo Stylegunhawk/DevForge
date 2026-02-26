@@ -184,6 +184,67 @@ def get_saas_template(
         ],
         domain="saas"
     )
+ 
+ 
+# =============================================================================
+# IoT Devices Template
+# =============================================================================
+ 
+def get_iot_devices_template(
+    device_count: int = 100,
+    reading_count: int = 1000
+) -> SchemaDesign:
+    """Get IoT devices domain template.
+    
+    Entities: devices, readings
+    Relationships: readings -> devices
+    
+    Args:
+        device_count: Number of devices (default 100)
+        reading_count: Number of sensor readings (default 1000)
+        
+    Returns:
+        SchemaDesign for IoT devices domain
+    """
+    return SchemaDesign(
+        entities={
+            "devices": EntitySchema(
+                name="devices",
+                fields=[
+                    FieldSchema(name="device_name", type="string", faker_provider="name"),
+                    FieldSchema(name="model", type="string"),
+                    FieldSchema(name="firmware", type="string"),
+                    FieldSchema(name="ip_address", type="string", faker_provider="ipv4"),
+                    FieldSchema(name="status", type="string"),
+                    FieldSchema(name="created_at", type="datetime"),
+                ],
+                count=device_count,
+                primary_key="id"
+            ),
+            "readings": EntitySchema(
+                name="readings",
+                fields=[
+                    FieldSchema(name="device_id", type="uuid"),
+                    FieldSchema(name="sensor_type", type="string"),
+                    FieldSchema(name="value", type="float", distribution="normal"),
+                    FieldSchema(name="timestamp", type="datetime"),
+                ],
+                count=reading_count,
+                primary_key="id"
+            ),
+        },
+        relationships=[
+            RelationshipSchema(
+                from_entity="readings",
+                from_field="device_id",
+                to_entity="devices",
+                to_field="id",
+                cardinality="1:N"
+            ),
+        ],
+        domain="iot_devices"
+    )
+
 
 
 # =============================================================================
@@ -194,6 +255,7 @@ def get_saas_template(
 _TEMPLATES = {
     "ecommerce": get_ecommerce_template,
     "saas": get_saas_template,
+    "iot_devices": get_iot_devices_template,
 }
 
 
@@ -201,7 +263,8 @@ def get_template(domain: str, **kwargs) -> SchemaDesign:
     """Get a domain template by name.
     
     Args:
-        domain: Domain name ("ecommerce" or "saas")
+        domain: Domain name ("ecommerce", "saas", or "iot_devices")
+
         **kwargs: Optional overrides for entity counts
         
     Returns:

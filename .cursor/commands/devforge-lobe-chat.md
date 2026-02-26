@@ -22,7 +22,8 @@ Never override or duplicate its `.cursor` logic — extend it contextually for D
 **Gateway Endpoint:**  
 `http://localhost:8000/api/gateway`
 
-These URLs must remain configurable via `.env.local` in `lobe-chat/`.
+These URLs must remain configurable via `
+.local` in `lobe-chat/`.
 ---
 
 ## Role
@@ -67,4 +68,3 @@ When user runs “continue” or “integrate devforge”:
 3. Ensure `/src/app/(backend)/webapi/` contains a proxy route for `api/gateway`.  
 4. Test manifest loading in the Lobe Chat Plugin Store UI.  
 5. Do **not** modify existing Lobe Chat providers — integrate only through plugin APIs.
-

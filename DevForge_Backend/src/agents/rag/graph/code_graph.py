@@ -167,6 +167,43 @@ class CodeGraph:
         """Get number of nodes in graph."""
         return len(self._graph)
     
+    def to_dict(self) -> Dict:
+        """
+        Serialize graph to dictionary for caching.
+        Format:
+        {
+            "nodes": [{"id": qid, **metadata}],
+            "links": [{"source": s, "target": t, "relation": r}]
+        }
+        """
+        nodes = []
+        for qid, meta in self._metadata.items():
+            nodes.append({"id": qid, **meta})
+            
+        links = []
+        for source, targets in self._graph.items():
+            for target in targets:
+                # Relation usually implied by metadata, but we can default
+                links.append({"source": source, "target": target, "relation": "related"})
+                
+        return {"nodes": nodes, "links": links}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "CodeGraph":
+        """Reconstruct graph from dictionary."""
+        graph = cls()
+        
+        # Restore nodes
+        for node in data.get("nodes", []):
+            qid = node.pop("id")
+            graph.add_node(qid, **node)
+            
+        # Restore explicit edges (if any additional not covered by metadata)
+        for link in data.get("links", []):
+            graph.add_edge(link["source"], link["target"], link.get("relation", "related"))
+            
+        return graph
+
     def clear(self) -> None:
         """Clear the entire graph."""
         self._graph.clear()

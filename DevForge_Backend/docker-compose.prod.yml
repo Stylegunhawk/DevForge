@@ -1,0 +1,49 @@
+# docker-compose.prod.yml
+# Production overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  # Production API configuration
+  api:
+    # Use Gunicorn with Uvicorn workers for production
+    command: gunicorn src.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8001 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120
+    environment:
+      - LOG_LEVEL=warning # Reduce log verbosity
+    restart: always
+    # Remove local code volume for immutable deployments
+    volumes:
+      - ./data:/app/data # Only mount data directory
+
+  # Production worker configuration
+  celery-worker:
+    # Increase concurrency for production
+    command: celery -A src.workers.celery_app worker -l warning -c 16 --max-tasks-per-child 1000
+    restart: always
+    volumes:
+      - ./data:/app/data
+
+  # Production Redis with persistence
+  redis:
+    command: redis-server --appendonly yes --appendfsync everysec
+    restart: always
+
+  # Production Postgres with tuning
+  postgres:
+    environment:
+      # Use strong password from environment
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devforge123}
+    restart: always
+    # Add backup volume
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+
+  # Disable Flower in production (or restrict access)
+  flower:
+    # Uncomment to disable completely
+    # profiles: ["debug"]
+    environment:
+      - CELERY_FLOWER_BASIC_AUTH=admin:${FLOWER_PASSWORD:-change_me}
+    restart: unless-stopped

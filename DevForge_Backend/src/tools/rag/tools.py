@@ -1,7 +1,8 @@
 """RAG tools for document ingestion, retrieval, and response generation.
 
 Phase 3.1: ChromaDB implementation with async file I/O.
-Supports PDF, Markdown, TXT, and DOCX file formats.
+Supports ".pdf", ".md", ".txt", ".docx",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".rst"
 """
 
 import asyncio
@@ -25,7 +26,10 @@ from langchain_chroma import Chroma
 logger = logging.getLogger(__name__)
 
 # Supported file extensions
-SUPPORTED_EXTENSIONS = {".pdf", ".md", ".txt", ".docx"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf", ".md", ".txt", ".docx",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".rst"
+}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
@@ -169,7 +173,7 @@ def get_vector_store(
 async def read_document(file_path: str) -> str:
     """Read a document file asynchronously and extract text content.
 
-    Supports PDF, Markdown, TXT, and DOCX formats.
+    Supports PDF, Markdown, TXT, DOCX, and Code formats.
 
     Args:
         file_path: Path to the document file
@@ -222,8 +226,8 @@ async def read_document(file_path: str) -> str:
 
             text = await asyncio.to_thread(read_pdf)
 
-        elif extension in {".md", ".txt"}:
-            # Read text files asynchronously
+        elif extension in {".md", ".txt", ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".rst"}:
+            # Read text and code files asynchronously
             async with aiofiles.open(path, mode="r", encoding="utf-8") as f:
                 text = await f.read()
 
@@ -293,8 +297,36 @@ def chunk_document(
                 )
                 documents.append(doc)
             
-            logger.debug(f"Code-aware chunking: {len(documents)} chunks from {file_path}")
-            return documents
+            logger.debug(f"Initial chunking: {len(documents)} chunks from {file_path}")
+            
+            # --- SAFETY VALVE: Ensure no chunk exceeds 2000 characters ---
+            safe_chunks = []
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                separators=["\n\n", "\n", " ", ""]
+            )
+            
+            for doc in documents:
+                if len(doc.page_content) > 2000:
+                    logger.info(
+                        f"Chunk too large ({len(doc.page_content)} chars), re-splitting: {file_path}",
+                        extra={"file_path": file_path, "original_size": len(doc.page_content)}
+                    )
+                    sub_chunks = splitter.split_text(doc.page_content)
+                    for i, sub_content in enumerate(sub_chunks):
+                        safe_chunks.append(Document(
+                            page_content=sub_content,
+                            metadata={
+                                **doc.metadata,
+                                "is_split_by_safety_valve": True,
+                                "sub_chunk_index": i
+                            }
+                        ))
+                else:
+                    safe_chunks.append(doc)
+            
+            return safe_chunks
             
         except ImportError:
             logger.warning("Chunkers not available, using RecursiveCharacterTextSplitter")
@@ -333,63 +365,67 @@ def chunk_document(
 
 async def ingest_documents(
     file_paths: List[str],
+    file_id: str, 
+    tenant_id: str,  # Phase 15: Tenant Isolation
+    knowledge_id: Optional[str] = None, # Phase 15: Knowledge Base Isolation
     embed_model: str = "nomic-embed-text",
     chunk_size: int = 500,
     chunk_overlap: int = 50,
     backend: str = "chroma",
+    collection_name: Optional[str] = None, # Phase 15: Dynamic Collection
 ) -> dict:
-    """Ingest documents into vector store.
-
-    Reads files in parallel, chunks them, generates embeddings, and upserts into vector store.
+    """Ingest documents into vector store (Multi-Tenant).
 
     Args:
         file_paths: List of file paths to ingest
-        embed_model: Embedding model name (default: "nomic-embed-text")
-        chunk_size: Maximum characters per chunk
-        chunk_overlap: Characters to overlap between chunks
-        backend: Vector store backend ("chroma" or "qdrant")
-
-    Returns:
-        Dictionary with:
-            - success (bool): Whether ingestion succeeded
-            - documents_processed (int): Number of documents successfully processed
-            - chunks_created (int): Total number of chunks created
-            - backend (str): Backend used
-            - error (str | None): Error message if any
+        file_id: Unique ID for the file
+        tenant_id: User/Tenant ID for isolation
+        knowledge_id: Optional Knowledge Base ID
+        embed_model: Embedding model name
+        collection_name: Optional override for collection name (defaults to user/org scope)
     """
+    # Determine collection name
+    # IF specific collection passed -> use it
+    # ELSE -> default to "devforge_docs" (legacy) or constructed scope
+    target_collection = collection_name or settings.CHROMA_COLLECTION
+    
     logger.info(
-        f"Ingesting {len(file_paths)} documents",
+        f"Ingesting {len(file_paths)} documents into {target_collection}",
         extra={
             "file_count": len(file_paths),
-            "embed_model": embed_model,
-            "backend": backend,
+            "file_id": file_id,
+            "tenant_id": tenant_id,
+            "knowledge_id": knowledge_id,
+            "collection": target_collection,
         },
     )
 
     try:
-        # Initialize embedding model
-        embeddings = get_embedding_model(embed_model)
+        # Initialize vector store based on backend
+        if backend == "postgres":
+            from src.storage.pgvector_store import PgVectorStore
+            vector_store = PgVectorStore(table_name="rag_vectors")
+        else:
+            from src.storage.chroma_store import ChromaVectorStore
+            vector_store = ChromaVectorStore(
+                collection_name=target_collection,
+                embed_model=embed_model
+            )
 
-        # Initialize vector store
-        vector_store = get_vector_store(
-            backend=backend,
-            embed_model=embeddings,
-            collection_name=settings.CHROMA_COLLECTION,
-        )
-
-        # Read all documents in parallel with error handling
+        # Read all documents in parallel
         read_tasks = [read_document(fp) for fp in file_paths]
         contents = await asyncio.gather(*read_tasks, return_exceptions=True)
 
-        # Process successful reads and collect errors
         all_chunks = []
         documents_processed = 0
         errors = []
 
+        import uuid
+
         for file_path, content in zip(file_paths, contents):
             if isinstance(content, Exception):
                 error_msg = f"Failed to read {file_path}: {str(content)}"
-                logger.warning(error_msg, extra={"file_path": file_path, "error": str(content)})
+                logger.warning(error_msg)
                 errors.append(error_msg)
                 continue
 
@@ -401,36 +437,75 @@ async def ingest_documents(
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                 )
-                all_chunks.extend(chunks)
+                
+                # ENFORCE META STANDARDS & MULTI-TENANCY
+                valid_chunks = []
+                for i, chunk in enumerate(chunks):
+                    # 1. Ensure absolute path for source
+                    source_path = str(Path(file_path).resolve())
+                    
+                    # 2. Get chunk metadata or init new
+                    meta = chunk.metadata if hasattr(chunk, "metadata") else {}
+                    
+                    # 3. Inject Critical Identity Fields
+                    meta["file_id"] = file_id
+                    meta["chunk_id"] = str(uuid.uuid4())
+                    meta["source"] = source_path
+                    meta["chunk_index"] = i
+                    meta["total_chunks"] = len(chunks)
+                    
+                    # PHASE 15: Tenant & KB Isolation Metadata
+                    meta["tenant_id"] = tenant_id
+                    meta["collection_name"] = target_collection
+                    if knowledge_id:
+                        meta["knowledge_id"] = knowledge_id
+                    
+                    # 4. Flatten metadata (ChromaDB requirement)
+                    import json
+                    flat_meta = {}
+                    for k, v in meta.items():
+                        if isinstance(v, (list, dict)):
+                            flat_meta[k] = json.dumps(v)
+                        elif v is None:
+                            flat_meta[k] = ""
+                        else:
+                            flat_meta[k] = v
+                    
+                    # 5. Create standardized chunk dict
+                    valid_chunks.append({
+                        "content": chunk.page_content,
+                        "metadata": flat_meta
+                    })
+                
+                all_chunks.extend(valid_chunks)
                 documents_processed += 1
+                
             except Exception as e:
                 error_msg = f"Failed to chunk {file_path}: {str(e)}"
-                logger.warning(error_msg, extra={"file_path": file_path, "error": str(e)})
+                logger.warning(error_msg)
                 errors.append(error_msg)
                 continue
 
-        # Add chunks to vector store
+        # Add to vector store
         if all_chunks:
-            # Filter complex metadata - ChromaDB only accepts str, int, float, bool, None
-            # Convert list values to JSON strings
-            import json as json_module
-            for chunk in all_chunks:
-                if hasattr(chunk, 'metadata'):
-                    for key in list(chunk.metadata.keys()):
-                        value = chunk.metadata[key]
-                        if isinstance(value, list):
-                            chunk.metadata[key] = json_module.dumps(value) if value else ""
-                        elif value is None:
-                            chunk.metadata[key] = ""
+            # For PgVector, we need to generate embeddings explicitly
+            # ChromaDB generates them internally, but PgVector needs them provided
+            if backend == "postgres":
+                # Generate embeddings for all chunks
+                chunk_texts = [chunk["content"] for chunk in all_chunks]
+                embeddings_model = vector_store.embeddings
+                embeddings = await asyncio.to_thread(embeddings_model.embed_documents, chunk_texts)
+                logger.info(f"Generated {len(embeddings)} embeddings for PgVector")
+            else:
+                # ChromaDB handles embeddings internally
+                embeddings = []
             
-            # ChromaDB's add_documents is synchronous, run in thread pool
-            def add_to_store():
-                vector_store.add_documents(all_chunks)
-
-            await asyncio.to_thread(add_to_store)
+            # Add chunks to scoped collection
+            await vector_store.add_chunks(chunks=all_chunks, embeddings=embeddings)
+            
             logger.info(
-                f"Added {len(all_chunks)} chunks to vector store",
-                extra={"chunk_count": len(all_chunks), "backend": backend},
+                f"Added {len(all_chunks)} chunks to {target_collection}",
+                extra={"chunk_count": len(all_chunks), "tenant_id": tenant_id},
             )
 
         result = {
@@ -438,31 +513,18 @@ async def ingest_documents(
             "documents_processed": documents_processed,
             "chunks_created": len(all_chunks),
             "backend": backend,
+            "collection": target_collection,
             "error": "; ".join(errors) if errors else None,
         }
-
-        logger.info(
-            f"Ingestion completed: {documents_processed}/{len(file_paths)} documents, {len(all_chunks)} chunks",
-            extra={
-                "documents_processed": documents_processed,
-                "total_documents": len(file_paths),
-                "chunks_created": len(all_chunks),
-            },
-        )
 
         return result
 
     except Exception as e:
-        logger.error(
-            f"Document ingestion failed: {e}",
-            extra={"error": str(e), "file_count": len(file_paths)},
-            exc_info=True,
-        )
+        logger.error(f"Document ingestion failed: {e}", exc_info=True)
         return {
             "success": False,
             "documents_processed": 0,
             "chunks_created": 0,
-            "backend": backend,
             "error": str(e),
         }
 
@@ -473,8 +535,10 @@ async def retrieve_docs(
     embed_model: str = "nomic-embed-text",
     backend: str = "chroma",
     score_threshold: float = 0.5,
+    tenant_id: str = "default",
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
-    """Retrieve relevant documents via semantic search.
+    """Retrieve relevant documents via semantic search (Delegated to Agent).
 
     Args:
         query: Search query string
@@ -482,88 +546,54 @@ async def retrieve_docs(
         embed_model: Embedding model name
         backend: Vector store backend
         score_threshold: Minimum similarity score (0.0-1.0)
+        tenant_id: tenant ID for isolation
+        collection_name: focus search on a specific collection
 
     Returns:
-        List of dictionaries with:
-            - id (str): Document ID
-            - content (str): Document content
-            - metadata (dict): Document metadata
-            - score (float): Similarity score
+        List of dictionaries with id, content, metadata, score
     """
     logger.info(
-        f"Retrieving documents: query='{str(query)[:50]}...', top_k={top_k}",
-        extra={"query_preview": str(query)[:50], "top_k": top_k, "embed_model": embed_model},
+        f"Retrieving documents (Delegated): query='{str(query)[:50]}...', tenant='{tenant_id}'",
+        extra={"query_preview": str(query)[:50], "top_k": top_k, "tenant": tenant_id},
     )
 
     try:
-        # Initialize embedding model
-        embeddings = get_embedding_model(embed_model)
-
-        # Initialize vector store
-        vector_store = get_vector_store(
-            backend=backend,
-            embed_model=embeddings,
-            collection_name=settings.CHROMA_COLLECTION,
+        # Phase 14: Delegate to RAGAgent (Single Source of Truth)
+        # Prevent circular import via local import
+        from src.agents.rag.agent import get_rag_agent
+        
+        # Determine collection
+        target_collection = collection_name or f"user_{tenant_id}"
+        
+        agent = get_rag_agent(tenant_id=tenant_id, collection_name=target_collection)
+        
+        # Use retrieve_with_reranking for best results
+        result = await agent.retrieve_with_reranking(
+            query=query,
+            top_k=top_k,
+            score_threshold=score_threshold,
+            use_reranking=True
         )
-
-        # Perform similarity search
-        # ChromaDB's similarity_search_with_score is synchronous
-        def search_docs():
-            # DEBUG: Check collection count
-            try:
-                count = vector_store._collection.count() if hasattr(vector_store, '_collection') else 'N/A'
-                logger.info(f"[DEBUG] ChromaDB collection count: {count}")
-            except Exception as ce:
-                logger.warning(f"[DEBUG] Could not get collection count: {ce}")
-            
-            # Use similarity_search_with_score to get scores
-            results = vector_store.similarity_search_with_score(query, k=top_k)
-            
-            # DEBUG: Log raw results
-            logger.info(f"[DEBUG] Raw search results count: {len(results)}")
-            for i, (doc, score) in enumerate(results[:3]):
-                logger.info(f"[DEBUG] Result {i}: score={score}, content={doc.page_content[:50]}...")
-            
-            return results
-
-        search_results = await asyncio.to_thread(search_docs)
-
-        # Format results and filter by score threshold
+        
+        # Format results
+        documents = result.get("documents", [])
+        
         formatted_results = []
-        for doc, score in search_results:
-            # ChromaDB returns squared L2 distance by default (lower is better)
-            # Convert to similarity (higher is better): similarity = 1 / (1 + distance)
-            # This gives values in [0, 1] range
-            similarity = 1.0 / (1.0 + score) if score >= 0 else 1.0
-            
-            logger.info(f"[DEBUG] Doc: raw_score={score}, similarity={similarity:.4f}")
-
-            if similarity >= score_threshold:
-                formatted_results.append(
-                    {
-                        "id": doc.metadata.get("id", ""),
-                        "content": doc.page_content,
-                        "metadata": doc.metadata,
-                        "score": round(similarity, 4),
-                    }
-                )
-
-        logger.info(
-            f"Retrieved {len(formatted_results)} documents (threshold: {score_threshold})",
-            extra={
-                "results_count": len(formatted_results),
-                "score_threshold": score_threshold,
-            },
-        )
-
+        for doc in documents:
+            if hasattr(doc, 'content'):
+                formatted_results.append({
+                    "id": getattr(doc, 'id', ''),
+                    "content": getattr(doc, 'content', ''),
+                    "metadata": getattr(doc, 'metadata', {}),
+                    "score": getattr(doc, 'rerank_score', getattr(doc, 'score', 0.0))
+                })
+            else:
+                formatted_results.append(doc)
+                
         return formatted_results
 
     except Exception as e:
-        logger.error(
-            f"Document retrieval failed: {e}",
-            extra={"error": str(e), "query_preview": str(query)[:50]},
-            exc_info=True,
-        )
+        logger.error(f"Document retrieval failed for tenant {tenant_id}: {e}", exc_info=True)
         return []
 
 

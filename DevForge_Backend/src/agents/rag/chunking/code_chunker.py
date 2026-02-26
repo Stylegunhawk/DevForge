@@ -40,51 +40,31 @@ class CodeChunker(BaseChunker):
     
     def __init__(self):
         """Initialize code chunker with Tree-sitter parsers."""
-        self.parsers = {}
         self.text_fallback = TextChunker()
-        self._init_parsers()
+        self.supported_languages = set()
+        self._check_parser_availability()
     
-    def _init_parsers(self):
-        """Initialize Tree-sitter parsers for supported languages."""
+    def _check_parser_availability(self):
+        """Check which languages are available via tree-sitter-languages."""
         try:
-            # Try to load language libraries (tree-sitter 0.25 API)
-            try:
-                import tree_sitter_python
-                self.parsers['python'] = tree_sitter_python.language()
-                logger.info("Python parser initialized")
-            except Exception as e:
-                logger.warning(f"Python parser failed: {e}")
+            from tree_sitter_languages import get_parser
             
-            try:
-                import tree_sitter_javascript
-                self.parsers['javascript'] = tree_sitter_javascript.language()
-                logger.info("JavaScript parser initialized")
-            except Exception as e:
-                logger.warning(f"JavaScript parser failed: {e}")
-            
-            try:
-                import tree_sitter_typescript
-                ts_lang = tree_sitter_typescript.language_typescript()
-                self.parsers['typescript'] = ts_lang
-                logger.info("TypeScript parser initialized")
-            except Exception as e:
-                logger.warning(f"TypeScript parser failed: {e}")
-        
+            # Test each language
+            for lang in ['python', 'javascript', 'typescript']:
+                try:
+                    _ = get_parser(lang)
+                    self.supported_languages.add(lang)
+                    logger.info(f"{lang.capitalize()} parser available")
+                except Exception as e:
+                    logger.warning(f"{lang.capitalize()} parser unavailable: {e}")
         except ImportError as e:
-            logger.warning(f"Tree-sitter not available: {e}")
-    
-    def _create_parser(self, language):
-        """
-        Create parser for a language (tree-sitter 0.25 API).
-        
-        Note: In 0.25+, language objects are used directly, not via Parser.set_language().
-        """
-        return language  # Just return the language object
+            logger.warning(f"tree-sitter-languages not available: {e}")
     
     def is_supported(self, file_path: str) -> bool:
         """Check if file extension is supported."""
         ext = Path(file_path).suffix.lower()
-        return ext in SUPPORTED_LANGUAGES and SUPPORTED_LANGUAGES[ext] in self.parsers
+        lang = SUPPORTED_LANGUAGES.get(ext)
+        return lang in self.supported_languages
     
     def chunk(self, content: str, file_path: str) -> List[Dict]:
         """
@@ -102,14 +82,28 @@ class CodeChunker(BaseChunker):
         ext = Path(file_path).suffix.lower()
         language = SUPPORTED_LANGUAGES.get(ext)
         
-        if not language or language not in self.parsers:
+        if not language or language not in self.supported_languages:
             logger.info(f"Unsupported language for {file_path}, using text chunking")
             return self.text_fallback.chunk(content, file_path)
         
+        logger.info(f"Starting AST parsing for {file_path} (language: {language}, size: {len(content)} bytes)")
         try:
-            return self._chunk_with_ast(content, file_path, language)
+            chunks = self._chunk_with_ast(content, file_path, language)
+            
+            # CRITICAL FIX: Fallback if AST finds nothing but file is not empty
+            # Prevents silent data loss for top-level code (scripts, configs)
+            if not chunks and content.strip():
+                logger.warning(f"AST parsing found 0 entities for {file_path}, falling back to text chunking")
+                return self.text_fallback.chunk(content, file_path)
+            
+            return chunks
         except Exception as e:
-            logger.warning(f"AST parsing failed for {file_path}: {e}, falling back to text")
+            # Enhanced logging: Show exception type and input preview for debugging
+            input_preview = content[:200].replace('\n', '\\n')
+            logger.warning(
+                f"AST parsing failed for {file_path} ({type(e).__name__}: {e}). "
+                f"Input preview: {input_preview}... Falling back to text chunking."
+            )
             return self.text_fallback.chunk(content, file_path)
     
     def _chunk_with_ast(self, content: str, file_path: str, language: str) -> List[Dict]:
@@ -124,27 +118,48 @@ class CodeChunker(BaseChunker):
         Returns:
             List of chunks (functions, classes, imports)
         """
-        # Tree-sitter 0.25 API: Create Parser and parse with language
-        from tree_sitter import Parser
+        # Normalize input: Strip UTF-8 BOM and invisible Unicode characters
+        # Fix for AST parsing failures caused by BOM markers (\ufeff) or zero-width chars
+        # that break Tree-sitter parsing even though the Python syntax is valid
+        original_len = len(content)
+        normalized_content = content.lstrip('\ufeff').replace('\u200b', '').replace('\u200c', '').replace('\u200d', '')
         
-        lang_obj = self.parsers[language]
-        parser = Parser(lang_obj)
-        tree = parser.parse(bytes(content, 'utf8'))
-        root = tree.root_node
+        # Log normalization details if any characters were stripped
+        if len(normalized_content) != original_len:
+            stripped = original_len - len(normalized_content)
+            logger.info(f"Stripped {stripped} invisible char(s) from {file_path}")
+        
+        # Show content preview for debugging
+        content_preview = normalized_content[:100].replace('\n', '\\n')
+        logger.debug(f"Content preview for {file_path}: {content_preview}...")        
+        # Tree-sitter API: Use tree_sitter_languages wrapper for compatibility
+        # Fix: tree-sitter 0.21.3 + tree-sitter-python 0.25 require proper Language wrapping
+        # Direct Parser(lang) fails with "Parsing failed" - use get_parser instead
+        from tree_sitter_languages import get_parser
+        
+        parser = get_parser(language)
+        logger.debug(f"Parsing {file_path} with tree-sitter-languages parser for {language}")
+        try:
+            tree = parser.parse(bytes(normalized_content, 'utf8'))
+            root = tree.root_node
+            logger.debug(f"Parse successful for {file_path}, root node type: {root.type}")
+        except Exception as parse_error:
+            logger.error(f"Tree-sitter parse() failed for {file_path}: {type(parse_error).__name__}: {parse_error}")
+            raise
         
         chunks = []
-        lines = content.split('\n')
+        lines = normalized_content.split('\n')
         
         # Extract imports
-        imports = self._extract_imports(root, content, file_path, language)
+        imports = self._extract_imports(root, normalized_content, file_path, language)
         if imports:
             chunks.extend(imports)
         
         # Extract functions and classes
-        entities = self._extract_entities(root, content, file_path, language, lines)
+        entities = self._extract_entities(root, normalized_content, file_path, language, lines)
         chunks.extend(entities)
         
-        logger.info(f"AST chunking: {len(chunks)} chunks from {file_path}")
+        logger.info(f"✅ AST chunking successful: {len(chunks)} chunks from {file_path} (imports: {len(imports)}, entities: {len(entities)})")
         return chunks
     
     def _extract_imports(self, root, content: str, file_path: str, language: str) -> List[Dict]:
@@ -164,8 +179,9 @@ class CodeChunker(BaseChunker):
             return []
         
         try:
-            # Tree-sitter 0.25: language.query() directly
-            lang_obj = self.parsers[language]
+            # Get language object for querying
+            from tree_sitter_languages import get_language
+            lang_obj = get_language(language)
             query = lang_obj.query(query_str)
             captures = query.captures(root)
             
@@ -216,8 +232,9 @@ class CodeChunker(BaseChunker):
             return []
         
         try:
-            # Tree-sitter 0.25: language.query() directly
-            lang_obj = self.parsers[language]
+            # Get language object for querying
+            from tree_sitter_languages import get_language
+            lang_obj = get_language(language)
             query = lang_obj.query(query_str)
             captures = query.captures(root)
             
@@ -297,8 +314,9 @@ class CodeChunker(BaseChunker):
             else:
                 return []
             
-            # Tree-sitter 0.25: language.query() directly
-            lang_obj = self.parsers[language]
+            # Get language object for querying
+            from tree_sitter_languages import get_language
+            lang_obj = get_language(language)
             query = lang_obj.query(query_str)
             captures = query.captures(node)
             

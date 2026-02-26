@@ -110,34 +110,35 @@ Return ONLY the JSON object. No markdown, no backticks, no explanations."""
         )
     
     def _parse_response(self, text: str) -> Optional[dict]:
-        """Parse LLM response, handling common formatting issues."""
-        # Remove markdown code blocks if present
-        text = text.strip()
+        """Parse LLM response, handling common formatting issues and prose."""
+        import re
+        
+        # 1. Strip <thought>...</thought> tags if present (DeepSeek common behavior)
+        text = re.sub(r'<thought>.*?</thought>', '', text, flags=re.DOTALL).strip()
+        
+        # 2. Extract content between first { and last }
+        # This handles cases where the LLM adds prose before or after the JSON
+        match = re.search(r'(\{.*\})', text, re.DOTALL)
+        if match:
+            text = match.group(1)
+        
+        # 3. Final attempt at cleaning markdown code blocks if re.search didn't catch it
         if text.startswith("```"):
-            lines = text.split("\n")
-            # Find the JSON content between ``` markers
-            json_lines = []
-            in_block = False
-            for line in lines:
-                if line.startswith("```") and not in_block:
-                    in_block = True
-                    continue
-                elif line.startswith("```") and in_block:
-                    break
-                elif in_block:
-                    json_lines.append(line)
-            text = "\n".join(json_lines)
+            text = re.sub(r'^```(?:json)?\s*', '', text)
+            text = re.sub(r'\s*```$', '', text)
         
         try:
             result = json.loads(text)
             
             # Validate required fields
             if "semantic_type" not in result:
+                logger.warning(f"LLM response missing 'semantic_type': {result}")
                 return None
+                
             if "data_type" not in result:
                 result["data_type"] = "string"  # Default
             
             return result
         except json.JSONDecodeError as e:
-            logger.debug(f"JSON parse error: {e}. Raw text: {text[:100]}...")
+            logger.debug(f"JSON parse error: {e}. Raw text snippet: {text[:100]}...")
             return None

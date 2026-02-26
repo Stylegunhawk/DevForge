@@ -4,9 +4,12 @@ GitHub operations agent with v0.8 intelligence enhancements.
 Integrates: repo discovery, commit generation, log parsing, confidence policy, workflows.
 """
 
-import logging
+import hashlib
 import json
+import logging
 import time
+from collections import OrderedDict
+from dataclasses import dataclass
 from typing import TypedDict, Literal, Optional, Dict, Any
 
 from langgraph.graph import StateGraph, END
@@ -15,6 +18,7 @@ from src.core.model_router import ModelRouter
 from src.core.audit import Timeline, EventType, generate_audit_id, get_audit_logger
 from src.core.confidence import check_confidence
 from src.core.session import get_session_manager
+from src.core.config import settings
 from src.core.features import FeatureFlags, Feature
 from src.tools.github import tools as github_tools
 
@@ -33,33 +37,75 @@ class GitHubState(TypedDict):
     parameters: Optional[Dict[str, Any]]
     result: Optional[Dict[str, Any]]
     error: Optional[str]
-    
+
     # v0.8 additions
     context: Optional[Dict[str, Any]]  # Additional context (session_id, diff, error_log, etc)
-    audit_id: Optional[str]  # Audit tracking
-    timeline: Optional[Any]  # Timeline object
-    intent_confidence: Optional[float]  # LLM confidence for intent
-    repo_confidence: Optional[float]  # Fuzzy match confidence
-    commit_confidence: Optional[float]  # Commit message confidence
+    github_token: Optional[str]        # Transient: per-connection token, NEVER logged or audited
+    audit_id: Optional[str]            # Audit tracking
+    timeline: Optional[Any]            # Timeline object
+    intent_confidence: Optional[float] # LLM confidence for intent
+    repo_confidence: Optional[float]   # Fuzzy match confidence
+    commit_confidence: Optional[float] # Commit message confidence
 
 
-# Initialize intelligence components (singleton pattern)
-_repo_discovery = None
-_commit_generator = None
-_log_parser = None
+@dataclass
+class IntelligenceBundle:
+    """Per-token bundle of intelligence components.
+
+    Each MCP connection gets an isolated bundle to prevent cross-user data leaks.
+    Repo cache lives inside RepoDiscovery and is keyed by token_hash.
+    """
+    repo_discovery: Any
+    commit_generator: Any
+    log_parser: Any
+    github_tools_instance: Any
 
 
-def _get_intelligence_components():
-    """Get or initialize intelligence components"""
-    global _repo_discovery, _commit_generator, _log_parser
-    
-    if _repo_discovery is None:
-        github_tools_instance = github_tools.GitHubTools()
-        _repo_discovery = RepoDiscovery(github_tools_instance)
-        _commit_generator = CommitGenerator()
-        _log_parser = LogParser()
-    
-    return _repo_discovery, _commit_generator, _log_parser
+# Per-token bundle cache: {sha256(token): IntelligenceBundle}
+# Max 128 entries to prevent memory growth from many ephemeral connections.
+_bundle_cache: OrderedDict[str, "IntelligenceBundle"] = OrderedDict()
+_BUNDLE_CACHE_MAX = 128
+
+
+def _get_token_hash(token: Optional[str]) -> str:
+    """Return SHA256 hex digest of the token, or sentinel for env-token."""
+    raw = token or settings.GITHUB_TOKEN or ""
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _get_intelligence_bundle(token: Optional[str] = None) -> IntelligenceBundle:
+    """Get or create an IntelligenceBundle for the given token.
+
+    Uses SHA256 hash of the token as cache key to avoid storing raw tokens
+    in memory. Evicts oldest entry when cache reaches _BUNDLE_CACHE_MAX.
+    """
+    token_hash = _get_token_hash(token)
+
+    if token_hash in _bundle_cache:
+        # Move to end (LRU behavior: mark as recently used)
+        _bundle_cache.move_to_end(token_hash)
+        return _bundle_cache[token_hash]
+
+    # Evict oldest entry if at capacity (FIFO portion of LRU)
+    if len(_bundle_cache) >= _BUNDLE_CACHE_MAX:
+        # Pop from left (least recently used)
+        _bundle_cache.popitem(last=False)
+        logger.info("IntelligenceBundle cache evicted oldest entry")
+
+    gh_tools = github_tools.GitHubTools(token=token)
+    repo_disc = RepoDiscovery(gh_tools)
+    commit_gen = CommitGenerator()
+    log_pars = LogParser()
+
+    _bundle_cache[token_hash] = IntelligenceBundle(
+        repo_discovery=repo_disc,
+        commit_generator=commit_gen,
+        log_parser=log_pars,
+        github_tools_instance=gh_tools,
+    )
+    logger.info("Created new IntelligenceBundle for token_hash=%s", token_hash[:8])
+
+    return _bundle_cache[token_hash]
 
 
 async def parse_github_request(state: GitHubState) -> GitHubState:
@@ -211,9 +257,13 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
     context = state.get("context", {})
     timeline = state.get("timeline")
     audit_id = state.get("audit_id")
-    
-    repo_discovery, commit_generator, log_parser = _get_intelligence_components()
-    
+    token = state.get("github_token")  # transient field — never log this
+
+    bundle = _get_intelligence_bundle(token)
+    repo_discovery = bundle.repo_discovery
+    commit_generator = bundle.commit_generator
+    log_parser = bundle.log_parser
+
     try:
         # 1. Fuzzy repo matching (if repo_name provided but might be ambiguous)
         if "repo_name" in parameters and FeatureFlags.is_enabled(Feature.FUZZY_SEARCH):
@@ -325,37 +375,42 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
     parameters = state.get("parameters", {})
     timeline = state.get("timeline")
     audit_id = state.get("audit_id")
-    
+    token = state.get("github_token")  # transient field — never log this
+
+    # Get the bundle for this token so we use the correct authenticated client
+    bundle = _get_intelligence_bundle(token)
+    gh_tools = bundle.github_tools_instance
+
     if not operation:
         return {
             **state,
             "error": "No operation determined",
         }
-    
+
     logger.info(
         f"[{audit_id}] Executing GitHub operation: {operation}",
-        extra={"operation": operation, "parameters": parameters}
+        extra={"operation": operation}  # parameters intentionally omitted — may contain tokens
     )
-    
+
     timeline.start_step(f"execute_{operation}", f"Executing {operation}")
-    
+
     try:
-        # Execute operation based on type
+        # Execute operation based on type using per-token tools instance
         if operation == "list_repos":
-            result = github_tools.list_repos(**parameters)
-            
+            result = gh_tools.list_repos(**parameters)
+
         elif operation == "create_repo":
-            result = github_tools.create_repo(**parameters)
-            
+            result = gh_tools.create_repo(**parameters)
+
         elif operation == "create_issue":
-            result = github_tools.create_issue(**parameters)
-            
+            result = gh_tools.create_issue(**parameters)
+
         elif operation == "commit_file":
-            result = github_tools.commit_file(**parameters)
-            
+            result = gh_tools.commit_file(**parameters)
+
         elif operation == "create_pull_request":
-            result = github_tools.create_pull_request(**parameters)
-            
+            result = gh_tools.create_pull_request(**parameters)
+
         else:
             raise ValueError(f"Unknown GitHub operation: {operation}")
         
@@ -517,25 +572,39 @@ github_graph = workflow.compile()
 
 
 # Enhanced convenience function for invocation
-async def github_agent_invoke(query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def github_agent_invoke(
+    query: str,
+    context: Optional[Dict[str, Any]] = None,
+    github_token: Optional[str] = None,
+) -> Dict[str, Any]:
     """Invoke enhanced GitHub agent with a user query.
-    
+
     Args:
         query: User query describing GitHub operation
         context: Optional context (session_id, diff, error_log, files, etc.)
-        
+                 Must NOT contain 'github_token' — strip it at the router layer.
+        github_token: Optional per-connection GitHub PAT. Treated as transient;
+                      never logged, audited, or serialized into response.
+
     Returns:
         Result dictionary with success status, data/error, and audit info
     """
     logger.info(f"Invoking GitHub agent with query: {query[:100]}...")
-    
+
+    # Defensive guard: if caller forgot to strip the token from context, pop it here
+    safe_context = dict(context or {})
+    if "github_token" in safe_context:
+        logger.warning("github_token found inside context dict — stripping at agent boundary")
+        github_token = github_token or safe_context.pop("github_token")
+
     initial_state: GitHubState = {
         "query": query,
         "operation": None,
         "parameters": None,
         "result": None,
         "error": None,
-        "context": context or {},
+        "context": safe_context,
+        "github_token": github_token,   # transient \u2014 stays in state, never serialized out
         "audit_id": None,
         "timeline": None,
         "intent_confidence": None,

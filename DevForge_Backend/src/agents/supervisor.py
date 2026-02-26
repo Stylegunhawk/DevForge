@@ -260,7 +260,7 @@ async def github_node(state: SupervisorState) -> SupervisorState:
     logger.info(f"Executing GitHub agent for query: {query[:50]}...")
     
     try:
-        result = await github_agent_invoke(query=query)
+        result = await github_agent_invoke(query=query, context=None, github_token=None)
         
         logger.info(
             f"GitHub agent completed successfully",

@@ -9,7 +9,7 @@ Phase 1 Semantic Analyzer: LLM confined to classification only, never value gene
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 from src.core.schemas import DataGenArgs
 from src.tools.datagen.tools import generate_mock_data
@@ -20,7 +20,7 @@ ENABLE_SEMANTIC_ANALYZER = os.getenv("ENABLE_SEMANTIC_ANALYZER", "true").lower()
 
 
 
-async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
+async def datagen_agent(args: dict[str, Any], *, progress_callback: Optional[Any] = None) -> dict[str, Any]:
     """Execute DataGen agent with provided arguments.
 
     Supports two modes:
@@ -69,7 +69,7 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
         if use_v2:
             # V2: Advanced multi-entity generation
             # Check semantic analyzer feature flag
-            semantic_enabled = ENABLE_SEMANTIC_ANALYZER and getattr(datagen_args, 'enable_semantic_generation', True)
+            semantic_enabled = ENABLE_SEMANTIC_ANALYZER and datagen_args.enable_semantic_generation
             logging.info(f"Using V2 (advanced) data generation with Phase 8 components (semantic={semantic_enabled})")
             
             result = await generate_advanced_data(
@@ -78,15 +78,32 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
                 realism_level=datagen_args.realism_level,
                 default_rows=datagen_args.rows,
                 output_format=datagen_args.format,
-                enable_semantic_generation=semantic_enabled  # Phase 1: Pass semantic flag
+                enable_semantic_generation=semantic_enabled,  # Phase 1: Pass semantic flag
+                progress_callback=progress_callback
             )
             
+            # Check for pipeline failure
+            if not result.get("success", True):
+                error_msg = result.get("error", "Unknown pipeline error")
+                logging.error(f"V2 generation failed: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "data": result.get("data", {}),
+                    "rows": 0,
+                    "mode": "v2"
+                }
+
             logging.info(
-                f"V2 generation completed: {result['schema']['entity_count']} entities"
+                f"V2 generation completed: {result.get('schema', {}).get('entity_count', 0)} entities"
             )
+            
+            # Invariant 8: Deterministic Success Semantics
+            # Trust the generator's internal success flag
+            success = result.get("_internal_success", True)
             
             return {
-                "success": True,
+                "success": success,
                 "data": result,  # Full multi-entity result
                 "format": datagen_args.format,
                 "rows": datagen_args.rows,
@@ -116,8 +133,22 @@ async def datagen_agent(args: dict[str, Any]) -> dict[str, Any]:
             }
 
     except ValueError as e:
-        logging.error(f"DataGen agent validation error: {str(e)}", extra={"error": str(e)})
-        raise
+        error_msg = f"DataGen agent validation error: {str(e)}"
+        logging.error(error_msg, extra={"error": str(e)})
+        return {
+            "success": False,
+            "error": error_msg,
+            "data": {},
+            "rows": 0,
+            "mode": "unknown"
+        }
     except Exception as e:
-        logging.error(f"DataGen agent unexpected error: {str(e)}", extra={"error": str(e)}, exc_info=True)
-        raise
+        error_msg = f"DataGen agent unexpected error: {str(e)}"
+        logging.error(error_msg, extra={"error": str(e)}, exc_info=True)
+        return {
+            "success": False,
+            "error": error_msg,
+            "data": {},
+            "rows": 0,
+            "mode": "unknown"
+        }
