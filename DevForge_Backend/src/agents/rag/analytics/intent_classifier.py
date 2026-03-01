@@ -249,9 +249,11 @@ Categories:
 Reply with ONLY the category name, nothing else.
 Category:"""
             
+            from src.core.config import settings
+            
             # Timeout-bound LLM call
             response = await asyncio.wait_for(
-                generate_text(prompt, model="llama3.2", max_tokens=10),
+                generate_text(prompt, model=settings.DEFAULT_MODEL, max_tokens=10),
                 timeout=self.llm_timeout
             )
             

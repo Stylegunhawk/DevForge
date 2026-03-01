@@ -290,7 +290,7 @@ Respond in JSON format:
             response = await self.model_router.invoke_with_fallback(
                 model=model,
                 prompt=prompt,
-                fallback_chain=["gpt-oss:120b-cloud"]
+                fallback_chain=[settings.GITHUB_MODEL]
             )
             
             # Parse response

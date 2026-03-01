@@ -4,11 +4,15 @@ Loads environment variables and provides settings singleton.
 """
 
 import os
+import re
+import logging
 from functools import lru_cache
 from typing import List, Optional, Dict
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -33,19 +37,74 @@ class Settings(BaseSettings):
         super().__init__(**kwargs)
         # Auto-correct Celery broker for local dev if it points to docker service
         if not self.is_docker:
-            if "redis:6379" in self.CELERY_BROKER_URL:
+            if self.CELERY_BROKER_URL and "redis:6379" in self.CELERY_BROKER_URL:
                 self.CELERY_BROKER_URL = self.CELERY_BROKER_URL.replace("redis:6379", "localhost:6379")
-            if "redis:6379" in self.CELERY_RESULT_BACKEND:
+            if self.CELERY_RESULT_BACKEND and "redis:6379" in self.CELERY_RESULT_BACKEND:
                 self.CELERY_RESULT_BACKEND = self.CELERY_RESULT_BACKEND.replace("redis:6379", "localhost:6379")
+
+        # Security validation for CORS
+        if self.ENVIRONMENT.lower() == "production" and "localhost" in self.CORS_ORIGINS:
+            import warnings
+            warnings.warn("CRITICAL: Running in production environment but CORS_ORIGINS allows localhost!")
+
+        # Validate Redis URL format if provided
+        self._validate_redis_url()
+
+        # Validate Postgres URL format if provided
+        self._validate_postgres_url()
+
+    def _validate_redis_url(self) -> None:
+        """Validate Redis URL format and log warnings for common issues."""
+        if not self.REDIS_URL:
+            return
+
+        # Valid Redis URL patterns
+        valid_patterns = [
+            r"^redis://[\w.-]+:\d+(/\d+)?$",  # redis://host:port/db
+            r"^rediss://[\w.-]+:\d+(/\d+)?$",  # rediss:// (TLS)
+            r"^redis://:[\w]+@[\w.-]+:\d+(/\d+)?$",  # redis://:password@host:port/db
+        ]
+
+        if not any(re.match(pattern, self.REDIS_URL) for pattern in valid_patterns):
+            logger.warning(
+                f"REDIS_URL format may be invalid: '{self.REDIS_URL}'. "
+                "Expected format: redis://host:port/db or redis://:password@host:port/db"
+            )
+
+        # Warn about common issues
+        if "localhost" in self.REDIS_URL and self.ENVIRONMENT.lower() == "production":
+            logger.warning("REDIS_URL points to localhost in production environment!")
+
+    def _validate_postgres_url(self) -> None:
+        """Validate Postgres URL format and log warnings for common issues."""
+        if not self.POSTGRES_URL:
+            return
+
+        # Valid Postgres URL patterns
+        valid_patterns = [
+            r"^postgresql://[\w.-]+:[\w.-]+@[\w.-]+:\d+/[\w.-]+$",  # postgresql://user:pass@host:port/db
+            r"^postgresql://[\w.-]+@[\w.-]+:\d+/[\w.-]+$",  # postgresql://user@host:port/db (no password)
+        ]
+
+        if not any(re.match(pattern, self.POSTGRES_URL) for pattern in valid_patterns):
+            logger.warning(
+                f"POSTGRES_URL format may be invalid. "
+                "Expected format: postgresql://user:password@host:port/database"
+            )
+
+        # Warn about common issues
+        if "localhost" in self.POSTGRES_URL and self.ENVIRONMENT.lower() == "production":
+            logger.warning("POSTGRES_URL points to localhost in production environment!")
 
     # Server Configuration
     PORT: int = 8000
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3210,http://localhost:5173"
+    CORS_ORIGINS: str
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
 
     # Ollama Configuration
-    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_HOST: str
+    OLLAMA_API_KEY: str | None = None
 
     # Phase 1: Primary model for simple tasks
     DEFAULT_MODEL: str = "gpt-oss:20b-cloud"  # Use cloud to avoid memory issues
@@ -79,7 +138,7 @@ class Settings(BaseSettings):
 
     # Storage Configuration
     STORAGE_ROOT: str = "./data/uploads/users"
-    FILE_BASE_URL: str = "http://localhost:8000/static/uploads"
+    FILE_BASE_URL: str
 
     # Phase 3.1b: Qdrant Cloud Configuration
     QDRANT_URL: str | None = None  # e.g., https://xxx.europe-west3-0.gcp.cloud.qdrant.io
@@ -121,13 +180,13 @@ class Settings(BaseSettings):
     WORK_UNIT_TIMEOUT_SECONDS: int = 10
 
     # Phase 10.1: Celery Configuration
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    CELERY_BROKER_URL: str | None = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str | None = "redis://localhost:6379/0"
     CELERY_TASK_SOFT_TIME_LIMIT: int = 300  # 5 minutes
     CELERY_TASK_TIME_LIMIT: int = 360  # 6 minutes hard limit
 
     # Phase 10.1: pgvector Configuration
-    POSTGRES_URL: str = "postgresql://devforge:devforge123@localhost:5432/devforge"
+    POSTGRES_URL: str | None = None
     PG_VECTOR_DIMENSION: int = 768  # nomic-embed-text dimension
     USE_PGVECTOR: bool = False  # Feature flag, ChromaDB default
     PGVECTOR_FALLBACK_TO_CHROMA: bool = True  # Graceful degradation
@@ -189,10 +248,13 @@ class Settings(BaseSettings):
         """Parse CORS_ORIGINS comma-separated string into list."""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
 
+    GATEWAY_URL: str | None = None
+
     @property
     def gateway_url(self) -> str:
-        """Generate gateway URL dynamically from PORT."""
-        # In production, this would use actual hostname from request
+        """Generate gateway URL dynamically from PORT or use explicit setting."""
+        if self.GATEWAY_URL:
+            return self.GATEWAY_URL
         return f"http://localhost:{self.PORT}/api/gateway"
 
 

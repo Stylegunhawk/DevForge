@@ -83,13 +83,57 @@ app.mount("/static", StaticFiles(directory=data_dir), name="static")
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint.
-
-    Returns:
-        dict with status and uptime in seconds
-    """
+    """Unified health check endpoint combining API, Redis, and Vector DB status."""
     uptime = time.time() - START_TIME
-    return {"status": "ok", "uptime": round(uptime, 2)}
+    # 1. Check Vector Store (Postgres/Chroma)
+    if settings.POSTGRES_URL is None:
+        vector_status = "disabled"
+    else:
+        try:
+            from src.api.routers import rag_health_check
+            rag_health_response = await rag_health_check()
+            import json
+            rag_data = json.loads(rag_health_response.body.decode())
+            components = rag_data.get("components", {})
+            vector_status = components.get("vector_store", "error")
+        except Exception as e:
+            logger.error(f"Postgres health check failed: {e}")
+            vector_status = "error"
+    
+    # 2. Check Redis
+    if settings.REDIS_URL is None:
+        redis_status = "disabled"
+    else:
+        redis_status = "error"
+        try:
+            from src.storage.redis_file_store import RedisFileStore
+            redis_store = RedisFileStore()
+            if await redis_store.client.ping():
+                redis_status = "ok"
+            else:
+                redis_status = "down"
+        except Exception as e:
+            logger.error(f"Redis health check failed: {e}")
+            redis_status = "error"
+        
+    # 3. Determine overall status
+    is_healthy = True
+    if redis_status not in ("ok", "disabled"):
+        is_healthy = False
+    if vector_status not in ("ok", "disabled"):
+        is_healthy = False
+        
+    status = "healthy" if is_healthy else "degraded"
+    
+    return {
+        "status": status,
+        "uptime": round(uptime, 2),
+        "services": {
+            "api": "ok",
+            "redis": redis_status,
+            "postgres": vector_status
+        }
+    }
 
 
 @app.get("/")

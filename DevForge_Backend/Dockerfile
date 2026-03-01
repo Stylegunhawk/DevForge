@@ -70,6 +70,7 @@ RUN useradd -m -u 1000 devforge && \
     chown -R devforge:devforge /app
 
 # Copy application code
+# IMPORTANT: Relying on .dockerignore to exclude tests/, debug files, and sensitive data
 COPY . .
 
 # Set permission for code (in case of volume mounting issues)

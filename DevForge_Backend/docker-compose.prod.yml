@@ -15,11 +15,12 @@ services:
     # Remove local code volume for immutable deployments
     volumes:
       - ./data:/app/data # Only mount data directory
+      - ./data/uploads:/app/data/uploads
 
   # Production worker configuration
   celery-worker:
     # Increase concurrency for production
-    command: celery -A src.workers.celery_app worker -l warning -c 16 --max-tasks-per-child 1000
+    command: celery -A src.workers.celery_app worker -l warning -c ${CELERY_WORKERS:-16} --max-tasks-per-child 1000
     restart: always
     volumes:
       - ./data:/app/data
