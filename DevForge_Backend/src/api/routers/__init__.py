@@ -18,8 +18,6 @@ from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
 from src.agents.datagen.agent import datagen_agent
 from src.agents.github.agent import github_agent_invoke
 from src.agents.prompt_refiner.agent import refine_prompt_invoke
-from src.agents.rag.agent import rag_agent_invoke
-from src.agents.reranker import rerank_docs_invoke
 
 # Import RAG models for type hints
 from src.api.rag_models import (
@@ -45,9 +43,7 @@ mcp_router = APIRouter()
 # Map tool names to agent invoke functions
 SUPPORTED_TOOLS = {
     "generate_data": datagen_agent,
-    "retrieve_docs": rag_agent_invoke,
     "github_operation": github_agent_invoke,
-    "rerank_docs": rerank_docs_invoke,
     "refine_prompt": refine_prompt_invoke,
     "generate_cheatsheet": generate_cheatsheet_invoke,
     # Phase 2: Specialized GitHub Tools (Integrated into github_operation)
@@ -59,33 +55,27 @@ SUPPORTED_TOOLS = {
 # Factual tool descriptions (Sync with devforge.json manifest)
 TOOL_DESCRIPTIONS = {
     "generate_data": (
-        "Generate realistic synthetic data with two modes. "
+        "Context-aware test data generator with validation and graceful error handling. "
         "V1 (Simple): Faker-based mock data. "
-        "V2 (Advanced): LLM-powered semantic analysis, domain templates (ecommerce, saas), "
-        "multi-entity relationships, and data quality simulation."
-        "For custom data, always pass user description as 'prompt' parameter to trigger V2 semantic mode."
+        "V2 (Advanced): Multi-entity generation with semantic analysis, constraint enforcement, and relationship integrity. "
+        "Features: Input validation (rows: 1-100000, formats: json/csv), schema design error handling, constraint violation detection, "
+        "foreign key integrity validation, and detailed error reporting with graceful degradation."
     ),
     "github_operation": (
-        "Intelligent GitHub automation with natural language. "
-        "Supports: list repos, browse files, read file, search code, create issues, commit files, create PRs. "
-        "v0.8 features: fuzzy repo matching, AI commit messages from diffs, "
-        "log-to-issue parsing (Python/JS/Java/Go), confidence-based safety gating."
+        "Unified GitHub operations tool. "
+        "Performs repository analysis, issue tracking, PR management, "
+        "and code review automation."
     ),
     "refine_prompt": (
-        "Evidence-based prompt optimization for specific domains. "
-        "Analyzes tech stack (dependencies, code, chat) to provide context-aware "
-        "refinements with deterministic confidence and security sanitization."
+        "AI prompt optimization tool. "
+        "Analyzes and refines prompts for better AI responses "
+        "with context-aware improvements."
     ),
     "generate_cheatsheet": (
         "Context-aware dynamic cheat sheet generator. "
         "Analyzes code to detect libraries, complexity, and generates "
         "relevant markdown references with best practices and pitfalls."
     ),
-    "retrieve_docs": (
-        "Search documents using RAG (ChromaDB / Qdrant). "
-        "Ingest documents and query them semantically."
-    ),
-    "rerank_docs": "Rerank retrieved documents by relevance using cross-encoder",
 }
 
 

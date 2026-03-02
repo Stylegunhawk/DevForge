@@ -4,6 +4,8 @@ Provides pre-configured schemas with hardcoded distribution parameters.
 Templates are designed to be used as-is, not customized.
 """
 
+from typing import Optional
+
 from src.tools.datagen.schema_models import (
     EntitySchema,
     FieldSchema,

@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException, Request, Depends, security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from src.core.config import settings
 from src.api.schemas.rag import *
@@ -16,6 +17,13 @@ from src.workers.tasks.rag_tasks import async_ingest_documents
 router = APIRouter(prefix="/v1/rag", tags=["RAG"])
 redis_store = RedisFileStore()
 logger = logging.getLogger(__name__)
+
+# Security scheme for Swagger documentation
+security_scheme = HTTPBearer()
+
+def get_current_tenant_id(request: Request) -> str:
+    """Extract tenant_id from request state (set by middleware)"""
+    return request.state.tenant_id
 
 def _sigmoid(x: float) -> float:
     """Normalize raw logits (e.g. 351.63) to 0-1 range for UI display."""
@@ -28,17 +36,23 @@ def _sigmoid(x: float) -> float:
 # 1. FILE UPLOAD
 # ============================================================================
 
-@router.post("/file/upload", response_model=FileUploadResponse)
+@router.post(
+    "/file/upload", 
+    response_model=FileUploadResponse,
+    summary="Upload files for RAG ingestion",
+    description="Upload files and trigger async ingestion. Requires JWT authentication.",
+    dependencies=[Depends(security_scheme)]
+)
 async def upload_files(
+    request: Request,
     files: List[UploadFile] = File(...),
     collection: str = Form("default"),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 ):
     """
     Upload files and trigger async ingestion.
     Returns file metadata with 'pending' status.
     """
-    tenant_id = x_user_id or "default"
+    tenant_id = request.state.tenant_id
     collection_name = f"user_{tenant_id}"
     
     results = []
@@ -101,8 +115,13 @@ async def upload_files(
 # 2. FILE STATUS POLLING
 # ============================================================================
 
-@router.get("/file/{file_id}")
-async def get_file_metadata(file_id: str):
+@router.get(
+    "/file/{file_id}",
+    summary="Get file processing status",
+    description="Get processing status and metadata for a specific file. Requires JWT authentication.",
+    dependencies=[Depends(security_scheme)]
+)
+async def get_file_metadata(file_id: str, request: Request):
     """
     Get file processing status.
     """
@@ -113,19 +132,23 @@ async def get_file_metadata(file_id: str):
         
     if not status:
         raise HTTPException(status_code=404, detail="File not found")
+
+    if status.get("tenant_id") != request.state.tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     return status
 
 @router.get("/file/{file_id}/chunks", response_model=SemanticSearchResponse)
 async def get_file_chunks(
+    request: Request,
     file_id: str,
     limit: int = 5,
     offset: int = 0,
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 ):
     """
     Get all chunks for a specific file, ordered by chunk_index.
     """
-    tenant_id = x_user_id or "default"
+    tenant_id = request.state.tenant_id
     collection_name = f"user_{tenant_id}"
     
     # Verify file exists and belongs to tenant
@@ -158,15 +181,21 @@ async def get_file_chunks(
         queryId=None  # No query tracking for direct chunk retrieval
     )
 
-@router.get("/files", response_model=List[FileStatusResponse])
+@router.get(
+    "/files", 
+    response_model=List[FileStatusResponse],
+    summary="Get all files for tenant",
+    description="Get all files for the current authenticated tenant. Requires JWT authentication.",
+    dependencies=[Depends(security_scheme)]
+)
 async def get_all_files(
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID")
+    request: Request
 ):
     """
     Get all files for the current tenant.
     Returns file metadata with processing status for each file.
     """
-    tenant_id = x_user_id or "default"
+    tenant_id = request.state.tenant_id
     files = await redis_store.get_all_files_for_tenant(tenant_id)
     return files
 
@@ -174,23 +203,29 @@ async def get_all_files(
 # 3. SEMANTIC SEARCH
 # ============================================================================
 
-@router.post("/chunk/semanticSearchForChat", response_model=SemanticSearchResponse)
+@router.post(
+    "/chunk/semanticSearchForChat", 
+    response_model=SemanticSearchResponse,
+    summary="Semantic search for chat",
+    description="Perform semantic search across uploaded documents. Requires JWT authentication.",
+    dependencies=[Depends(security_scheme)]
+)
 async def semantic_search_for_chat(
-    request: SemanticSearchRequest,
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    search_request: SemanticSearchRequest,
+    request: Request,
 ):
     """
     Semantic search with strict filtering for orphaned/phantom chunks.
     """
-    tenant_id = x_user_id or "default"
+    tenant_id = request.state.tenant_id
     collection_name = f"user_{tenant_id}"
     
     agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
-    query = request.rewriteQuery or request.userQuery
+    query = search_request.rewriteQuery or search_request.userQuery
     
     result = await agent.retrieve_with_reranking(
         query=query,
-        top_k=request.top_k,
+        top_k=search_request.top_k,
         use_reranking=True
     )
     
@@ -263,9 +298,9 @@ async def semantic_search_for_chat(
     query_id = str(uuid.uuid4())
     await redis_store.save_query_metadata(
         query_id=query_id,
-        message_id=request.messageId,
-        user_query=request.userQuery,
-        rewrite_query=request.rewriteQuery,
+        message_id=search_request.messageId,
+        user_query=search_request.userQuery,
+        rewrite_query=search_request.rewriteQuery,
         chunk_ids=[chunk.id for chunk in response_chunks]
     )
     
@@ -278,17 +313,25 @@ async def semantic_search_for_chat(
 # 4. FILE DELETION
 # ============================================================================
 
-@router.delete("/file/{file_id}")
-async def delete_file(file_id: str):
+@router.delete(
+    "/file/{file_id}",
+    summary="Delete file",
+    description="Delete file, metadata, and vector embeddings. Requires JWT authentication.",
+    dependencies=[Depends(security_scheme)]
+)
+async def delete_file(file_id: str, request: Request):
     """
     Delete file, metadata, and vector embeddings accurately using the factory.
     """
     file_meta = await redis_store.get_file_metadata(file_id)
     if not file_meta:
         raise HTTPException(status_code=404, detail="File not found")
+
+    tenant_id = request.state.tenant_id
+    if file_meta.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     
     file_path = file_meta.get("diskPath")
-    tenant_id = file_meta.get("tenant_id", "default")
     collection_name = file_meta.get("collection_name", f"user_{tenant_id}")
     
     if file_path:

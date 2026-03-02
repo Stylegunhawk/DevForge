@@ -750,82 +750,127 @@ async def generate_advanced_data_v2(
     Generate advanced synthetic data using Phase 1 components.
     Drop-in replacement for legacy generate_advanced_data.
     """
-    # Step 1: Design Schema
-    if prompt or domain:
-        schema = await schema_designer.design_schema(
-            prompt=prompt or f"Generate {domain} data",
-            domain=domain,
-            default_rows=default_rows
-        )
-    else:
-        schema = create_minimal_schema(default_rows)
-    
-    # Convert Pydantic schema to dict for V2 generator
-    # AdvancedGeneratorV2 expects dict: {entity: {fields: ...}}
-    # SchemaDesign has .entities which is dict of EntitySchema
-    # EntitySchema has .fields which is list of FieldSchema
-    
-    schema_dict = {}
-    for entity_name, entity in schema.entities.items():
-        fields_dict = {}
-        for field in entity.fields:
-            fields_dict[field.name] = {
-                "type": field.type,
-                "nullable": field.nullable
+    try:
+        # Input validation
+        if default_rows is not None and (not isinstance(default_rows, int) or default_rows < 1 or default_rows > 100000):
+            return {
+                "success": False,
+                "error": f"Invalid rows parameter: {default_rows}. Must be integer between 1 and 100000",
+                "data": {},
+                "schema": {},
+                "rows_generated": 0
             }
-            if field.constraints:
-                fields_dict[field.name]["constraints"] = field.constraints
         
-        schema_dict[entity_name] = {
-            "fields": fields_dict
+        if output_format not in ["json", "csv"]:
+            return {
+                "success": False,
+                "error": f"Unsupported output format: {output_format}. Supported: json, csv",
+                "data": {},
+                "schema": {},
+                "rows_generated": 0
+            }
+        
+        # Step 1: Design Schema
+        if prompt or domain:
+            try:
+                schema = await schema_designer.design_schema(
+                    prompt=prompt or f"Generate {domain} data",
+                    domain=domain,
+                    default_rows=default_rows
+                )
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Schema design failed: {str(e)}",
+                    "data": {},
+                    "schema": {},
+                    "rows_generated": 0
+                }
+        else:
+            schema = create_minimal_schema(default_rows)
+        
+        # Convert Pydantic schema to dict for V2 generator
+        # AdvancedGeneratorV2 expects dict: {entity: {fields: ...}}
+        # SchemaDesign has .entities which is dict of EntitySchema
+        # EntitySchema has .fields which is list of FieldSchema
+        
+        schema_dict = {}
+        for entity_name, entity in schema.entities.items():
+            fields_dict = {}
+            for field in entity.fields:
+                fields_dict[field.name] = {
+                    "type": field.type,
+                    "nullable": field.nullable
+                }
+                if field.constraints:
+                    fields_dict[field.name]["constraints"] = field.constraints
+            
+            schema_dict[entity_name] = {
+                "fields": fields_dict
+            }
+            
+        # Step 2: Initialize Generator V2
+        llm_client = None
+        if enable_semantic_generation:
+            try:
+                # Use 'routing' or 'complex_reasoning' task for classification
+                model_name = model_router.select_model_by_task("routing") 
+                llm_client = model_router.get_chat_model(model_name)
+            except Exception as e:
+                logger.warning(f"Could not get LLM client for semantic analysis: {e}")
+        
+        generator = AdvancedGeneratorV2(
+            llm_client=llm_client,
+            enable_semantic=enable_semantic_generation
+        )
+        
+        # Step 3: Generate with relationship awareness
+        result = await generator.generate(
+            schema=schema_dict,
+            schema_design=schema,  # Pass SchemaDesign for FK integrity
+            row_count=default_rows,
+            user_prompt=prompt,
+            realism_level=realism_level,
+            progress_callback=progress_callback
+        )
+        
+        # Step 4: Format output (JSON returns native arrays, CSV returns strings)
+        formatted_data = generator.format_output(result["data"], output_format)
+        
+        # Step 5: Determine success based on metadata and violations
+        success = (
+            len(result.get("constraint_violations", [])) == 0 and
+            result.get("fk_integrity", {}).get("valid", True) and
+            result["metadata"].get("constraint_enforcement", {}).get("enforced", True)
+        )
+        
+        return {
+            "entities": list(result["data"].keys()),
+            "schema": {
+                "domain": schema.domain,
+                "entity_count": len(schema.entities),
+                "relationship_count": len(schema.relationships)
+            },
+            "data": formatted_data,
+            "semantic_generation_used": enable_semantic_generation,
+            "metadata": result["metadata"],
+            "constraint_violations": result.get("constraint_violations", []),
+            "fk_integrity": result.get("fk_integrity", {}),
+            "_internal_success": success  # Internal flag for agent to check
         }
         
-    # Step 2: Initialize Generator V2
-    llm_client = None
-    if enable_semantic_generation:
-        try:
-            # Use 'routing' or 'complex_reasoning' task for classification
-            model_name = model_router.select_model_by_task("routing") 
-            llm_client = model_router.get_chat_model(model_name)
-        except Exception as e:
-            logger.warning(f"Could not get LLM client for semantic analysis: {e}")
-    
-    generator = AdvancedGeneratorV2(
-        llm_client=llm_client,
-        enable_semantic=enable_semantic_generation
-    )
-    
-    # Step 3: Generate with relationship awareness
-    result = await generator.generate(
-        schema=schema_dict,
-        schema_design=schema,  # Pass SchemaDesign for FK integrity
-        row_count=default_rows,
-        user_prompt=prompt,
-        realism_level=realism_level,
-        progress_callback=progress_callback
-    )
-    
-    # Step 4: Format output (JSON returns native arrays, CSV returns strings)
-    formatted_data = generator.format_output(result["data"], output_format)
-    
-    # Step 5: Determine success based on metadata and violations
-    success = (
-        len(result.get("constraint_violations", [])) == 0 and
-        result.get("fk_integrity", {}).get("valid", True) and
-        result["metadata"].get("constraint_enforcement", {}).get("enforced", True)
-    )
-    
-    return {
-        "entities": list(result["data"].keys()),
-        "schema": {
-            "domain": schema.domain,
-            "entity_count": len(schema.entities),
-            "relationship_count": len(schema.relationships)
-        },
-        "data": formatted_data,
-        "semantic_generation_used": enable_semantic_generation,
-        "metadata": result["metadata"],
-        "constraint_violations": result.get("constraint_violations", []),
-        "fk_integrity": result.get("fk_integrity", {}),
-        "_internal_success": success  # Internal flag for agent to check
-    }
+    except Exception as e:
+        logger.error(f"Advanced data generation failed: {str(e)}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Data generation failed: {str(e)}",
+            "data": {},
+            "schema": {},
+            "entities": [],
+            "semantic_generation_used": False,
+            "metadata": {},
+            "constraint_violations": [],
+            "fk_integrity": {"valid": False, "error": str(e)},
+            "_internal_success": False
+        }
+

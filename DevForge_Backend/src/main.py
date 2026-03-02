@@ -15,7 +15,9 @@ import src.workers.celery_app
 
 from src.api.routers import router, mcp_router
 from src.api.routers.rag import router as rag_router
+from src.api.routers.auth import router as auth_router
 from src.api.monitoring import router as monitoring_router  # Phase 3
+from src.core.middleware import JWTAuthMiddleware
 
 # Track application start time for uptime calculation
 START_TIME = time.time()
@@ -60,8 +62,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add JWT auth middleware
+app.add_middleware(JWTAuthMiddleware)
+
 # Include API routers
 app.include_router(router, prefix="/api")
+app.include_router(auth_router, prefix="/api") # Auth routes (includes refresh)
 app.include_router(rag_router, prefix="/api") # Lobe Chat RAG
 app.include_router(mcp_router)  # MCP endpoints
 app.include_router(monitoring_router)  # Phase 3: Observability

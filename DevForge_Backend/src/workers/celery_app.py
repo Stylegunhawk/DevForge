@@ -30,6 +30,9 @@ def create_celery_app() -> Celery:
         result_expires=3600,  # 1 hour
         result_extended=True,
         
+        # Broker connection settings
+        broker_connection_retry_on_startup=True,
+        
         # Serialization
         task_serializer="json",
         result_serializer="json",

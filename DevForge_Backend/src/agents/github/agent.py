@@ -25,6 +25,7 @@ from src.core.confidence import check_confidence
 from src.core.session import get_session_manager
 from src.core.config import settings
 from src.core.features import FeatureFlags, Feature
+from src.core.risk import RiskGate, RiskViolation
 from src.tools.github import tools as github_tools
 
 # Import intelligence components
@@ -469,6 +470,75 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
         }
 
 
+async def risk_gate_check(state: GitHubState) -> GitHubState:
+    """Enforce risk requirements for the operation.
+    
+    Args:
+        state: Current state with operation and context
+        
+    Returns:
+        State with error if risk requirements not met, or passes through
+    """
+    operation = state.get("operation")
+    context = state.get("context", {})
+    audit_id = state.get("audit_id")
+    timeline = state.get("timeline")
+    
+    if not operation:
+        return state
+    
+    try:
+        if timeline:
+            timeline.start_step("risk_gate", f"Risk check for {operation}")
+        
+        # Extract risk confirmation from context if present
+        risk_context = {}
+        if "risk_confirmed" in context:
+            risk_context["confirmed"] = context["risk_confirmed"]
+        if "risk_reason" in context:
+            risk_context["reason"] = context["risk_reason"]
+        
+        # Check risk requirements
+        violation = RiskGate.check(operation, risk_context)
+        
+        if violation:
+            error_msg = f"Risk gate blocked: {violation.message}"
+            logger.warning(f"[{audit_id}] {error_msg}")
+            
+            if timeline:
+                timeline.fail_step("risk_gate", error_msg)
+            
+            return {
+                **state,
+                "error": error_msg,
+                "timeline": timeline,
+                "risk_violation": {
+                    "operation": violation.operation,
+                    "risk_level": violation.risk_level.value,
+                    "missing_requirements": violation.missing_requirements
+                }
+            }
+        
+        if timeline:
+            timeline.complete_step("risk_gate", f"Risk check passed ({violation.risk_level.value if violation else 'LOW'})")
+        
+        logger.info(f"[{audit_id}] Risk gate passed for {operation}")
+        return state
+        
+    except Exception as e:
+        error_msg = f"Risk gate error: {str(e)}"
+        logger.error(f"[{audit_id}] {error_msg}")
+        
+        if timeline:
+            timeline.fail_step("risk_gate", error_msg)
+        
+        return {
+            **state,
+            "error": error_msg,
+            "timeline": timeline
+        }
+
+
 def validate_parameters(state: GitHubState) -> GitHubState:
     """Strictly validate operation parameters using Pydantic schemas.
     
@@ -810,6 +880,7 @@ workflow = StateGraph(GitHubState)
 workflow.add_node("parse", parse_github_request)
 workflow.add_node("enhance", enhance_with_intelligence)
 workflow.add_node("validate", validate_parameters)
+workflow.add_node("risk_gate", risk_gate_check)
 workflow.add_node("execute", execute_github_operation)
 workflow.add_node("error", handle_error)
 
@@ -827,7 +898,15 @@ workflow.add_conditional_edges(
 workflow.add_edge("enhance", "validate")
 workflow.add_conditional_edges(
     "validate",
-    should_execute,
+    lambda state: "risk_gate" if not state.get("error") else "error",
+    {
+        "risk_gate": "risk_gate",
+        "error": "error",
+    }
+)
+workflow.add_conditional_edges(
+    "risk_gate",
+    lambda state: "execute" if not state.get("error") else "error",
     {
         "execute": "execute",
         "error": "error",

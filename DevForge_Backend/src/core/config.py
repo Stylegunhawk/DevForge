@@ -196,6 +196,9 @@ class Settings(BaseSettings):
     GRAPH_CONTEXT_DEPTH: int = 2  # BFS depth for related functions
     GRAPH_MAX_CONTEXT_CHUNKS:int = 3  # Limit per expanded function
     
+    # Phase 12: RAG Configuration
+    RAG_MAX_FILE_SIZE: int = 52428800  # 50MB default (52,428,800 bytes)
+    
     # Phase 11: Reranking
     ENABLE_RERANKING: bool = True
     RERANK_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
