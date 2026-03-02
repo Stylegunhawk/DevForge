@@ -112,8 +112,8 @@ class RepositoryScaffolder:
         )
     }
     
-    def __init__(self):
-        self.github_tools = GitHubTools()
+    def __init__(self, github_tools: Optional[GitHubTools] = None):
+        self.github_tools = github_tools or GitHubTools()
         self.security_validator = SecurityValidator(self.github_tools.client)
     
     async def scaffold(
@@ -334,16 +334,20 @@ class RepositoryScaffolder:
 
 
 # Convenience function for API
-async def scaffold_repository_invoke(args: Dict[str, Any]) -> Dict[str, Any]:
+async def scaffold_repository_invoke(
+    args: Dict[str, Any], 
+    github_tools: Optional[GitHubTools] = None
+) -> Dict[str, Any]:
     """API entry point for repository scaffolding
     
     Args:
         args: Arguments dict with name, template, description, private, force
+        github_tools: Optional GitHubTools instance
         
     Returns:
         Scaffold result
     """
-    scaffolder = RepositoryScaffolder()
+    scaffolder = RepositoryScaffolder(github_tools=github_tools)
     
     return await scaffolder.scaffold(
         name=args["name"],

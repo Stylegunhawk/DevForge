@@ -10,11 +10,12 @@ TECHNICAL DETAILS (Phase 11 Refinement):
 import math
 import asyncio
 import logging
-from typing import List
+from typing import List, Optional
 from sentence_transformers import CrossEncoder
 
 from .base_reranker import BaseReranker
 from src.storage.base_store import ChunkResult
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class CrossEncoderReranker(BaseReranker):
     - Proven SOTA for passage ranking
     """
     
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    def __init__(self, model_name: Optional[str] = None):
         """
         Initialize cross-encoder reranker.
         
@@ -39,9 +40,9 @@ class CrossEncoderReranker(BaseReranker):
         Memory: ~200MB in RAM after loading
         Latency: ~150ms for 30 candidates (CPU)
         """
-        self.model_name = model_name
+        self.model_name = model_name or settings.RERANK_MODEL
         self.model = CrossEncoder(
-            model_name,
+            self.model_name,
             max_length=512,  # Token limit for model
             device='cpu'      # CPU-only (portable)
         )

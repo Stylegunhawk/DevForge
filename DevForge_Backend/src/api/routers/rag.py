@@ -63,7 +63,7 @@ async def upload_files(
         mime = magic.Magic(mime=True)
         file_type = mime.from_buffer(content)
             
-        file_url = f"http://localhost:8000/static/uploads/users/{tenant_id}/{collection}/{safe_filename}"
+        file_url = f"{settings.FILE_BASE_URL}/users/{tenant_id}/{collection}/{safe_filename}"
         
         # Initialize metadata in Redis (Replacing broken init_file_status)
         file_meta = {

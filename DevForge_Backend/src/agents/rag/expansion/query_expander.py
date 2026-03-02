@@ -133,7 +133,7 @@ class QueryExpander:
     def __init__(
         self,
         llm_timeout: int = 5,
-        llm_model: str = "llama3.2",
+        llm_model: Optional[str] = None,
         expansion_counts: Optional[Dict[str, int]] = None
     ):
         """
@@ -144,8 +144,9 @@ class QueryExpander:
             llm_model: LLM model to use
             expansion_counts: Expansion count per intent
         """
+        from src.core.config import settings
         self.llm_timeout = llm_timeout
-        self.llm_model = llm_model
+        self.llm_model = llm_model or settings.DEFAULT_MODEL
         
         # Default expansion counts per intent
         self.expansion_counts = expansion_counts or {

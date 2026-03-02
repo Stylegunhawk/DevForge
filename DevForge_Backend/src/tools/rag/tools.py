@@ -368,7 +368,7 @@ async def ingest_documents(
     file_id: str, 
     tenant_id: str,  # Phase 15: Tenant Isolation
     knowledge_id: Optional[str] = None, # Phase 15: Knowledge Base Isolation
-    embed_model: str = "nomic-embed-text",
+    embed_model: Optional[str] = None,
     chunk_size: int = 500,
     chunk_overlap: int = 50,
     backend: str = "chroma",
@@ -401,6 +401,9 @@ async def ingest_documents(
     )
 
     try:
+        # Resolve embed_model
+        embed_model = embed_model or settings.RAG_EMBED_MODEL
+        
         # Initialize vector store based on backend
         if backend == "postgres":
             from src.storage.pgvector_store import PgVectorStore
@@ -532,7 +535,7 @@ async def ingest_documents(
 async def retrieve_docs(
     query: str,
     top_k: int = 5,
-    embed_model: str = "nomic-embed-text",
+    embed_model: Optional[str] = None,
     backend: str = "chroma",
     score_threshold: float = 0.5,
     tenant_id: str = "default",

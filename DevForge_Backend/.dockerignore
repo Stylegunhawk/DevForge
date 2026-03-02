@@ -43,6 +43,9 @@ venv.bak/
 .coverage.*
 htmlcov/
 .hypothesis/
+tests/
+pytest.ini
+*_test.py
 
 # Git
 .git/
@@ -86,7 +89,7 @@ upload_id.txt
 
 # Test scripts
 reproduce_issue.py
-debug_shaper_types.py
+debug_*.py
 temp_shaper_test.py
 validate_chunking.py
 verify_*.py

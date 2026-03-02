@@ -1,0 +1,20 @@
+# =============================================================================
+# DevForge API-Only Deployment (Local Testing)
+# =============================================================================
+#
+# Usage: docker-compose -f docker-compose.api.yml up --build
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: devforge_api_only
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env.api.example
+    environment:
+      - PORT=8001
+      - ENVIRONMENT=production

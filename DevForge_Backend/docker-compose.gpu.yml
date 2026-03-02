@@ -27,6 +27,8 @@ services:
               capabilities: [ gpu ]
     environment:
       - ENABLE_GPU=true
+    volumes:
+      - ./data/uploads:/app/data/uploads
 
   # Celery Worker (Major consumer - runs embedding models)
   celery-worker:

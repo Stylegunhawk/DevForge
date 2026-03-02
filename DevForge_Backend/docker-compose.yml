@@ -23,6 +23,7 @@ services:
     volumes:
       - .:/app
       - ./data:/app/data
+      - ./data/uploads:/app/data/uploads
     restart: unless-stopped
     networks:
       - devforge-network
@@ -59,9 +60,9 @@ services:
     image: pgvector/pgvector:pg16
     container_name: devforge-postgres
     environment:
-      POSTGRES_USER: devforge
-      POSTGRES_PASSWORD: devforge123
-      POSTGRES_DB: devforge
+      POSTGRES_USER: ${POSTGRES_USER:-devforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-devforge}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -79,7 +80,7 @@ services:
     profiles: [ "rag" ]
     image: devforge-backend:latest
     container_name: devforge-celery-worker
-    command: celery -A src.workers.celery_app worker -l info -c 4
+    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_WORKERS:-4}
     env_file:
       - .env.docker
     depends_on:

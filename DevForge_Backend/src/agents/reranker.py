@@ -1,9 +1,11 @@
 """Reranker agent for improving RAG retrieval relevance."""
 
 import logging
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 from sentence_transformers import CrossEncoder
+
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -11,16 +13,16 @@ logger = logging.getLogger(__name__)
 class Reranker:
     """Reranks documents using a Cross-Encoder model."""
 
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    def __init__(self, model_name: Optional[str] = None):
         """Initialize the reranker.
 
         Args:
             model_name: Name of the CrossEncoder model to use.
         """
-        self.model_name = model_name
+        self.model_name = model_name or settings.RERANK_MODEL
         try:
             # Initialize model on CPU by default to avoid VRAM issues with LLMs
-            self.model = CrossEncoder(model_name)
+            self.model = CrossEncoder(self.model_name)
             logger.info(f"Initialized Reranker with model: {model_name}")
         except Exception as e:
             logger.error(f"Failed to initialize Reranker: {e}")

@@ -119,6 +119,24 @@
               "repo": {
                 "type": "string",
                 "description": "Pre-specified repository (owner/repo) to skip fuzzy matching"
+              },
+              "available_files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "filename": {
+                      "type": "string"
+                    },
+                    "file_url": {
+                      "type": "string"
+                    },
+                    "file_type": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "List of currently uploaded files in the workspace with metadata (v0.8.1)"
               }
             }
           }
@@ -328,7 +346,7 @@
     },
     {
       "name": "scaffold_repository",
-      "description": "Create new repository from template with CI/CD setup. Templates: fastapi, react, nextjs, microservice, docs. Includes token validation, idempotency checks, and async fallback for large templates.",
+      "description": "Create new repository from template with CI/CD setup. Templates: fastapi, react, nextjs, microservice, docs. (Requires 'admin:org' scope for organization repos).",
       "parameters": {
         "type": "object",
         "properties": {

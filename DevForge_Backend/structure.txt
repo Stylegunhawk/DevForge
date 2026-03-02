@@ -6,18 +6,6 @@
 │       ├── devforge-lobe-chat.md
 │       └── github-examples.md
 ├── data
-│   ├── chromadb
-│   │  
-│   └── uploads
-│       └── users
-│           ├── dev_user_1
-│           │   └── default
-│           │       ├── 2106e561-8dee-4f57-b659-329948da03f8_agent.py
-│           │       └── bf00ed11-c143-4fb1-a5e3-400735a1081b_agent.py
-│           └── testuser
-│               └── default
-│                   └── 8ea082bd-77a6-4f62-99f5-84f2831bec84_temp_shaper_test.py
-├── docs
 │   ├── rag
 │   │   └── phase_11_2_guide.md
 │   ├── tools

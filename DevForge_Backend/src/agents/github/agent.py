@@ -4,6 +4,7 @@ GitHub operations agent with v0.8 intelligence enhancements.
 Integrates: repo discovery, commit generation, log parsing, confidence policy, workflows.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -11,6 +12,10 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TypedDict, Literal, Optional, Dict, Any
+from github import GithubException
+from pydantic import ValidationError
+
+from src.agents.github.schemas import validate_op_params
 
 from langgraph.graph import StateGraph, END
 
@@ -26,6 +31,11 @@ from src.tools.github import tools as github_tools
 from src.agents.github.intelligence.repo_discovery import RepoDiscovery
 from src.agents.github.intelligence.commit_generator import CommitGenerator
 from src.agents.github.intelligence.log_parser import LogParser
+
+# Import specialized tools
+from src.tools.scaffold import scaffold_repository_invoke
+from src.tools.changelog import generate_changelog_invoke
+from src.tools.ci_diagnostics import analyze_ci_failure_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +78,10 @@ _BUNDLE_CACHE_MAX = 128
 
 
 def _get_token_hash(token: Optional[str]) -> str:
-    """Return SHA256 hex digest of the token, or sentinel for env-token."""
-    raw = token or settings.GITHUB_TOKEN or ""
-    return hashlib.sha256(raw.encode()).hexdigest()
+    """Return SHA256 hex digest of the token, or sentinel for empty token."""
+    if not token:
+        return "no_token_provided"
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _get_intelligence_bundle(token: Optional[str] = None) -> IntelligenceBundle:
@@ -79,6 +90,11 @@ def _get_intelligence_bundle(token: Optional[str] = None) -> IntelligenceBundle:
     Uses SHA256 hash of the token as cache key to avoid storing raw tokens
     in memory. Evicts oldest entry when cache reaches _BUNDLE_CACHE_MAX.
     """
+    if not token:
+        raise ValueError(
+            "GitHub token required. Please provide a valid GitHub Personal Access Token from the frontend."
+        )
+    
     token_hash = _get_token_hash(token)
 
     if token_hash in _bundle_cache:
@@ -143,6 +159,12 @@ Available Operations:
 - create_issue: Create an issue in a repository (can parse from error_log if provided)
 - commit_file: Commit/update a file in a repository (can auto-generate message if diff provided)
 - create_pull_request: Create a pull request
+- scaffold_repo: create repository from template, scaffold new project with CI/CD
+- generate_changelog: generate changelog or release notes between git tags/commits
+- analyze_ci_failure: analyze CI/CD pipeline failure, debug GitHub Actions workflow
+- browse_files: list files in repo or directory (returns file tree)
+- read_file: read contents of a specific file
+- search_code: search code across repository
 
 Respond with ONLY a JSON object in this exact format (no markdown, no explanation):
 {{
@@ -156,8 +178,14 @@ Respond with ONLY a JSON object in this exact format (no markdown, no explanatio
 For list_repos, parameters can include: visibility, sort, limit
 For create_repo, parameters must include: name, and can include: description, private
 For create_issue, parameters must include: repo_name, title, and can include: body, labels, assignees
-For commit_file, parameters must include: repo_name, file_path, content, commit_message, and can include: branch
+- For commit_file, parameters must include: repo_name, commit_message, and can include: file_path, content, branch. (Intelligence will try to find the file if file_path or content the user is thinking of is an uploaded file).
 For create_pull_request, parameters must include: repo_name, title, head, and can include: base, body, draft
+For scaffold_repo, parameters must include: name, template, and can include: description, private, force
+For generate_changelog, parameters must include: repo_name, and can include: from_tag, to_tag, format
+For analyze_ci_failure, parameters must include: repo_name, run_id, and can include: pr_number
+For browse_files, parameters must include: repo_name, and can include: path (default: "/")
+For read_file, parameters must include: repo_name, file_path
+For search_code, parameters must include: query, and can include: repo_name
 
 Important: Include a confidence score (0.0 to 1.0) indicating how confident you are in the classification.
 Extract all relevant parameters from the user request."""
@@ -166,11 +194,30 @@ Extract all relevant parameters from the user request."""
         timeline.start_step("llm_classify", "Classifying user intent with LLM")
         
         start_time = time.time()
-        response = await router.invoke_with_fallback(
-            model_name=model,
-            prompt=classification_prompt,
-            fallback_models=["deepseek-v3.1:671b-cloud"]
-        )
+        try:
+            # Phase 3: Add 30s timeout for LLM classification
+            response = await asyncio.wait_for(
+                router.invoke_with_fallback(
+                    model_name=model,
+                    prompt=classification_prompt,
+                    fallback_models=["deepseek-v3.1:671b-cloud"]
+                ),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"[{audit_id}] LLM classification timed out after 30s")
+            timeline.fail_step("llm_classify", "LLM Classification Timeout")
+            return {
+                **state,
+                "error": "LLM classification timed out. The system is currently slow, please try again later.",
+                "result": {
+                    "success": False,
+                    "error": "LLM Timeout",
+                    "audit_id": audit_id,
+                    "timeline": timeline.to_dict() if timeline else None
+                }
+            }
+        
         duration = time.time() - start_time
         logger.info(
             f"LLM Classification complete in {duration:.2f}s",
@@ -257,6 +304,14 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
     context = state.get("context", {})
     timeline = state.get("timeline")
     audit_id = state.get("audit_id")
+    
+    logger.info(f"[{audit_id}] [DEBUG] Starting enhancement. Operation: {operation}")
+    logger.info(f"[{audit_id}] [DEBUG] Current parameters: {parameters}")
+    logger.info(f"[{audit_id}] [DEBUG] Context keys: {list(context.keys())}")
+    if "available_files" in context:
+        logger.info(f"[{audit_id}] [DEBUG] available_files in context: {[f.get('filename') for f in context['available_files']]}")
+    else:
+        logger.warning(f"[{audit_id}] [DEBUG] available_files NOT in context")
     token = state.get("github_token")  # transient field — never log this
 
     bundle = _get_intelligence_bundle(token)
@@ -345,6 +400,58 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
             logger.info(f"[{audit_id}] Parsed error log to issue: {parsed_issue.title}")
             timeline.complete_step("log_parse", f"Created issue: {parsed_issue.title[:50]}")
         
+        # 4. Commit file context injection (before validation)
+        if (operation == "commit_file" and 
+            "file_url" not in parameters and 
+            "content" not in parameters):
+            
+            available_files = context.get("available_files", [])
+            file_path = parameters.get("file_path", "").lower()
+            logger.info(f"[{audit_id}] [DEBUG] commit_file injection started. file_path: '{file_path}', available_files count: {len(available_files)}")
+
+            # Clean path to handle Unicode ellipsis, underscores, hyphens, and parentheses
+            file_path = file_path.replace("…", " ").replace("...", " ").replace("_", " ").replace("-", " ").replace("(", " ").replace(")", " ")
+            
+            # Fuzzy match or single-file fallback
+            matches = []
+            
+            # Case 1: file_path provided - use fuzzy matching
+            if file_path:
+                words = [w for w in file_path.split() if len(w) >= 3]
+                logger.info(f"[{audit_id}] [DEBUG] Split file_path words: {words}")
+                
+                for f in available_files:
+                    fname = f["filename"].lower()
+                    if any(word in fname for word in words):
+                        matches.append(f)
+                
+                logger.info(f"[{audit_id}] [DEBUG] Fuzzy matches found: {[m['filename'] for m in matches]}")
+            
+            # Case 2: No specific file mentioned or fuzzy match failed - if only one file exist, pick it!
+            if not matches and len(available_files) == 1:
+                logger.info(f"[{audit_id}] [DEBUG] Single file fallback: {available_files[0]['filename']}")
+                matches = [available_files[0]]
+            
+            # Disambiguation: Pick most recent if multiple matches
+            matched = None
+            if matches:
+                # Sort by createdAt if available, otherwise just pick first
+                matches.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
+                matched = matches[0]
+            
+            # Fallback: first PDF if no match and multiple files exist
+            if not matched and available_files:
+                matched = next(
+                    (f for f in available_files if "pdf" in f.get("file_type", "").lower()), 
+                    available_files[0]
+                )
+            
+            if matched:
+                parameters["file_url"] = matched["file_url"]
+                logger.info(f"Pre-validation file injection: {matched['filename']} → {matched['file_url']}")
+                if timeline:
+                    timeline.add_event(EventType.STEP_COMPLETE, f"Injected file_url: {matched['filename']}")
+        
         return {
             **state,
             "parameters": parameters,
@@ -359,6 +466,62 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
         return {
             **state,
             "timeline": timeline,
+        }
+
+
+def validate_parameters(state: GitHubState) -> GitHubState:
+    """Strictly validate operation parameters using Pydantic schemas.
+    
+    Args:
+        state: Current state
+        
+    Returns:
+        Validated state or state with error
+    """
+    operation = state.get("operation")
+    parameters = state.get("parameters", {})
+    audit_id = state.get("audit_id")
+    timeline = state.get("timeline")
+    
+    if not operation:
+        return state
+        
+    try:
+        if timeline:
+            timeline.start_step("validation", f"Validating parameters for {operation}")
+        
+        # Phase 4: Strict Pydantic validation
+        validated = validate_op_params(operation, parameters)
+        
+        if timeline:
+            timeline.complete_step("validation", "Validation passed")
+        return {
+            **state,
+            "parameters": validated,
+            "timeline": timeline
+        }
+    except ValidationError as e:
+        error_details = e.errors()[0]
+        loc = error_details.get("loc", [])
+        field = loc[-1] if loc else "general"
+        msg = error_details.get("msg", "invalid value")
+        friendly_error = f"Validation failed for {operation}: {field} -> {msg}"
+        
+        logger.warning(f"[{audit_id}] Validation failed: {friendly_error}")
+        if timeline:
+            timeline.fail_step("validation", friendly_error)
+        
+        return {
+            **state,
+            "error": friendly_error,
+            "timeline": timeline
+        }
+    except Exception as e:
+        logger.error(f"[{audit_id}] Unexpected validation error: {e}")
+        return {
+            **state,
+            "error": f"Validation error: {str(e)}",
+            "timeline": timeline
         }
 
 
@@ -392,35 +555,76 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
         extra={"operation": operation}  # parameters intentionally omitted — may contain tokens
     )
 
-    timeline.start_step(f"execute_{operation}", f"Executing {operation}")
+    if timeline:
+        timeline.start_step(f"execute_{operation}", f"Executing {operation}")
 
     try:
-        # Execute operation based on type using per-token tools instance
-        if operation == "list_repos":
-            result = gh_tools.list_repos(**parameters)
-
-        elif operation == "create_repo":
-            result = gh_tools.create_repo(**parameters)
-
-        elif operation == "create_issue":
-            result = gh_tools.create_issue(**parameters)
-
-        elif operation == "commit_file":
-            result = gh_tools.commit_file(**parameters)
-
-        elif operation == "create_pull_request":
-            result = gh_tools.create_pull_request(**parameters)
-
-        else:
-            raise ValueError(f"Unknown GitHub operation: {operation}")
+        loop = asyncio.get_event_loop()
         
-        timeline.complete_step(f"execute_{operation}", f"Completed successfully")
-        timeline.add_event(EventType.OPERATION_COMPLETE, f"{operation} completed")
+        # Phase 3: Add 15s timeout for GitHub API operations
+        async def run_operation():
+            # Execute operation based on type using per-token tools instance
+            # All GitHubTools methods are sync - wrap in executor for async safety
+            if operation == "list_repos":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.list_repos(**parameters)
+                )
+
+            elif operation == "create_repo":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.create_repo(**parameters)
+                )
+
+            elif operation == "create_issue":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.create_issue(**parameters)
+                )
+
+            elif operation == "commit_file":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.commit_file(**parameters)
+                )
+
+            elif operation == "create_pull_request":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.create_pull_request(**parameters)
+                )
+
+            elif operation == "browse_files":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.browse_files(**parameters)
+                )
+
+            elif operation == "read_file":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.read_file(**parameters)
+                )
+
+            elif operation == "search_code":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.search_code(**parameters)
+                )
+                
+            elif operation == "scaffold_repo":
+                # Pass the authenticated gh_tools instance
+                return await scaffold_repository_invoke(parameters, github_tools=gh_tools)
+
+            elif operation == "generate_changelog":
+                return await generate_changelog_invoke(parameters, github_tools=gh_tools)
+
+            elif operation == "analyze_ci_failure":
+                return await analyze_ci_failure_invoke(parameters, github_tools=gh_tools)
+
+            else:
+                raise ValueError(f"Unknown GitHub operation: {operation}")
+
+        result = await asyncio.wait_for(run_operation(), timeout=15.0)
         
-        # Store audit log
-        audit_logger = get_audit_logger()
-        await audit_logger.store_timeline(timeline)
+        if timeline:
+            timeline.complete_step(f"execute_{operation}", f"Completed successfully")
+            timeline.add_event(EventType.OPERATION_COMPLETE, f"{operation} completed")
         
+        executed_at = time.time()
         logger.info(
             f"[{audit_id}] GitHub operation completed successfully",
             extra={"operation": operation}
@@ -433,16 +637,74 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 "operation": operation,
                 "data": result,
                 "audit_id": audit_id,
-                "timeline": timeline.to_dict(),
+                "timeline": timeline.to_dict() if timeline else None,
                 "intent_confidence": state.get("intent_confidence"),
                 "repo_confidence": state.get("repo_confidence"),
                 "commit_confidence": state.get("commit_confidence"),
+                # Phase 4: Rollback context
+                "rollback_context": {
+                    "executed_at": executed_at,
+                    "repo_name": parameters.get("repo_name"),
+                    "operation": operation
+                }
             },
         }
         
+    except asyncio.TimeoutError:
+        logger.error(f"[{audit_id}] GitHub operation {operation} timed out after 15s")
+        if timeline:
+            timeline.fail_step(f"execute_{operation}", "GitHub API Timeout")
+        return {
+            **state,
+            "error": f"The GitHub operation '{operation}' timed out. The API is responding slowly.",
+            "result": {
+                "success": False,
+                "error": "Timeout Error",
+                "audit_id": audit_id,
+                "timeline": timeline.to_dict() if timeline else None
+            }
+        }
+    except GithubException as e:
+        status = getattr(e, "status", 500)
+        error_msg = str(e.data.get("message", e)) if hasattr(e, "data") else str(e)
+        
+        # Categorize error
+        category = "GitHub API Error"
+        friendly_msg = f"GitHub operation failed: {error_msg}"
+        
+        if status == 404:
+            category = "Not Found"
+            repo_name = parameters.get("repo_name", "unknown")
+            friendly_msg = f"Repository or resource not found: '{repo_name}'. Please verify the name and your access permissions."
+        elif status == 401:
+            category = "Authentication Failed"
+            friendly_msg = "Authentication failed. Your GitHub token may be invalid or expired."
+        elif status == 403:
+            category = "Permission Denied"
+            if "rate limit" in error_msg.lower():
+                friendly_msg = "GitHub API rate limit exceeded. Please try again later."
+            else:
+                friendly_msg = "Access forbidden. You don't have permission to perform this action on the repository."
+        
+        logger.error(f"[{audit_id}] {category} ({status}): {error_msg}")
+        if timeline:
+            timeline.fail_step(f"execute_{operation}", friendly_msg)
+        
+        return {
+            **state,
+            "error": friendly_msg,
+            "result": {
+                "success": False,
+                "error": category,
+                "status": status,
+                "audit_id": audit_id,
+                "timeline": timeline.to_dict() if timeline else None
+            }
+        }
     except Exception as e:
-        timeline.fail_step(f"execute_{operation}", str(e))
-        timeline.add_event(EventType.OPERATION_FAILED, f"{operation} failed: {e}")
+        if timeline:
+            timeline.fail_step(f"execute_{operation}", str(e))
+            timeline.add_event(EventType.OPERATION_FAILED, f"{operation} failed: {e}")
         
         logger.error(
             f"[{audit_id}] GitHub operation failed: {e}",
@@ -461,9 +723,16 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 "timeline": timeline.to_dict() if timeline else None,
             },
         }
+    finally:
+        # Store audit log - ensures persistence on both success and failure
+        try:
+            audit_logger = get_audit_logger()
+            await audit_logger.store_timeline(timeline)
+        except Exception as audit_err:
+            logger.error(f"[{audit_id}] Failed to store timeline: {audit_err}")
 
 
-def should_enhance(state: GitHubState) -> Literal["enhance", "execute", "error"]:
+def should_enhance(state: GitHubState) -> Literal["enhance", "validate", "error"]:
     """Determine if intelligence enhancement should be applied.
     
     Args:
@@ -481,12 +750,12 @@ def should_enhance(state: GitHubState) -> Literal["enhance", "execute", "error"]
     if state.get("result"):
         return "error"  # Will return the result as-is
     
-    # Apply enhancements if enabled
+    # Phase 4: Route to validation instead of execute
     return "enhance"
 
 
 def should_execute(state: GitHubState) -> Literal["execute", "error"]:
-    """Determine if operation should be executed.
+    """Determine if operation should be executed after validation.
     
     Args:
         state: Current state
@@ -496,9 +765,7 @@ def should_execute(state: GitHubState) -> Literal["execute", "error"]:
     """
     if state.get("error"):
         return "error"
-    if state.get("result"):  # Already have result (e.g., needs clarification)
-        return "error"
-    if not state.get("operation"):
+    if state.get("result"):
         return "error"
     return "execute"
 
@@ -542,6 +809,7 @@ workflow = StateGraph(GitHubState)
 # Add nodes
 workflow.add_node("parse", parse_github_request)
 workflow.add_node("enhance", enhance_with_intelligence)
+workflow.add_node("validate", validate_parameters)
 workflow.add_node("execute", execute_github_operation)
 workflow.add_node("error", handle_error)
 
@@ -552,12 +820,13 @@ workflow.add_conditional_edges(
     should_enhance,
     {
         "enhance": "enhance",
-        "execute": "execute",
+        "validate": "validate",
         "error": "error",
     }
 )
+workflow.add_edge("enhance", "validate")
 workflow.add_conditional_edges(
-    "enhance",
+    "validate",
     should_execute,
     {
         "execute": "execute",

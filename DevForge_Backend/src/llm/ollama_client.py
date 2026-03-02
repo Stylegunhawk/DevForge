@@ -3,9 +3,11 @@
 import logging
 import httpx
 
+from src.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-OLLAMA_HOST = "http://localhost:11434"
+# Removed hardcoded OLLAMA_HOST, dynamically loading from settings when used
 
 
 async def generate_text(prompt: str, model: str = "gpt-oss:20b-cloud", max_tokens: int = 100) -> str:
@@ -21,9 +23,11 @@ async def generate_text(prompt: str, model: str = "gpt-oss:20b-cloud", max_token
         Generated text or empty string on error
     """
     try:
+        headers = {"Authorization": f"Bearer {settings.OLLAMA_API_KEY}"} if settings.OLLAMA_API_KEY else {}
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{OLLAMA_HOST}/api/generate",
+                f"{settings.OLLAMA_HOST}/api/generate",
+                headers=headers,
                 json={
                     "model": model,
                     "prompt": prompt,

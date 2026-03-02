@@ -40,7 +40,7 @@ class CheatsheetAgent:
         """
         # Extract parameters
         explicit_language = arguments.get('language')
-        skill_level = arguments.get('skill_level', 'beginner')
+        skill_level = str(arguments.get('skill_level', 'beginner')).lower()
         code_context = arguments.get('code_context')
         
         logger.info(f"Request: language={explicit_language}, "
@@ -122,6 +122,8 @@ class CheatsheetAgent:
         # 8. Return enhanced response
         # Determine which detected libraries have template support
         supported_libs = [lib for lib in detected_libraries if lib in['pandas', 'fastapi', 'asyncio']]
+        
+        logger.info(f"Delivering skill: {skill_level} (Requested: {arguments.get('skill_level', 'beginner')})")
         
         return {
             'success': True,
