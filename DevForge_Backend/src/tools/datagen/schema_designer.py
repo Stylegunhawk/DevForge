@@ -77,28 +77,22 @@ class SchemaDesigner:
             model_task: Task type for model selection (default: "routing" for deepseek-r1:8b)
         """
         self.model_task = model_task
-        self._domain_templates: dict[str, SchemaDesign] = {}
-        self._load_domain_templates()
     
-    def _load_domain_templates(self) -> None:
-        """Load pre-defined domain templates for fallback."""
-        # Import domain templates from dedicated module (Phase 8.4)
-        from src.tools.datagen.domain_templates import get_template
-        
-        # Load templates into registry
-        for domain in ["ecommerce", "saas"]:
-            self._domain_templates[domain] = get_template(domain)
-    
-    def get_domain_template(self, domain: str) -> Optional[SchemaDesign]:
-        """Get pre-defined template for a domain.
+    def get_domain_template(self, domain: str, requested_rows: Optional[int] = None) -> Optional[SchemaDesign]:
+        """Get pre-defined template for a domain with optional row scaling.
         
         Args:
             domain: Domain name (e.g., "ecommerce", "saas")
+            requested_rows: Optional total row count for scaling
             
         Returns:
             SchemaDesign if domain exists, None otherwise
         """
-        return self._domain_templates.get(domain.lower())
+        from src.tools.datagen.domain_templates import get_template
+        try:
+            return get_template(domain, requested_rows=requested_rows)
+        except ValueError:
+            return None
     
     async def design_schema(
         self,
@@ -118,11 +112,11 @@ class SchemaDesigner:
         Returns:
             Validated SchemaDesign
         """
-        # If domain specified and we have a template, use it directly
+        # If domain specified and we have a template, use it directly with scaling
         if domain:
-            template = self.get_domain_template(domain)
+            template = self.get_domain_template(domain, requested_rows=default_rows)
             if template:
-                logger.info(f"Using domain template for: {domain}")
+                logger.info(f"Using domain template for: {domain} (scaled to ~{default_rows} rows)")
                 return template
         
         # Try LLM-based schema design
@@ -137,9 +131,9 @@ class SchemaDesigner:
         # Fallback: try to infer domain from prompt
         inferred_domain = self._infer_domain(prompt)
         if inferred_domain:
-            template = self.get_domain_template(inferred_domain)
+            template = self.get_domain_template(inferred_domain, requested_rows=default_rows)
             if template:
-                logger.info(f"Using inferred domain template: {inferred_domain}")
+                logger.info(f"Using inferred domain template: {inferred_domain} (scaled to ~{default_rows} rows)")
                 return template
         
         # Ultimate fallback: minimal schema
@@ -274,14 +268,14 @@ class SchemaDesigner:
         """
         # Check domain template first
         if domain:
-            template = self.get_domain_template(domain)
+            template = self.get_domain_template(domain, requested_rows=default_rows)
             if template:
                 return template
         
         # Try to infer domain
         inferred_domain = self._infer_domain(prompt)
         if inferred_domain:
-            template = self.get_domain_template(inferred_domain)
+            template = self.get_domain_template(inferred_domain, requested_rows=default_rows)
             if template:
                 return template
         

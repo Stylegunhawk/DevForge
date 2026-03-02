@@ -15,23 +15,10 @@ def select_sections(
 ) -> List[Dict]:
     """
     Choose 5-7 most relevant sections.
-    
-    Priority:
-    1. Library-specific sections (if detected)
-    2. Complexity-appropriate base sections
-    3. General language topics
-    4. FALLBACK: Never return empty (use beginner basics)
-    
-    Args:
-        language: Programming language (e.g., 'python')
-        skill_level: 'beginner', 'intermediate', or 'expert'
-        detected_libraries: List of detected library names
-        complexity_score: Numeric complexity score
-        
-    Returns:
-        List of section dictionaries with title, explanation, examples, etc.
-        GUARANTEED: Never returns empty list.
     """
+    # Normalize skill_level for consistent lookups
+    skill_level = skill_level.lower()
+    
     sections = []
     
     # 1. Add library sections (highest priority)

@@ -119,6 +119,24 @@
               "repo": {
                 "type": "string",
                 "description": "Pre-specified repository (owner/repo) to skip fuzzy matching"
+              },
+              "available_files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "filename": {
+                      "type": "string"
+                    },
+                    "file_url": {
+                      "type": "string"
+                    },
+                    "file_type": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "List of currently uploaded files in the workspace with metadata (v0.8.1)"
               }
             }
           }

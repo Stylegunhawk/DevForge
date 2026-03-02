@@ -78,9 +78,10 @@ _BUNDLE_CACHE_MAX = 128
 
 
 def _get_token_hash(token: Optional[str]) -> str:
-    """Return SHA256 hex digest of the token, or sentinel for env-token."""
-    raw = token or settings.GITHUB_TOKEN or ""
-    return hashlib.sha256(raw.encode()).hexdigest()
+    """Return SHA256 hex digest of the token, or sentinel for empty token."""
+    if not token:
+        return "no_token_provided"
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _get_intelligence_bundle(token: Optional[str] = None) -> IntelligenceBundle:
@@ -89,6 +90,11 @@ def _get_intelligence_bundle(token: Optional[str] = None) -> IntelligenceBundle:
     Uses SHA256 hash of the token as cache key to avoid storing raw tokens
     in memory. Evicts oldest entry when cache reaches _BUNDLE_CACHE_MAX.
     """
+    if not token:
+        raise ValueError(
+            "GitHub token required. Please provide a valid GitHub Personal Access Token from the frontend."
+        )
+    
     token_hash = _get_token_hash(token)
 
     if token_hash in _bundle_cache:
@@ -172,7 +178,7 @@ Respond with ONLY a JSON object in this exact format (no markdown, no explanatio
 For list_repos, parameters can include: visibility, sort, limit
 For create_repo, parameters must include: name, and can include: description, private
 For create_issue, parameters must include: repo_name, title, and can include: body, labels, assignees
-For commit_file, parameters must include: repo_name, file_path, content, commit_message, and can include: branch
+- For commit_file, parameters must include: repo_name, commit_message, and can include: file_path, content, branch. (Intelligence will try to find the file if file_path or content the user is thinking of is an uploaded file).
 For create_pull_request, parameters must include: repo_name, title, head, and can include: base, body, draft
 For scaffold_repo, parameters must include: name, template, and can include: description, private, force
 For generate_changelog, parameters must include: repo_name, and can include: from_tag, to_tag, format
@@ -298,6 +304,14 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
     context = state.get("context", {})
     timeline = state.get("timeline")
     audit_id = state.get("audit_id")
+    
+    logger.info(f"[{audit_id}] [DEBUG] Starting enhancement. Operation: {operation}")
+    logger.info(f"[{audit_id}] [DEBUG] Current parameters: {parameters}")
+    logger.info(f"[{audit_id}] [DEBUG] Context keys: {list(context.keys())}")
+    if "available_files" in context:
+        logger.info(f"[{audit_id}] [DEBUG] available_files in context: {[f.get('filename') for f in context['available_files']]}")
+    else:
+        logger.warning(f"[{audit_id}] [DEBUG] available_files NOT in context")
     token = state.get("github_token")  # transient field — never log this
 
     bundle = _get_intelligence_bundle(token)
@@ -385,6 +399,58 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
             
             logger.info(f"[{audit_id}] Parsed error log to issue: {parsed_issue.title}")
             timeline.complete_step("log_parse", f"Created issue: {parsed_issue.title[:50]}")
+        
+        # 4. Commit file context injection (before validation)
+        if (operation == "commit_file" and 
+            "file_url" not in parameters and 
+            "content" not in parameters):
+            
+            available_files = context.get("available_files", [])
+            file_path = parameters.get("file_path", "").lower()
+            logger.info(f"[{audit_id}] [DEBUG] commit_file injection started. file_path: '{file_path}', available_files count: {len(available_files)}")
+
+            # Clean path to handle Unicode ellipsis, underscores, hyphens, and parentheses
+            file_path = file_path.replace("…", " ").replace("...", " ").replace("_", " ").replace("-", " ").replace("(", " ").replace(")", " ")
+            
+            # Fuzzy match or single-file fallback
+            matches = []
+            
+            # Case 1: file_path provided - use fuzzy matching
+            if file_path:
+                words = [w for w in file_path.split() if len(w) >= 3]
+                logger.info(f"[{audit_id}] [DEBUG] Split file_path words: {words}")
+                
+                for f in available_files:
+                    fname = f["filename"].lower()
+                    if any(word in fname for word in words):
+                        matches.append(f)
+                
+                logger.info(f"[{audit_id}] [DEBUG] Fuzzy matches found: {[m['filename'] for m in matches]}")
+            
+            # Case 2: No specific file mentioned or fuzzy match failed - if only one file exist, pick it!
+            if not matches and len(available_files) == 1:
+                logger.info(f"[{audit_id}] [DEBUG] Single file fallback: {available_files[0]['filename']}")
+                matches = [available_files[0]]
+            
+            # Disambiguation: Pick most recent if multiple matches
+            matched = None
+            if matches:
+                # Sort by createdAt if available, otherwise just pick first
+                matches.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
+                matched = matches[0]
+            
+            # Fallback: first PDF if no match and multiple files exist
+            if not matched and available_files:
+                matched = next(
+                    (f for f in available_files if "pdf" in f.get("file_type", "").lower()), 
+                    available_files[0]
+                )
+            
+            if matched:
+                parameters["file_url"] = matched["file_url"]
+                logger.info(f"Pre-validation file injection: {matched['filename']} → {matched['file_url']}")
+                if timeline:
+                    timeline.add_event(EventType.STEP_COMPLETE, f"Injected file_url: {matched['filename']}")
         
         return {
             **state,
@@ -515,11 +581,6 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 )
 
             elif operation == "commit_file":
-                # Inject file_url from context if available and not already in parameters
-                context = state.get("context")
-                if context and "file_url" in context and "file_url" not in parameters:
-                    parameters["file_url"] = context["file_url"]
-                
                 return await loop.run_in_executor(
                     None, lambda: gh_tools.commit_file(**parameters)
                 )

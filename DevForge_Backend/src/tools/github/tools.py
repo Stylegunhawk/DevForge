@@ -17,8 +17,6 @@ from github import Github, GithubException, Auth, RateLimitExceededException
 from github.Repository import Repository
 from github.GithubObject import NotSet
 
-from src.core.config import settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -67,8 +65,7 @@ class GitHubTools:
     """
     
     def __init__(self, token: Optional[str] = None, lazy: bool = True):
-        # ... (init code remains same) ...
-        self.token = token or getattr(settings, 'GITHUB_TOKEN', None)
+        self.token = token
         self._client: Optional[Github] = None
         self._user = None
         self._mock_mode = os.getenv("GITOPS_MOCK_GITHUB", "").lower() in ("true", "1", "yes")
@@ -76,7 +73,7 @@ class GitHubTools:
         # Validate token early (but don't connect yet)
         if not self._mock_mode and not self.token:
             raise ValueError(
-                "GitHub token required. Set GITHUB_TOKEN in .env or pass token parameter"
+                "GitHub token required. Please provide a valid GitHub Personal Access Token from the frontend."
             )
         
         # Legacy behavior: initialize immediately if lazy=False
@@ -342,51 +339,102 @@ class GitHubTools:
 
             if file_url:
                 logger.info(f"Fetching binary content from: {file_url}")
-                with httpx.Client(timeout=30.0) as client:
-                    response = client.get(file_url)
-                    response.raise_for_status()
-                    content = base64.b64encode(response.content).decode("utf-8")
-                    logger.info(f"Successfully fetched and encoded binary content ({len(response.content)} bytes)")
+                max_retries = 3
+                fetch_success = False
+                for attempt in range(max_retries):
+                    try:
+                        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+                            # Stream to check size before full download (Production Guard)
+                            with client.stream("GET", file_url) as response:
+                                response.raise_for_status()
+                                content_length = response.headers.get("Content-Length")
+                                if content_length and int(content_length) > 100 * 1024 * 1024:
+                                    raise ValueError(f"File too large: {content_length} bytes (GitHub limit is 100MB)")
+                                
+                                content_bytes = response.read()
+                                if len(content_bytes) > 100 * 1024 * 1024:
+                                    raise ValueError(f"File too large: {len(content_bytes)} bytes (GitHub limit is 100MB)")
+                                
+                                # Log first 20 chars of encoded content for verification
+                                encoded_debug = base64.b64encode(content_bytes[:50]).decode("utf-8")
+                                logger.info(f"Encoded content preview (first 20 chars): {encoded_debug[:20]}")
+                                
+                                content = content_bytes
+                                logger.info(f"Successfully fetched content ({len(content)} bytes)")
+                                fetch_success = True
+                                break
+                    except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                        if attempt == max_retries - 1:
+                            logger.error(f"Failed to fetch file after {max_retries} attempts: {e}")
+                            raise
+                        logger.warning(f"Fetch attempt {attempt + 1} failed: {e}. Retrying...")
+                        time.sleep(1) # Simple backoff
+                
+                if not fetch_success:
+                    raise RuntimeError(f"Failed to fetch content from {file_url}")
 
             if '/' not in repo_name:
                 repo_name = f"{self.user.login}/{repo_name}"
             
             repo = self.client.get_repo(repo_name)
             
-            # Check if file exists
             start_time = time.time()
-            try:
-                existing_file = repo.get_contents(file_path, ref=branch)
-                # File exists - update it
-                result = repo.update_file(
+            if file_url:
+                # URL path: Always Delete-then-Create for clean upload (prevents corruption)
+                # This works for both binary (PDF/images) and text (JS/Python) files
+                try:
+                    existing_file = repo.get_contents(file_path, ref=branch)
+                    repo.delete_file(
+                        path=existing_file.path,
+                        message=f"Delete existing {file_path} for fresh upload via URL",
+                        sha=existing_file.sha,
+                        branch=branch
+                    )
+                    logger.info(f"Deleted existing file for fresh upload: {file_path}")
+                except GithubException as e:
+                    if e.status != 404:
+                        raise
+                
+                result = repo.create_file(
                     path=file_path,
-                    message=commit_message,
+                    message=commit_message or "Upload file via URL",
                     content=content,
-                    sha=existing_file.sha,
                     branch=branch
                 )
-                action = "updated"
-            except GithubException as e:
-                if e.status == 404 and create_if_missing:
-                    # File doesn't exist - create it
-                    result = repo.create_file(
+                action = "uploaded (fresh)"
+            else:
+                # Text path: Standard update or create
+                try:
+                    existing_file = repo.get_contents(file_path, ref=branch)
+                    result = repo.update_file(
                         path=file_path,
                         message=commit_message,
                         content=content,
+                        sha=existing_file.sha,
                         branch=branch
                     )
-                    action = "created"
-                else:
-                    raise
+                    action = "updated"
+                except GithubException as e:
+                    if e.status == 404 and create_if_missing:
+                        result = repo.create_file(
+                            path=file_path,
+                            message=commit_message,
+                            content=content,
+                            branch=branch
+                        )
+                        action = "created"
+                    else:
+                        raise
+
             duration = time.time() - start_time
             
             commit_info = {
                 "action": action,
                 "file_path": file_path,
-                "commit_sha": result["commit"].sha,
+                "commit_sha": result["commit"].sha if isinstance(result, dict) else result.sha if hasattr(result, "sha") else "unknown",
                 "commit_message": commit_message,
                 "branch": branch,
-                "url": result["commit"].html_url,
+                "url": result["commit"].html_url if isinstance(result, dict) else result.html_url if hasattr(result, "html_url") else None,
             }
             
             logger.info(
