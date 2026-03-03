@@ -26,6 +26,7 @@ from src.core.session import get_session_manager
 from src.core.config import settings
 from src.core.features import FeatureFlags, Feature
 from src.core.risk import RiskGate, RiskViolation
+from src.core.policy import PolicyGate, PolicyViolation
 from src.tools.github import tools as github_tools
 
 # Import intelligence components
@@ -166,6 +167,10 @@ Available Operations:
 - browse_files: list files in repo or directory (returns file tree)
 - read_file: read contents of a specific file
 - search_code: search code across repository
+- list_branches: list all branches in a repository
+- create_branch: create a new branch in a repository
+- delete_branch: delete a branch from a repository (HIGH risk — will be blocked without confirmation)
+- delete_repo: permanently delete an entire repository (CRITICAL risk — requires confirmation + reason)
 
 Respond with ONLY a JSON object in this exact format (no markdown, no explanation):
 {{
@@ -187,6 +192,10 @@ For analyze_ci_failure, parameters must include: repo_name, run_id, and can incl
 For browse_files, parameters must include: repo_name, and can include: path (default: "/")
 For read_file, parameters must include: repo_name, file_path
 For search_code, parameters must include: query, and can include: repo_name
+For list_branches, parameters must include: repo_name
+For create_branch, parameters must include: repo_name, branch_name, and can include: from_branch (default: "main")
+For delete_branch, parameters must include: repo_name, branch_name
+For delete_repo, parameters must include: repo_name in EXACT 'owner/repo' format. Never infer or abbreviate the repo name.
 
 Important: Include a confidence score (0.0 to 1.0) indicating how confident you are in the classification.
 Extract all relevant parameters from the user request."""
@@ -322,16 +331,27 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
 
     try:
         # 1. Fuzzy repo matching (if repo_name provided but might be ambiguous)
-        if "repo_name" in parameters and FeatureFlags.is_enabled(Feature.FUZZY_SEARCH):
-            timeline.start_step("repo_discovery", "Fuzzy matching repository name")
+        # delete_repo is intentionally excluded: it requires an exact name match, never fuzzy.
+        if (operation != "delete_repo" and FeatureFlags.is_enabled(Feature.FUZZY_SEARCH)):
+            repo_name = parameters.get("repo_name")
             
-            repo_name = parameters["repo_name"]
-            
-            # Try fuzzy search
-            best_match = await repo_discovery.get_best_match(
-                query=repo_name,
-                confidence_threshold=0.85
-            )
+            # Agentic Discovery Fallback: If repo_name missing from parameters, search full query text
+            if not repo_name:
+                best_match = await repo_discovery.discover_from_text(query)
+                if best_match:
+                    logger.info(f"[{audit_id}] Proactive repo discovery: {best_match.full_name}")
+                    parameters["repo_name"] = best_match.full_name
+                    state["repo_confidence"] = best_match.confidence
+                    repo_name = best_match.full_name
+
+            if repo_name:
+                timeline.start_step("repo_discovery", "Fuzzy matching repository name")
+                
+                # Try fuzzy search (if we already found a high-confidence match above, this will confirm it)
+                best_match = await repo_discovery.get_best_match(
+                    query=repo_name,
+                    confidence_threshold=0.85
+                )
             
             if best_match:
                 logger.info(
@@ -353,18 +373,28 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                     }
                 timeline.complete_step("repo_discovery", "Using original repo name")
         
-        # 2. Auto-generate commit message (if diff provided and message not present)
+        # 2. Auto-generate commit message (if message not present)
         if (operation == "commit_file" and 
-            context.get("diff") and 
             not parameters.get("commit_message") and
             FeatureFlags.is_enabled(Feature.COMMIT_GENERATION)):
             
-            timeline.start_step("commit_gen", "Generating commit message from diff")
+            diff = context.get("diff")
             
-            commit_msg = await commit_generator.generate(
-                repo=parameters.get("repo_name", "unknown"),
-                diff=context["diff"]
-            )
+            if diff:
+                timeline.start_step("commit_gen", "Generating commit message from diff")
+                commit_msg = await commit_generator.generate(
+                    repo=parameters.get("repo_name", "unknown"),
+                    diff=diff
+                )
+            else:
+                # Proactive fallback: generate from query/file params
+                timeline.start_step("commit_gen", "Proactively generating commit message")
+                commit_msg = await commit_generator.generate_proactive(
+                    repo=parameters.get("repo_name", "unknown"),
+                    query=query,
+                    file_path=parameters.get("file_path"),
+                    is_new=not parameters.get("file_url") # Heuristic: if no file_url, it's likely a creation
+                )
             
             parameters["commit_message"] = commit_msg.text
             state["commit_confidence"] = commit_msg.confidence
@@ -480,6 +510,7 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
         State with error if risk requirements not met, or passes through
     """
     operation = state.get("operation")
+    parameters = state.get("parameters", {})
     context = state.get("context", {})
     audit_id = state.get("audit_id")
     timeline = state.get("timeline")
@@ -497,9 +528,10 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
             risk_context["confirmed"] = context["risk_confirmed"]
         if "risk_reason" in context:
             risk_context["reason"] = context["risk_reason"]
-        
-        # Check risk requirements
-        violation = RiskGate.check(operation, risk_context)
+
+        # Check risk requirements with contextual awareness
+        # Parameters are passed so branch-level overrides (e.g., commit to main → HIGH) apply
+        violation = RiskGate.check_contextual(operation, parameters, risk_context)
         
         if violation:
             error_msg = f"Risk gate blocked: {violation.message}"
@@ -539,12 +571,70 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
         }
 
 
+async def policy_gate_check(state: GitHubState) -> GitHubState:
+    """Enforce environment/protection-mode policy BEFORE the risk gate.
+
+    Phase 4: Runs after validate, before risk_gate.
+    Answers: 'Is this operation allowed at all in the current environment?'
+    """
+    operation = state.get("operation")
+    parameters = state.get("parameters", {})
+    context = state.get("context", {})
+    audit_id = state.get("audit_id")
+    timeline = state.get("timeline")
+
+    if not operation:
+        return state
+
+    try:
+        if timeline:
+            timeline.start_step("policy_gate", f"Policy check for {operation}")
+
+        violation = PolicyGate.check(operation, parameters, context)
+
+        if violation:
+            error_msg = violation.message
+            logger.warning(
+                f"[{audit_id}] Policy gate blocked: {operation} — {violation.policy}"
+            )
+            if timeline:
+                timeline.fail_step("policy_gate", error_msg)
+
+            return {
+                **state,
+                "error": error_msg,
+                "timeline": timeline,
+                "result": {
+                    **violation.to_dict(),
+                    "audit_id": audit_id,
+                    "timeline": timeline.to_dict() if timeline else None,
+                },
+            }
+
+        if timeline:
+            timeline.complete_step("policy_gate", "Policy check passed")
+
+        logger.info(f"[{audit_id}] Policy gate passed for {operation}")
+        return state
+
+    except Exception as e:
+        error_msg = f"Policy gate error: {str(e)}"
+        logger.error(f"[{audit_id}] {error_msg}")
+        if timeline:
+            timeline.fail_step("policy_gate", error_msg)
+        return {
+            **state,
+            "error": error_msg,
+            "timeline": timeline,
+        }
+
+
 def validate_parameters(state: GitHubState) -> GitHubState:
     """Strictly validate operation parameters using Pydantic schemas.
-    
+
     Args:
         state: Current state
-        
+
     Returns:
         Validated state or state with error
     """
@@ -673,6 +763,26 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
             elif operation == "search_code":
                 return await loop.run_in_executor(
                     None, lambda: gh_tools.search_code(**parameters)
+                )
+
+            elif operation == "list_branches":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.list_branches(**parameters)
+                )
+
+            elif operation == "create_branch":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.create_branch(**parameters)
+                )
+
+            elif operation == "delete_branch":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.delete_branch(**parameters)
+                )
+
+            elif operation == "delete_repo":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.delete_repo(**parameters)
                 )
                 
             elif operation == "scaffold_repo":
@@ -840,33 +950,147 @@ def should_execute(state: GitHubState) -> Literal["execute", "error"]:
     return "execute"
 
 
+
+def _friendly_validation_message(error: str, operation: str) -> str:
+    """Parse a raw Pydantic validation error and return a user-friendly message.
+
+    Args:
+        error: Raw error string from the validation step
+        operation: The operation that was being attempted
+
+    Returns:
+        Human-readable string with an example
+    """
+    error_lower = error.lower()
+
+    # Field-specific friendly messages with examples
+    field_messages = {
+        "repo_name": (
+            "Please specify the repository in 'owner/repo' format.\n"
+            "  Example: 'create issue Login bug in owner/my-repo'"
+        ),
+        "branch_name": (
+            "Please specify the branch name.\n"
+            "  Example: 'delete branch feature-x from owner/my-repo'"
+        ),
+        "title": (
+            "Please specify a title.\n"
+            "  Example: 'create issue Login bug in owner/my-repo'"
+        ),
+        "name": (
+            "Please specify the repository name.\n"
+            "  Example: 'create repo my-new-project'"
+        ),
+        "head": (
+            "Please specify the source branch (head) for the pull request.\n"
+            "  Example: 'create PR from feature-x to main in owner/my-repo'"
+        ),
+        "file_path": (
+            "Please specify the file path.\n"
+            "  Example: 'commit src/app.py to owner/my-repo'"
+        ),
+        "commit_message": (
+            "Please specify a commit message.\n"
+            "  Example: 'commit README.md with message \"Update docs\" to owner/my-repo'"
+        ),
+        "run_id": (
+            "Please specify the CI run ID.\n"
+            "  Example: 'analyze CI failure run 1234567890 in owner/my-repo'"
+        ),
+        "query": (
+            "Please specify what to search for.\n"
+            "  Example: 'search for def authenticate in owner/my-repo'"
+        ),
+        "template": (
+            "Please specify the scaffold template.\n"
+            "  Example: 'scaffold my-project with python-fastapi template'"
+        ),
+        "from_branch": (
+            "Please specify the source branch to branch from.\n"
+            "  Example: 'create branch feature-y from main in owner/my-repo'"
+        ),
+    }
+
+    # Check for delete_repo exact-format errors
+    if "owner/repo" in error_lower or ("repo_name" in error_lower and "delete_repo" in operation):
+        return (
+            "For 'delete_repo', you must provide the exact repository name in 'owner/repo' format.\n"
+            "  Example: 'delete repo owner/my-repo'"
+        )
+
+    # Check content/file_url mutual requirement
+    if "content" in error_lower and "file_url" in error_lower:
+        return (
+            "Please provide either file content or a file URL to commit.\n"
+            "  Example: 'commit README.md with content \"Hello World\" to owner/my-repo'"
+        )
+
+    # Field-level matching
+    for field, message in field_messages.items():
+        if field in error_lower:
+            return message
+
+    # Generic validation fallback
+    return (
+        f"Some required information is missing for '{operation}'. "
+        "Please rephrase your request with all required details.\n"
+        f"  Original error: {error}"
+    )
+
+
 async def handle_error(state: GitHubState) -> GitHubState:
     """Handle errors or early returns in the workflow.
-    
+
+    Converts raw Pydantic / validation errors into friendly user-facing messages.
+
     Args:
         state: Current state with error or result
-        
+
     Returns:
         Updated state with error result
     """
     # If result already set (e.g., needs_clarification), return as-is
     if state.get("result"):
         return state
-    
+
     error = state.get("error", "Unknown error occurred")
     audit_id = state.get("audit_id")
     timeline = state.get("timeline")
-    
+    operation = state.get("operation", "")
+
     logger.error(f"[{audit_id}] GitHub agent error: {error}")
-    
+
     if timeline:
         timeline.add_event(EventType.OPERATION_FAILED, error)
-    
+
+    # Convert validation errors into friendly messages
+    friendly_error = error
+    error_lower = error.lower()
+    if "field required" in error_lower or "validation failed" in error_lower:
+        friendly_error = _friendly_validation_message(error, operation)
+        logger.info(f"[{audit_id}] Converted validation error to friendly message")
+
+        # Agentic Error Recovery: Add broad repository suggestions if missing
+        if "repo_name" in error_lower or "repository" in friendly_error.lower():
+            try:
+                # Fetch recent repositories from cache
+                github_token = state.get("github_token")
+                bundle = _get_intelligence_bundle(github_token)
+                repo_discovery = bundle.repo_discovery
+                suggestions = await repo_discovery.get_recent_suggestions(limit=3)
+                
+                if suggestions:
+                    suggestion_text = "\n\nI couldn't identify the repository. Did you mean one of these?\n" + "\n".join([f"- {s}" for s in suggestions])
+                    friendly_error += suggestion_text
+                    logger.info(f"[{audit_id}] Added proactive repo suggestions to error message")
+            except Exception as e:
+                logger.warning(f"[{audit_id}] Failed to fetch proactive suggestions: {e}")
+
     return {
         **state,
         "result": {
             "success": False,
-            "error": error,
+            "error": friendly_error,
             "audit_id": audit_id,
             "timeline": timeline.to_dict() if timeline else None,
         },
@@ -880,11 +1104,12 @@ workflow = StateGraph(GitHubState)
 workflow.add_node("parse", parse_github_request)
 workflow.add_node("enhance", enhance_with_intelligence)
 workflow.add_node("validate", validate_parameters)
+workflow.add_node("policy_gate", policy_gate_check)   # Phase 4: runs before risk_gate
 workflow.add_node("risk_gate", risk_gate_check)
 workflow.add_node("execute", execute_github_operation)
 workflow.add_node("error", handle_error)
 
-# Add edges
+# Add edges: parse → enhance → validate → policy_gate → risk_gate → execute
 workflow.set_entry_point("parse")
 workflow.add_conditional_edges(
     "parse",
@@ -898,7 +1123,15 @@ workflow.add_conditional_edges(
 workflow.add_edge("enhance", "validate")
 workflow.add_conditional_edges(
     "validate",
-    lambda state: "risk_gate" if not state.get("error") else "error",
+    lambda state: "policy_gate" if not state.get("error") else "error",
+    {
+        "policy_gate": "policy_gate",
+        "error": "error",
+    }
+)
+workflow.add_conditional_edges(
+    "policy_gate",
+    lambda state: "risk_gate" if not state.get("error") and not state.get("result") else "error",
     {
         "risk_gate": "risk_gate",
         "error": "error",

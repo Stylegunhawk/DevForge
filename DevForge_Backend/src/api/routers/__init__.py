@@ -62,9 +62,25 @@ TOOL_DESCRIPTIONS = {
         "foreign key integrity validation, and detailed error reporting with graceful degradation."
     ),
     "github_operation": (
-        "Unified GitHub operations tool. "
-        "Performs repository analysis, issue tracking, PR management, "
-        "and code review automation."
+        "Unified GitHub automation tool for repo analysis, branch management, "
+        "issue tracking, commits, and PRs. "
+        
+        "FILE COMMITS: When committing uploaded files, use context.available_files "
+        "which is AUTO-INJECTED by the system. Never call retrieve_docs first. "
+        "Simply reference the filename in your query: "
+        "'commit verify_tree_sitter.py to dev branch of owner/repo' — "
+        "the system resolves the file URL automatically. "
+        
+        "COMMIT MODES: "
+        "(1) Direct text: include content in query for small snippets. "
+        "(2) File URL: system auto-injects file_url from available_files for uploads. "
+        
+        "RISK LEVELS: "
+        "HIGH ops (delete_branch, create_repo) → context.confirmed=true required. "
+        "CRITICAL ops (delete_repo) → context.confirmed=true + context.reason required. "
+        "delete_repo requires EXACT owner/repo format — no fuzzy matching. "
+        
+        "ENVIRONMENT: GITOPS_ENV=production blocks irreversible operations entirely."
     ),
     "refine_prompt": (
         "AI prompt optimization tool. "
@@ -1076,25 +1092,34 @@ def _get_tool_schema(tool_name: str) -> dict:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Natural language GitHub operation (e.g., 'create PR for bug fix', 'list recent commits')",
+                    "description": (
+                        "Natural language GitHub operation. "
+                        "For file commits, just name the file — DO NOT include RAG retrieval instructions. "
+                        "The system auto-provides file context. "
+                        "Examples: "
+                        "'commit verify_tree_sitter.py to dev branch of owner/repo', "
+                        "'create issue about login bug in owner/repo', "
+                        "'list branches of owner/repo', "
+                        "'delete branch feature-x from owner/repo'"
+                    ),
                 },
                 "context": {
                     "type": "object",
-                    "description": "Optional context for enhanced intelligence",
+                    "description": "Risk enforcement and intelligence context",
                     "properties": {
                         "session_id": {
                             "type": "string",
-                            "description": "Session ID for tracking",
+                            "description": "Session identifier for tracking.",
                         },
-                        "diff": {"type": "string", "description": "Git diff content"},
+                        "diff": {"type": "string", "description": "Git diff for commit generation fallback."},
                         "error_log": {
                             "type": "string",
-                            "description": "Error log for debugging",
+                            "description": "System error log for diagnostic operations.",
                         },
                         "files": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Related file paths",
+                            "description": "List of related files for scoping operations.",
                         },
                         "github_token": {
                             "type": "string",
@@ -1103,6 +1128,18 @@ def _get_tool_schema(tool_name: str) -> dict:
                                 "Overrides the server-level GITHUB_TOKEN env var. "
                                 "Stripped from context before any logging or auditing."
                             ),
+                        },
+                        "confirmed": {
+                            "type": "boolean",
+                            "description": "Required for HIGH risk (create_repo, delete_branch) and CRITICAL risk (delete_repo) operations.",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "MANDATORY for CRITICAL operations (e.g. delete_repo). Provide a clear justification.",
+                        },
+                        "file_url": {
+                            "type": "string",
+                            "description": "Direct URL to fetch binary/remote file content. Alternative to raw 'content' for uploads (e.g. images, PDFs).",
                         },
                     },
                 },

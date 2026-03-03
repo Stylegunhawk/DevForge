@@ -252,6 +252,66 @@ class RepoDiscovery:
             return best_match
         
         return None
+
+    async def discover_from_text(self, text: str) -> Optional[RepoMatch]:
+        """Scan arbitrary text for repository mentions.
+        
+        Useful when the LLM fails to extract repo_name into parameters.
+        
+        Args:
+            text: Full user query text
+            
+        Returns:
+            Best matching repository if found with high confidence
+        """
+        if not text or len(text) < 3:
+            return None
+            
+        # Tokenize and filter noise
+        words = [w.strip(":,.-_()").lower() for w in text.split() if len(w) >= 3]
+        
+        # Try finding a direct owner/repo format first via regex-like check
+        for word in words:
+            if "/" in word:
+                parts = word.split("/")
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    match = await self.get_best_match(word, confidence_threshold=0.9)
+                    if match:
+                        return match
+
+        # Fallback: scan all repos for any mentioned keywords
+        repos = await self._get_cached_repos()
+        best_match = None
+        max_score = 0.0
+        
+        for repo in repos:
+            name = repo["name"].lower()
+            # If the exact repo name is a word in the query
+            if name in words:
+                score = 0.95
+                if score > max_score:
+                    max_score = score
+                    best_match = RepoMatch(
+                        full_name=repo["full_name"],
+                        name=repo["name"],
+                        confidence=score,
+                        match_type="exact"
+                    )
+        
+        return best_match
+
+    async def get_recent_suggestions(self, limit: int = 3) -> List[str]:
+        """Get 100 most recently active repositories for suggestions.
+        
+        Args:
+            limit: Number of suggestions to return
+            
+        Returns:
+            List of repo full_names
+        """
+        repos = await self._get_cached_repos()
+        # They are usually sorted by 'updated' if using default GitHub list
+        return [r["full_name"] for r in repos[:limit]]
     
     def format_disambiguation_response(
         self,

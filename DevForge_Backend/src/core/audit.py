@@ -3,6 +3,7 @@
 Provides audit_id generation, timeline tracking, and audit log storage.
 """
 
+import logging
 import time
 import uuid
 import hashlib
@@ -227,3 +228,153 @@ def get_audit_logger() -> AuditLogger:
     if _audit_logger is None:
         _audit_logger = AuditLogger()
     return _audit_logger
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Escalation Audit
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_PARAM_KEYS: frozenset[str] = frozenset({
+    "token", "password", "secret", "key", "credential",
+    "github_token", "api_key",
+})
+
+
+def _sanitize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return a copy of params with sensitive values redacted.
+
+    Args:
+        params: Raw operation parameters dict
+
+    Returns:
+        Sanitized copy safe for logging
+    """
+    if not params:
+        return {}
+    sanitized = {}
+    for k, v in params.items():
+        if any(s in k.lower() for s in _SENSITIVE_PARAM_KEYS):
+            sanitized[k] = "[REDACTED]"
+        else:
+            sanitized[k] = v
+    return sanitized
+
+
+_escalation_logger_instance = logging.getLogger("devforge.escalation")
+
+
+class EscalationLogger:
+    """Dedicated logger for HIGH/CRITICAL audit escalation records.
+
+    Rules:
+    - Log ALL CRITICAL attempts (blocked or executed)
+    - Log HIGH attempts that were blocked
+    - Never log raw tokens — sha256 hash only
+    - Write to a separate in-memory channel and Python logger
+    """
+
+    def __init__(self):
+        self._records: list[dict] = []
+
+    def _build_record(
+        self,
+        audit_id: str,
+        operation: str,
+        parameters: Optional[Dict[str, Any]],
+        risk_level: str,
+        outcome: str,             # "blocked" | "executed"
+        token_hash: Optional[str] = None,
+        confirmed: bool = False,
+        reason: str = "",
+        policy_checked: bool = True,
+    ) -> dict:
+        return {
+            "severity": risk_level.upper(),
+            "operation": operation,
+            "parameters": _sanitize_params(parameters),
+            "token_hash": token_hash,
+            "timestamp": datetime.now().isoformat(),
+            "confirmed": confirmed,
+            "reason": reason,
+            "policy_checked": policy_checked,
+            "risk_level": risk_level.upper(),
+            "outcome": outcome,
+            "audit_id": audit_id,
+        }
+
+    def record_critical(
+        self,
+        audit_id: str,
+        operation: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        outcome: str = "blocked",
+        token_hash: Optional[str] = None,
+        confirmed: bool = False,
+        reason: str = "",
+        policy_checked: bool = True,
+    ) -> None:
+        """Record a CRITICAL operation attempt (blocked or executed)."""
+        record = self._build_record(
+            audit_id=audit_id,
+            operation=operation,
+            parameters=parameters,
+            risk_level="CRITICAL",
+            outcome=outcome,
+            token_hash=token_hash,
+            confirmed=confirmed,
+            reason=reason,
+            policy_checked=policy_checked,
+        )
+        self._records.append(record)
+        _escalation_logger_instance.warning(
+            "[ESCALATION:CRITICAL] %s | outcome=%s | audit=%s",
+            operation, outcome, audit_id,
+            extra={"escalation": record},
+        )
+
+    def record_blocked_high(
+        self,
+        audit_id: str,
+        operation: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        token_hash: Optional[str] = None,
+        confirmed: bool = False,
+        policy_checked: bool = True,
+    ) -> None:
+        """Record a HIGH operation that was blocked (never executed)."""
+        record = self._build_record(
+            audit_id=audit_id,
+            operation=operation,
+            parameters=parameters,
+            risk_level="HIGH",
+            outcome="blocked",
+            token_hash=token_hash,
+            confirmed=confirmed,
+            policy_checked=policy_checked,
+        )
+        self._records.append(record)
+        _escalation_logger_instance.warning(
+            "[ESCALATION:HIGH:BLOCKED] %s | audit=%s",
+            operation, audit_id,
+            extra={"escalation": record},
+        )
+
+    def get_records(self) -> list[dict]:
+        """Return all escalation records (copy). For testing and diagnostics."""
+        return list(self._records)
+
+    def get_records_for_operation(self, operation: str) -> list[dict]:
+        """Filter escalation records by operation name."""
+        return [r for r in self._records if r["operation"] == operation]
+
+
+# Global escalation logger singleton
+_escalation_logger = None
+
+
+def get_escalation_logger() -> EscalationLogger:
+    """Get global escalation logger singleton."""
+    global _escalation_logger
+    if _escalation_logger is None:
+        _escalation_logger = EscalationLogger()
+    return _escalation_logger

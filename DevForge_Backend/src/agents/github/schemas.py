@@ -89,6 +89,26 @@ class AnalyzeCiFailureParams(BaseModel):
     pr_number: Optional[int] = None
 
 
+class ListBranchesParams(BaseModel):
+    repo_name: Annotated[str, Field(min_length=1)]
+
+
+class CreateBranchParams(BaseModel):
+    repo_name: Annotated[str, Field(min_length=1)]
+    branch_name: Annotated[str, Field(min_length=1, pattern=r"^[^\s]+$")]
+    from_branch: str = "main"
+
+
+class DeleteBranchParams(BaseModel):
+    repo_name: Annotated[str, Field(min_length=1)]
+    branch_name: Annotated[str, Field(min_length=1)]
+
+
+class DeleteRepoParams(BaseModel):
+    # Enforce owner/repo format at schema level — mirrors the tools.py safety requirement
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+
+
 # Discriminated Union for all operations
 OperationParams = Union[
     ListReposParams,
@@ -101,7 +121,11 @@ OperationParams = Union[
     SearchCodeParams,
     ScaffoldRepoParams,
     GenerateChangelogParams,
-    AnalyzeCiFailureParams
+    AnalyzeCiFailureParams,
+    ListBranchesParams,
+    CreateBranchParams,
+    DeleteBranchParams,
+    DeleteRepoParams,
 ]
 
 SCHEMA_MAP = {
@@ -116,6 +140,10 @@ SCHEMA_MAP = {
     "scaffold_repo": ScaffoldRepoParams,
     "generate_changelog": GenerateChangelogParams,
     "analyze_ci_failure": AnalyzeCiFailureParams,
+    "list_branches": ListBranchesParams,
+    "create_branch": CreateBranchParams,
+    "delete_branch": DeleteBranchParams,
+    "delete_repo": DeleteRepoParams,
 }
 
 def validate_op_params(operation: str, params: dict) -> dict:

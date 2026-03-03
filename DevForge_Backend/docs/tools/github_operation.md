@@ -1,8 +1,8 @@
 # github_operation - Intelligent GitHub Automation Tool
 
 **Tool Name:** `github_operation`  
-**Version:** 0.8.2  
-**Phase:** GitOps v0.8 - Production Hardening  
+**Version:** 0.8.5  
+**Phase:** GitOps v0.8 - Phase 5 (Audit & Policy Hardened)
 **Status:** ✅ Production Ready (Hardened)
 
 ---
@@ -27,7 +27,7 @@ The `github_operation` tool is an intelligent GitHub automation system that tran
 │                     src/agents/github/agent.py                          │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
 │  │  StateGraph Workflow:                                             │  │
-│  │    parse_github_request → enhance_with_intelligence → validate → execute    │
+│  │    parse_github_request → enhance_with_intelligence → validate → policy_gate → risk_gate → execute    │
 │  │              ↘               ↙                      ↘            │  │
 │  │               handle_error ←───────────────────────────          │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
@@ -87,7 +87,9 @@ class GitHubState:
 |------|----------|-------------|
 | `parse` | `parse_github_request()` | LLM extracts intent, operation, parameters from query (30s timeout) |
 | `enhance` | `enhance_with_intelligence()` | Apply fuzzy repo, commit gen, log parsing |
-| `validate` | `validate_parameters()` | **Phase 4:** Strict Pydantic validation of all parameters |
+| `validate` | `validate_parameters()` | Strict Pydantic validation of all parameters |
+| `policy_gate` | `policy_gate_check()` | **Phase 4:** Environment-level hard blocks (Production/Staging) |
+| `risk_gate` | `risk_gate_check()` | **Phase 1-3:** Severity assessment and user confirmation requirement |
 | `execute` | `execute_github_operation()` | Call GitHub API via PyGithub (15s timeout) |
 | `error` | `handle_error()` | Format error responses and categorize GithubExceptions |
 
@@ -115,13 +117,18 @@ async def github_agent_invoke(
 |--------|-----------|-------------|
 | `__init__(token)` | `token: Optional[str]` | Initialize PyGithub client |
 | `list_repos()` | `visibility, sort, limit` | List user repositories |
-| `create_repo()` | `name, description, private, auto_init, gitignore_template, license_template` | Create new repository |
+| `create_repo()` | `name, description, private, auto_init, gitignore_template, license_template` | **HIGH RISK** |
 | `create_issue()` | `repo_name, title, body, labels, assignees` | Create issue in repository |
-| `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | Commit file to repository |
+| `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | Commit file |
 | `create_pull_request()` | `repo_name, title, head, base, body, draft` | Create pull request |
-| `browse_files()` | `repo_name, path` | List repository content (file tree) |
-| `read_file()` | `repo_name, file_path` | Read content of a specific file |
-| `search_code()` | `query, repo_name` | Search code across repository |
+| `merge_pr()` | `repo_name, pull_number, commit_title, merge_method` | **MEDIUM to CRITICAL RISK** |
+| `list_branches()` | `repo_name` | List repo branches |
+| `create_branch()` | `repo_name, branch_name, from_branch` | Create new branch |
+| `delete_branch()` | `repo_name, branch_name` | **HIGH to CRITICAL RISK** |
+| `delete_repo()` | `repo_name` | **CRITICAL RISK (requires exact match)** |
+| `browse_files()` | `repo_name, path` | List repository content |
+| `read_file()` | `repo_name, file_path` | Read specific file |
+| `search_code()` | `query, repo_name` | Search code |
 
 **Convenience Functions:**
 ```python
@@ -423,6 +430,50 @@ class SuggestedFix:
 
 ---
 
+---
+
+## Risk Model & Security (Phases 1-5)
+
+The GitOps tool implements a multi-layered security model involving environment-level policies, contextual risk assessment, and mandatory user confirmation.
+
+### 1. Risk Levels
+Every operation is assigned a base risk level in the `OperationRiskRegistry`.
+
+| Risk Level | Requirement | Examples |
+|------------|-------------|----------|
+| **`LOW`** | None | `list_repos`, `browse_files`, `list_branches` |
+| **`MEDIUM`** | None | `create_issue`, `create_branch`, `merge_pr` (feature branch) |
+| **`HIGH`** | `confirmed: true` | `create_repo`, `delete_branch` (non-protected), `force_push` |
+| **`CRITICAL`** | `confirmed: true` + `reason: "..."` | `delete_repo`, `delete_branch` (main), `merge_pr` (production) |
+
+### 2. Contextual Risk Escalation
+Risk levels are dynamically escalated based on the parameters of the operation. If a contextual rule matches, the **highest** risk level between the registry and the rule wins.
+
+*   **`merge_pr`**:
+    *   Into `main`, `master`: **HIGH**
+    *   Into `production`, `release/*`: **CRITICAL**
+*   **`delete_branch`**:
+    *   `main`, `master`, `production`: **CRITICAL**
+
+### 3. Policy Gate (Phase 4)
+Runs before the risk gate. Blocks operations based on environment configuration.
+
+| Var / Env | Mode | Policy |
+|-----------|------|--------|
+| `GITOPS_PROTECTED_MODE=true` | All | Blocks **HIGH** and **CRITICAL** operations entirely. |
+| `GITOPS_ENV=production` | Prod | Blocks `delete_repo`, `force_push`, and deleting `main`/`master`. |
+| `GITOPS_ENV=staging` | Staging | Blocks `delete_repo`. Requires confirmation for `force_push`. |
+| `GITOPS_ENV=development` | Dev | Permissive. Defers all security to the Risk Gate. |
+
+### 4. Audit & Escalation (Phase 5)
+All high-risk attempts are logged to a dedicated escalation channel (`src/core/audit.py`).
+- **CRITICAL**: Logs all attempts (blocked or executed).
+- **HIGH**: Logs all blocked attempts.
+- **Sanitization**: Tokens, passwords, and keys are automatically redacted (`[REDACTED]`) before logging.
+- **Privacy**: Raw tokens are never stored; only truncated SHA-256 hashes for correlation.
+
+---
+
 ## API Request Format
 
 ```bash
@@ -593,8 +644,8 @@ pytest tests/test_github_integration.py -v # 20 tests
 
 ---
 
-**Version:** 0.8.2  
-**Last Updated:** February 26, 2026  
+**Version:** 0.8.5  
+**Last Updated:** 3 March, 2026  
 **Maintainer:** DevForge Team
 
 

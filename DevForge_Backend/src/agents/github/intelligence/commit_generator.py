@@ -332,3 +332,78 @@ Respond with ONLY the commit message, no explanation.
             body=None,
             confidence=0.60
         )
+
+    async def generate_proactive(
+        self,
+        repo: str,
+        query: str,
+        file_path: Optional[str] = None,
+        is_new: bool = False
+    ) -> CommitMessage:
+        """Proactively generate a commit message from query/params when no diff exists.
+        
+        Args:
+            repo: Repository name
+            query: User's original request
+            file_path: Optional file path being operated on
+            is_new: Whether this is likely a new file creation
+            
+        Returns:
+            CommitMessage
+        """
+        if not FeatureFlags.is_enabled(Feature.COMMIT_GENERATION):
+            return CommitMessage(
+                text="chore: update repository",
+                type=ChangeType.CHORE,
+                scope=None,
+                description="update repository",
+                body=None,
+                confidence=0.5
+            )
+
+        # Build proactive prompt
+        model = await self.model_router.select_model_by_task("github")
+        prompt = f"""Generate a short, professional Conventional Commit message for this action.
+        
+Action: {query}
+Repo: {repo}
+File: {file_path or "multiple files"}
+Type: {"Creation" if is_new else "Update"}
+
+Requirements:
+- Format: <type>(<scope>): <description>
+- Use lowercase for description
+- Max 72 characters
+- Common types: feat (new file/feature), fix (bug fix), docs (documentation), chore (maintenance)
+
+Respond with ONLY the commit message.
+"""
+        try:
+            response = await self.model_router.invoke_with_fallback(
+                model_name=model,
+                prompt=prompt
+            )
+            
+            # Use dummy DiffAnalysis for parser compatibility
+            dummy_analysis = DiffAnalysis(
+                files=[file_path] if file_path else [],
+                additions=1,
+                deletions=0,
+                summary="proactive-gen",
+                file_types=set()
+            )
+            
+            return self._parse_llm_response(response, ChangeType.FEAT if is_new else ChangeType.FIX, dummy_analysis)
+
+        except Exception as e:
+            logger.error(f"Proactive commit generation failed: {e}")
+            # Ultra-safe fallback
+            msg = f"feat: create {file_path}" if is_new else f"fix: update {file_path or 'files'}"
+            return CommitMessage(
+                text=msg,
+                type=ChangeType.FEAT if is_new else ChangeType.FIX,
+                scope=None,
+                description=msg.split(": ")[-1],
+                body=None,
+                confidence=0.5
+            )
