@@ -88,7 +88,9 @@ class AdvancedGeneratorV2:
         user_prompt: str = None,
         realism_level: str = "basic",
         *,
-        progress_callback: Optional[Any] = None
+        progress_callback: Optional[Any] = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> dict:
         """
         Generate data with semantic awareness and relationship integrity.
@@ -117,7 +119,12 @@ class AdvancedGeneratorV2:
         
         try:
             # Step 1: Semantic analysis
-            semantic_info = await self._analyze_schema_semantically(schema, user_prompt)
+            semantic_info = await self._analyze_schema_semantically(
+                schema, 
+                user_prompt,
+                tenant_id=tenant_id,
+                integration_name=integration_name
+            )
             analysis_end_time = time.time()
             self._report("semantic_analysis", 40, "Schema semantic analysis complete")
             
@@ -206,7 +213,9 @@ class AdvancedGeneratorV2:
     async def _analyze_schema_semantically(
         self, 
         schema: dict, 
-        user_prompt: str = None
+        user_prompt: str = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> dict[str, List[SemanticFieldInfo]]:
         """
         Analyze schema using semantic analyzer.
@@ -224,7 +233,12 @@ class AdvancedGeneratorV2:
         
         try:
             logger.info("Running semantic analysis...")
-            result = self.semantic_analyzer.analyze_schema(schema, user_prompt)
+            result = await self.semantic_analyzer.analyze_schema(
+                schema, 
+                user_prompt,
+                tenant_id=tenant_id,
+                integration_name=integration_name
+            )
             
             # Log analysis results
             total_fields = sum(len(fields) for fields in result.values())
@@ -743,8 +757,9 @@ async def generate_advanced_data_v2(
     default_rows: int = 100,
     output_format: Literal["json", "csv"] = "json",
     enable_semantic_generation: bool = True,
-    *,
-    progress_callback: Optional[Any] = None
+    progress_callback: Optional[Any] = None,
+    tenant_id: str = "unknown",
+    integration_name: str = "unknown"
 ) -> dict[str, Any]:
     """
     Generate advanced synthetic data using Phase 1 components.
@@ -776,7 +791,9 @@ async def generate_advanced_data_v2(
                 schema = await schema_designer.design_schema(
                     prompt=prompt or f"Generate {domain} data",
                     domain=domain,
-                    default_rows=default_rows
+                    default_rows=default_rows,
+                    tenant_id=tenant_id,
+                    integration_name=integration_name
                 )
             except Exception as e:
                 return {
@@ -831,7 +848,9 @@ async def generate_advanced_data_v2(
             row_count=default_rows,
             user_prompt=prompt,
             realism_level=realism_level,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            tenant_id=tenant_id,
+            integration_name=integration_name
         )
         
         # Step 4: Format output (JSON returns native arrays, CSV returns strings)

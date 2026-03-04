@@ -2,7 +2,11 @@
 
 ## 📋 Overview
 
-This document covers the complete authentication and authorization implementation for the DevForge backend, including JWT middleware, Google OAuth integration, and testing procedures.
+This document covers the high-level authentication architecture for DevForge. For detailed implementation guides, see:
+
+- 📑 [Dashboard Authentication Guide](file:///Users/siddesh.kale/Documents/DevForge/DevForge_Backend/docs/DASHBOARD_AUTH_GUIDE.md) - User accounts, Google/Local login, and Admin features.
+- 📑 [Gateway & MCP Authentication Guide](file:///Users/siddesh.kale/Documents/DevForge/DevForge_Backend/docs/GATEWAY_MCP_AUTH_GUIDE.md) - API Key based access for IDEs and CLI.
+- 📑 [Phase 1/2 RAG Flow](# rag-session-auth) - Tenant-based stateless auth for RAG.
 
 ---
 

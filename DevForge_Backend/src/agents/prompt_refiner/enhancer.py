@@ -43,6 +43,8 @@ class PromptEnhancer:
         file_context: Optional[str] = None,
         code_context: Optional['CodeContext'] = None,
         project_files: Optional[Dict[str, str]] = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Enhance a prompt based on domain and context.
 
@@ -128,10 +130,16 @@ class PromptEnhancer:
                 },
             )
 
-            # Invoke LLM
-            response = await chat_model.ainvoke([{"role": "user", "content": formatted_prompt}])
+            # Phase 2: Use ModelRouter.invoke_with_usage for token tracking
+            usage_result = await model_router.invoke_with_usage(
+                prompt=formatted_prompt,
+                model_name=model_name,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                task_type=f"prompt_refiner_{domain}"
+            )
             
-            refined_prompt = response.content.strip() if hasattr(response, "content") else str(response).strip()
+            refined_prompt = usage_result.content.strip()
 
             logger.info(
                 "Prompt enhanced successfully",

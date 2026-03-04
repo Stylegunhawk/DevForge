@@ -39,6 +39,8 @@ from src.tools.scaffold import scaffold_repository_invoke
 from src.tools.changelog import generate_changelog_invoke
 from src.tools.ci_diagnostics import analyze_ci_failure_invoke
 
+from src.workers.tasks.usage_tasks import log_llm_usage
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,6 +60,8 @@ class GitHubState(TypedDict):
     intent_confidence: Optional[float] # LLM confidence for intent
     repo_confidence: Optional[float]   # Fuzzy match confidence
     commit_confidence: Optional[float] # Commit message confidence
+    tenant_id: Optional[str]           # Phase 2: per-tenant tracking
+    integration_name: Optional[str]    # Phase 2: integration identifier
 
 
 @dataclass
@@ -205,15 +209,19 @@ Extract all relevant parameters from the user request."""
         
         start_time = time.time()
         try:
-            # Phase 3: Add 30s timeout for LLM classification
-            response = await asyncio.wait_for(
-                router.invoke_with_fallback(
+            # Phase 2: Use invoke_with_usage with auto-logging
+            usage_result = await asyncio.wait_for(
+                router.invoke_with_usage(
                     model_name=model,
                     prompt=classification_prompt,
-                    fallback_models=["deepseek-v3.1:671b-cloud"]
+                    fallback_models=["deepseek-v3.1:671b-cloud"],
+                    tenant_id=state.get("tenant_id"),
+                    integration_name=state.get("integration_name"),
+                    task_type="github_intent_classification"
                 ),
                 timeout=30.0
             )
+            response_text = usage_result.content
         except asyncio.TimeoutError:
             logger.error(f"[{audit_id}] LLM classification timed out after 30s")
             timeline.fail_step("llm_classify", "LLM Classification Timeout")
@@ -241,7 +249,7 @@ Extract all relevant parameters from the user request."""
         timeline.complete_step("llm_classify")
         
         # Parse LLM response
-        response_text = response.strip()
+        response_text = response_text.strip()
         if response_text.startswith("```"):
             lines = response_text.split("\n")
             response_text = "\n".join(lines[1:-1]) if len(lines) > 2 else response_text
@@ -314,6 +322,7 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
     context = state.get("context", {})
     timeline = state.get("timeline")
     audit_id = state.get("audit_id")
+    query = state.get("query")
     
     logger.info(f"[{audit_id}] [DEBUG] Starting enhancement. Operation: {operation}")
     logger.info(f"[{audit_id}] [DEBUG] Current parameters: {parameters}")
@@ -329,6 +338,7 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
     commit_generator = bundle.commit_generator
     log_parser = bundle.log_parser
 
+    best_match = None
     try:
         # 1. Fuzzy repo matching (if repo_name provided but might be ambiguous)
         # delete_repo is intentionally excluded: it requires an exact name match, never fuzzy.
@@ -384,7 +394,9 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                 timeline.start_step("commit_gen", "Generating commit message from diff")
                 commit_msg = await commit_generator.generate(
                     repo=parameters.get("repo_name", "unknown"),
-                    diff=diff
+                    diff=diff,
+                    tenant_id=state.get("tenant_id"),
+                    integration_name=state.get("integration_name")
                 )
             else:
                 # Proactive fallback: generate from query/file params
@@ -393,7 +405,9 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                     repo=parameters.get("repo_name", "unknown"),
                     query=query,
                     file_path=parameters.get("file_path"),
-                    is_new=not parameters.get("file_url") # Heuristic: if no file_url, it's likely a creation
+                    is_new=not parameters.get("file_url"), # Heuristic: if no file_url, it's likely a creation
+                    tenant_id=state.get("tenant_id"),
+                    integration_name=state.get("integration_name")
                 )
             
             parameters["commit_message"] = commit_msg.text
@@ -661,11 +675,7 @@ def validate_parameters(state: GitHubState) -> GitHubState:
             "timeline": timeline
         }
     except ValidationError as e:
-        error_details = e.errors()[0]
-        loc = error_details.get("loc", [])
-        field = loc[-1] if loc else "general"
-        msg = error_details.get("msg", "invalid value")
-        friendly_error = f"Validation failed for {operation}: {field} -> {msg}"
+        friendly_error = _friendly_validation_message(str(e), operation)
         
         logger.warning(f"[{audit_id}] Validation failed: {friendly_error}")
         if timeline:
@@ -1157,6 +1167,8 @@ async def github_agent_invoke(
     query: str,
     context: Optional[Dict[str, Any]] = None,
     github_token: Optional[str] = None,
+    tenant_id: str = "unknown",
+    integration_name: str = "github",
 ) -> Dict[str, Any]:
     """Invoke enhanced GitHub agent with a user query.
 
@@ -1191,6 +1203,8 @@ async def github_agent_invoke(
         "intent_confidence": None,
         "repo_confidence": None,
         "commit_confidence": None,
+        "tenant_id": tenant_id,
+        "integration_name": integration_name,
     }
     
     try:

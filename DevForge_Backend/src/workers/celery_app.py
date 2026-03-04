@@ -14,7 +14,11 @@ def create_celery_app() -> Celery:
         "devforge",
         broker=settings.CELERY_BROKER_URL,
         backend=settings.CELERY_RESULT_BACKEND,
-        include=["src.workers.tasks.rag_tasks"],
+        include=[
+            "src.workers.tasks.rag_tasks",
+            "src.workers.tasks.auth_tasks",
+            "src.workers.tasks.usage_tasks"
+        ],
     )
 
     app.conf.update(
@@ -51,8 +55,8 @@ def create_celery_app() -> Celery:
 
 
 # Application instance
-app = create_celery_app()
+celery_app = create_celery_app()
 
 
 if __name__ == "__main__":
-    app.start()
+    celery_app.start()

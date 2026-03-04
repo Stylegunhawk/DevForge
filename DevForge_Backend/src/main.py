@@ -18,6 +18,11 @@ from src.api.routers.rag import router as rag_router
 from src.api.routers.auth import router as auth_router
 from src.api.monitoring import router as monitoring_router  # Phase 3
 from src.core.middleware import JWTAuthMiddleware
+from src.core.api_key_middleware import APIKeyAuthMiddleware
+from src.core.dashboard_middleware import DashboardAuthMiddleware
+from src.api.routers.users import router as users_router
+from src.api.routers.admin import router as admin_router
+from src.storage.db import PostgresPoolManager
 
 # Track application start time for uptime calculation
 START_TIME = time.time()
@@ -43,6 +48,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("DevForge shutting down...")
+    await PostgresPoolManager.close_pool()
 
 
 # Create FastAPI app
@@ -65,12 +71,20 @@ app.add_middleware(
 # Add JWT auth middleware
 app.add_middleware(JWTAuthMiddleware)
 
+# Add API Key auth middleware (for /gateway and /mcp)
+app.add_middleware(APIKeyAuthMiddleware)
+
+# Add Dashboard auth middleware (for /api/users/* and /api/admin/*)
+app.add_middleware(DashboardAuthMiddleware)
+
 # Include API routers
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api") # Auth routes (includes refresh)
+app.include_router(users_router, prefix="/api") # User-scoped routes
 app.include_router(rag_router, prefix="/api") # Lobe Chat RAG
 app.include_router(mcp_router)  # MCP endpoints
 app.include_router(monitoring_router)  # Phase 3: Observability
+app.include_router(admin_router)  # API Key Management
 
 
 # ============================================================================

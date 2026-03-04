@@ -181,3 +181,4 @@ rstr==3.2.2
 google-auth
 google-auth-httplib2
 python-jose[cryptography]
+email-validator==2.2.0

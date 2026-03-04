@@ -31,6 +31,8 @@ class PromptRefinerAgent:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         attached_files: Optional[List[str]] = None,
         project_files: Optional[Dict[str, str]] = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Refine a user prompt.
 
@@ -86,6 +88,8 @@ class PromptRefinerAgent:
                 file_context=file_context,
                 code_context=code_context,
                 project_files=project_files,
+                tenant_id=tenant_id,
+                integration_name=integration_name
             )
 
             execution_time = time.time() - start_time
@@ -165,7 +169,11 @@ class PromptRefinerAgent:
 # Global instance
 prompt_refiner_agent = PromptRefinerAgent()
 
-async def refine_prompt_invoke(arguments: dict) -> Dict[str, Any]:
+async def refine_prompt_invoke(
+    arguments: dict,
+    tenant_id: str = "unknown",
+    integration_name: str = "unknown"
+) -> Dict[str, Any]:
     """Convenience function to invoke the prompt refiner agent.
     
     Matches the Gateway tool signature - accepts dict of arguments.
@@ -181,6 +189,8 @@ async def refine_prompt_invoke(arguments: dict) -> Dict[str, Any]:
         conversation_history=arguments.get("conversation_history"),
         attached_files=arguments.get("attached_files"),
         project_files=arguments.get("project_files"),
+        tenant_id=tenant_id,
+        integration_name=integration_name
     )
     
     # Format for Gateway response

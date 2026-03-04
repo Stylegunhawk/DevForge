@@ -8,9 +8,28 @@ import logging
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from langchain_ollama import ChatOllama
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, List
 
+from langchain_ollama import ChatOllama
 from src.core.config import settings
+from src.workers.celery_app import celery_app
+
+
+@dataclass
+class UsageMetadata:
+    """Token usage metadata."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
+class UsageResult:
+    """LLM invocation result with usage metadata."""
+    content: str
+    model_name: str
+    usage: UsageMetadata
 
 
 class ModelType(str, Enum):
@@ -194,26 +213,29 @@ class ModelRouter:
             temperature=0.7,
         )
 
-    async def invoke_with_fallback(
+    async def invoke_with_usage(
         self,
         prompt: str,
         model_name: Optional[str] = None,
         use_case: Optional[str] = None,
         fallback_models: Optional[list[str]] = None,
-    ) -> str:
-        """Invoke model with automatic fallback on failure.
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        task_type: Optional[str] = None,
+    ) -> UsageResult:
+        """Invoke model with automatic fallback and usage tracking.
 
         Args:
             prompt: Input prompt
             model_name: Specific model to use (optional)
             use_case: Description of task for model selection (optional)
             fallback_models: List of fallback models to try (optional)
+            tenant_id: Tenant identifier for logging (optional)
+            integration_name: Integration identifier for logging (optional)
+            task_type: Task description for logging (optional)
 
         Returns:
-            Model response string
-
-        Raises:
-            Exception: If all models fail
+            UsageResult containing content and token counts
         """
         # Select primary model
         if not model_name:
@@ -238,7 +260,36 @@ class ModelRouter:
                 chat_model = self.get_chat_model(model)
                 logging.info(f"Invoking model: {model}", extra={"model": model, "prompt_length": len(prompt)})
                 response = await chat_model.ainvoke(prompt)
-                return response.content if hasattr(response, "content") else str(response)
+                
+                content = response.content if hasattr(response, "content") else str(response)
+                usage = self._extract_usage(response)
+                
+                result = UsageResult(
+                    content=content,
+                    model_name=model,
+                    usage=usage
+                )
+
+                # Phase 2: Fire-and-forget logging if IDs provided
+                if tenant_id and integration_name and task_type:
+                    try:
+                        # Use send_task to avoid circular import with usage_tasks
+                        celery_app.send_task(
+                            "src.workers.tasks.usage_tasks.log_llm_usage",
+                            kwargs={
+                                "tenant_id": tenant_id,
+                                "integration_name": integration_name,
+                                "model_name": result.model_name,
+                                "task_type": task_type,
+                                "prompt_tokens": usage.prompt_tokens,
+                                "completion_tokens": usage.completion_tokens,
+                                "total_tokens": usage.total_tokens
+                            }
+                        )
+                    except Exception as e:
+                        logging.error(f"Failed to trigger usage logging task: {e}")
+
+                return result
             except Exception as e:
                 last_error = e
                 logging.warning(
@@ -249,6 +300,40 @@ class ModelRouter:
 
         # All models failed
         raise Exception(f"All models failed. Last error: {last_error}") from last_error
+
+    async def invoke_with_fallback(
+        self,
+        prompt: str,
+        model_name: Optional[str] = None,
+        use_case: Optional[str] = None,
+        fallback_models: Optional[list[str]] = None,
+    ) -> str:
+        """Invoke model with fallback, returning only the string content.
+        
+        Backward compatibility wrapper for invoke_with_usage.
+        """
+        result = await self.invoke_with_usage(prompt, model_name, use_case, fallback_models)
+        return result.content
+
+    def _extract_usage(self, response: Any) -> UsageMetadata:
+        """Extract token usage from LangChain response."""
+        usage = UsageMetadata()
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            meta = response.usage_metadata
+            usage.prompt_tokens = meta.get("input_tokens", 0)
+            usage.completion_tokens = meta.get("output_tokens", 0)
+            usage.total_tokens = meta.get("total_tokens", usage.prompt_tokens + usage.completion_tokens)
+        
+        # Fallback: estimate if metadata missing (common for some local models)
+        if usage.total_tokens == 0:
+            logging.warning(
+                f"Missing usage_metadata for model {getattr(response, 'response_metadata', {}).get('model', 'unknown')}. "
+                "Falling back to character-based estimation."
+            )
+            # Simple heuristic: 4 chars per token
+            usage.prompt_tokens = len(str(getattr(response, "response_metadata", {}).get("prompt", ""))) // 4
+        
+        return usage
 
     def estimate_cost(self, model_name: str, num_tokens: int) -> float:
         """Estimate cost for a model invocation.

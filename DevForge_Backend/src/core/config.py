@@ -246,6 +246,15 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_THRESHOLD: float = 0.92  # Cosine similarity threshold
     SEMANTIC_CACHE_MAX_SIZE_PER_INTENT: int = 100  # Max cached queries per intent
 
+    # Phase 1 (API Key Auth Phase): Security Configuration
+    ADMIN_SECRET: str | None = None  # Protected admin endpoints
+    API_KEY_CACHE_TTL: int = 300      # 5 minutes cache
+
+    # Phase 3: Dashboard Authentication
+    DASHBOARD_JWT_SECRET: str | None = None
+    GOOGLE_DASHBOARD_CLIENT_ID: str | None = None
+    GOOGLE_DASHBOARD_SECRET: str | None = None
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS comma-separated string into list."""

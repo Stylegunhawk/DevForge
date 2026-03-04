@@ -631,10 +631,10 @@ def _generate_default_manifest() -> dict:
 
 
 @router.post("/gateway")
-async def gateway_endpoint(request: GatewayRequest):
+async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
     """Universal gateway for all tools - simplified and cleaner"""
-    tool_name = request.get_tool_name()
-    args = request.arguments or {}
+    tool_name = gateway_req.get_tool_name()
+    args = gateway_req.arguments or {}
     start_time = time.time()
 
     if tool_name not in SUPPORTED_TOOLS:
@@ -671,11 +671,29 @@ async def gateway_endpoint(request: GatewayRequest):
             # Strip token from context BEFORE any logging — never log raw tokens
             github_token = context.pop("github_token", None)
 
-            logging.info(f"Calling {tool_name} with query: {query[:100]}...")
-            result = await agent_func(query=query, context=context, github_token=github_token)
+            # Phase 2: Per-tenant tracking
+            tenant_id = getattr(request.state, "tenant_id", "unknown")
+            integration_name = getattr(request.state, "integration_name", "unknown")
+
+            logging.info(f"Calling {tool_name} for tenant {tenant_id} with query: {query[:100]}...")
+            result = await agent_func(
+                query=query, 
+                context=context, 
+                github_token=github_token,
+                tenant_id=tenant_id,
+                integration_name=integration_name
+            )
         else:
-            logging.info(f"Calling {tool_name} with args: {args}")
-            result = await agent_func(args)  # ← dict, no extra parsing
+            # Phase 2: Per-tenant tracking
+            tenant_id = getattr(request.state, "tenant_id", "unknown")
+            integration_name = getattr(request.state, "integration_name", "unknown")
+
+            logging.info(f"Calling {tool_name} for tenant {tenant_id} with args: {args}")
+            result = await agent_func(
+                args, 
+                tenant_id=tenant_id, 
+                integration_name=integration_name
+            )
 
         exec_time = time.time() - start_time
 
@@ -928,9 +946,24 @@ async def mcp_endpoint(request: Request):
                     context = arguments.get("context", {})
                     # Strip token from context BEFORE any logging — never log raw tokens
                     github_token = context.pop("github_token", None)
-                    result = await agent_func(query=query, context=context, github_token=github_token)
+
+                    # Phase 2: Per-tenant tracking
+                    tenant_id = getattr(request.state, "tenant_id", "unknown")
+                    integration_name = getattr(request.state, "integration_name", "unknown")
+
+                    result = await agent_func(
+                        query=query, 
+                        context=context, 
+                        github_token=github_token,
+                        tenant_id=tenant_id,
+                        integration_name=integration_name
+                    )
 
                 else:
+                    # Phase 2: Per-tenant tracking
+                    tenant_id = getattr(request.state, "tenant_id", "unknown")
+                    integration_name = getattr(request.state, "integration_name", "unknown")
+
                     if tool_name == "generate_data":
                         # Refinement: Include request_id in log messages as requested
                         def progress_callback(stage: str, percent: int, message: str):
@@ -939,9 +972,18 @@ async def mcp_endpoint(request: Request):
                                 extra={"req_id": req_id, "stage": stage, "percent": percent}
                             )
                         
-                        result = await agent_func(arguments, progress_callback=progress_callback)
+                        result = await agent_func(
+                            arguments, 
+                            progress_callback=progress_callback,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name
+                        )
                     else:
-                        result = await agent_func(arguments)
+                        result = await agent_func(
+                            arguments,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name
+                        )
 
                 # If tool returns error
                 if result.get("error"):

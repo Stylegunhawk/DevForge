@@ -98,7 +98,9 @@ class SchemaDesigner:
         self,
         prompt: str,
         domain: Optional[str] = None,
-        default_rows: int = 100
+        default_rows: int = 100,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> SchemaDesign:
         """Design a schema from natural language prompt.
         
@@ -121,7 +123,12 @@ class SchemaDesigner:
         
         # Try LLM-based schema design
         try:
-            schema = await self._design_with_llm(prompt, default_rows)
+            schema = await self._design_with_llm(
+                prompt, 
+                default_rows,
+                tenant_id=tenant_id,
+                integration_name=integration_name
+            )
             if schema:
                 logger.info(f"LLM schema design successful: {len(schema.entities)} entities")
                 return schema
@@ -143,7 +150,9 @@ class SchemaDesigner:
     async def _design_with_llm(
         self, 
         prompt: str, 
-        default_rows: int
+        default_rows: int,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> Optional[SchemaDesign]:
         """Call LLM to design schema.
         
@@ -164,13 +173,17 @@ class SchemaDesigner:
             
             logger.info(f"Calling LLM for schema design with model: {model_name}")
             
-            # Call LLM
-            response = await chat_model.ainvoke([
-                {"role": "user", "content": full_prompt}
-            ])
+            # Call LLM with auto-logging
+            usage_result = await model_router.invoke_with_usage(
+                prompt=full_prompt,
+                model_name=model_name,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                task_type="datagen_schema_design"
+            )
             
             # Extract content
-            content = response.content if hasattr(response, "content") else str(response)
+            content = usage_result.content
             
             # Parse JSON from response
             schema_dict = self._extract_json(content)

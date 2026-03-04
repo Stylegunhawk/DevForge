@@ -77,7 +77,9 @@ class CommitGenerator:
         self,
         repo: str,
         diff: str,
-        max_length: int = 72
+        max_length: int = 72,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> CommitMessage:
         """Generate commit message from diff
         
@@ -112,11 +114,15 @@ class CommitGenerator:
         prompt = self._build_prompt(analysis, change_type, max_length)
         
         try:
-            response = await self.model_router.invoke_with_fallback(
-                model=model,
+            usage_result = await self.model_router.invoke_with_usage(
+                model_name=model,
                 prompt=prompt,
-                fallback_chain=["gpt-oss:120b-cloud"]
+                fallback_models=["gpt-oss:120b-cloud"],
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                task_type="github_commit_gen"
             )
+            response = usage_result.content
             
             # Parse response
             commit_msg = self._parse_llm_response(response, change_type, analysis)
@@ -338,7 +344,9 @@ Respond with ONLY the commit message, no explanation.
         repo: str,
         query: str,
         file_path: Optional[str] = None,
-        is_new: bool = False
+        is_new: bool = False,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> CommitMessage:
         """Proactively generate a commit message from query/params when no diff exists.
         
@@ -379,10 +387,14 @@ Requirements:
 Respond with ONLY the commit message.
 """
         try:
-            response = await self.model_router.invoke_with_fallback(
+            usage_result = await self.model_router.invoke_with_usage(
                 model_name=model,
-                prompt=prompt
+                prompt=prompt,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                task_type="github_proactive_commit_gen"
             )
+            response = usage_result.content
             
             # Use dummy DiffAnalysis for parser compatibility
             dummy_analysis = DiffAnalysis(

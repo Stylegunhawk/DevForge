@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
+import bcrypt
 from google.oauth2 import id_token
 from google.auth.transport import requests
 from fastapi import HTTPException, status
@@ -17,6 +18,22 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 JWT_SECRET = os.environ.get("JWT_SECRET")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+GOOGLE_DASHBOARD_CLIENT_ID = os.environ.get("GOOGLE_DASHBOARD_CLIENT_ID")
+DASHBOARD_JWT_SECRET = os.environ.get("DASHBOARD_JWT_SECRET")
+
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    pw_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pw_bytes, salt).decode('utf-8')
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    """Verify a password against a hash."""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
 def verify_google_token(token: str, mongodb_id: str) -> str:
     """
@@ -189,5 +206,71 @@ def refresh_jwt_token(refresh_token: str) -> str:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Token refresh failed: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+def verify_google_dashboard_token(token: str) -> dict:
+    """Verifies Google ID token for Dashboard."""
+    if not GOOGLE_DASHBOARD_CLIENT_ID:
+        auth_logger.error("[AUTH] Google Dashboard Client ID is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google Dashboard Client ID is not configured.",
+        )
+    try:
+        idinfo = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_DASHBOARD_CLIENT_ID)
+        auth_logger.info(f"[AUTH] Google dashboard token verified for: {idinfo.get('email')}")
+        return idinfo
+    except Exception as e:
+        auth_logger.error(f"[AUTH] Google dashboard token verification failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid Google dashboard token: {e}",
+        )
+
+def create_dashboard_jwt(user_id: str, is_admin: bool = False) -> str:
+    """Create a JWT for dashboard authentication."""
+    if not DASHBOARD_JWT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="DASHBOARD_JWT_SECRET is not configured.",
+        )
+    
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    to_encode = {
+        "user_id": user_id,
+        "is_admin": is_admin,
+        "exp": expire,
+        "aud": "dashboard",
+        "iat": datetime.now(timezone.utc)
+    }
+    return jwt.encode(to_encode, DASHBOARD_JWT_SECRET, algorithm=ALGORITHM)
+
+def verify_dashboard_jwt(token: str) -> dict:
+    """Verify a dashboard JWT."""
+    if not DASHBOARD_JWT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="DASHBOARD_JWT_SECRET is not configured.",
+        )
+    
+    try:
+        payload = jwt.decode(
+            token, 
+            DASHBOARD_JWT_SECRET, 
+            algorithms=[ALGORITHM],
+            audience="dashboard"
+        )
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Dashboard token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate dashboard credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
