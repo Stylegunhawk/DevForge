@@ -13,7 +13,8 @@ def log_llm_usage(
     task_type: str,
     prompt_tokens: int,
     completion_tokens: int,
-    total_tokens: int
+    total_tokens: int,
+    user_id: str = None  # NEW - Optional to prevent breaking existing callers
 ):
     """Log LLM token usage to Postgres."""
     
@@ -25,8 +26,8 @@ def log_llm_usage(
             query = """
                 INSERT INTO llm_usage (
                     tenant_id, integration_name, model_name, task_type,
-                    prompt_tokens, completion_tokens, total_tokens, cost_usd
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    prompt_tokens, completion_tokens, total_tokens, cost_usd, user_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             """
             
             pool = await PostgresPoolManager.get_pool()
@@ -40,9 +41,10 @@ def log_llm_usage(
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
-                    cost
+                    cost,
+                    user_id  # NEW user_id parameter
                 )
-                logger.info(f"Logged {total_tokens} tokens for {tenant_id}/{integration_name} on {model_name} (task: {task_type})")
+                logger.info(f"Logged {total_tokens} tokens for {tenant_id}/{integration_name} on {model_name} (task: {task_type}, user: {user_id})")
         except Exception as e:
             logger.error(f"Failed to log LLM usage: {str(e)}")
 

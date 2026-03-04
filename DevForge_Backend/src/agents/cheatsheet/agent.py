@@ -175,7 +175,12 @@ class CheatsheetAgent:
 cheatsheet_agent = CheatsheetAgent()
 
 
-async def generate_cheatsheet_invoke(args: dict) -> dict:
+async def generate_cheatsheet_invoke(
+    args: dict, 
+    tenant_id: str = "unknown",
+    integration_name: str = "unknown",
+    user_id: str = None  # NEW: Phase 4 analytics support
+) -> dict:
     """Wrapper for MCP Gateway invocation (async wrapper for sync logic)"""
     result = cheatsheet_agent.generate(args)
     

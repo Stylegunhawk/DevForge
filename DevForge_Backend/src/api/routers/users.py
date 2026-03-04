@@ -125,13 +125,29 @@ async def google_login(req: GoogleLoginRequest):
 
 @router.get("/auth/me", response_model=UserResponse)
 async def get_me(request: Request):
-    user_id = getattr(request.state, "user_id", None)
+    # Extract token directly from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.split(" ")[1]
+    
+    try:
+        from src.core.auth import verify_dashboard_jwt
+        payload = verify_dashboard_jwt(token)
+        user_id = payload.get("user_id")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
         
     pool = await PostgresPoolManager.get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", uuid.UUID(user_id))
+        row = await conn.fetchrow(
+            "SELECT * FROM users WHERE id = $1", 
+            uuid.UUID(user_id)
+        )
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
             

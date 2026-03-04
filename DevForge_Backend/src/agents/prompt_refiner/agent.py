@@ -32,7 +32,8 @@ class PromptRefinerAgent:
         attached_files: Optional[List[str]] = None,
         project_files: Optional[Dict[str, str]] = None,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: str = None  # NEW: Phase 4 analytics support
     ) -> Dict[str, Any]:
         """Refine a user prompt.
 
@@ -89,7 +90,8 @@ class PromptRefinerAgent:
                 code_context=code_context,
                 project_files=project_files,
                 tenant_id=tenant_id,
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to enhancer
             )
 
             execution_time = time.time() - start_time
@@ -172,7 +174,8 @@ prompt_refiner_agent = PromptRefinerAgent()
 async def refine_prompt_invoke(
     arguments: dict,
     tenant_id: str = "unknown",
-    integration_name: str = "unknown"
+    integration_name: str = "unknown",
+    user_id: str = None  # NEW: Phase 4 analytics support
 ) -> Dict[str, Any]:
     """Convenience function to invoke the prompt refiner agent.
     
@@ -190,7 +193,8 @@ async def refine_prompt_invoke(
         attached_files=arguments.get("attached_files"),
         project_files=arguments.get("project_files"),
         tenant_id=tenant_id,
-        integration_name=integration_name
+        integration_name=integration_name,
+        user_id=user_id  # NEW: Pass user_id to agent
     )
     
     # Format for Gateway response

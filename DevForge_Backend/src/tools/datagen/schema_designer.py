@@ -100,7 +100,8 @@ class SchemaDesigner:
         domain: Optional[str] = None,
         default_rows: int = 100,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> SchemaDesign:
         """Design a schema from natural language prompt.
         
@@ -127,7 +128,8 @@ class SchemaDesigner:
                 prompt, 
                 default_rows,
                 tenant_id=tenant_id,
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to _design_with_llm
             )
             if schema:
                 logger.info(f"LLM schema design successful: {len(schema.entities)} entities")
@@ -152,7 +154,8 @@ class SchemaDesigner:
         prompt: str, 
         default_rows: int,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> Optional[SchemaDesign]:
         """Call LLM to design schema.
         
@@ -179,7 +182,8 @@ class SchemaDesigner:
                 model_name=model_name,
                 tenant_id=tenant_id,
                 integration_name=integration_name,
-                task_type="datagen_schema_design"
+                task_type="datagen_schema_design",
+                user_id=user_id  # NEW: Pass user_id to ModelRouter
             )
             
             # Extract content

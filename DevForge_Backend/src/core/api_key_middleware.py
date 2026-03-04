@@ -52,6 +52,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             request.state.tier = metadata.tier
             request.state.scopes = metadata.scopes
             request.state.api_key_id = metadata.id
+            request.state.user_id = metadata.user_id  # NEW: Phase 4 analytics support
             
             logger.info(f"[API_KEY] Authenticated {metadata.integration_name} ({metadata.tier}) for {path}")
             

@@ -25,7 +25,8 @@ async def datagen_agent(
     *, 
     progress_callback: Optional[Any] = None,
     tenant_id: str = "unknown",
-    integration_name: str = "unknown"
+    integration_name: str = "unknown",
+    user_id: str = None  # NEW: Phase 4 analytics support
 ) -> dict[str, Any]:
     """Execute DataGen agent with provided arguments.
 
@@ -87,7 +88,8 @@ async def datagen_agent(
                 enable_semantic_generation=semantic_enabled,  # Phase 1: Pass semantic flag
                 progress_callback=progress_callback,
                 tenant_id=tenant_id,
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to advanced generator
             )
             
             # Check for pipeline failure

@@ -222,6 +222,7 @@ class ModelRouter:
         tenant_id: Optional[str] = None,
         integration_name: Optional[str] = None,
         task_type: Optional[str] = None,
+        user_id: Optional[str] = None,  # NEW: Phase 4 analytics support
     ) -> UsageResult:
         """Invoke model with automatic fallback and usage tracking.
 
@@ -283,7 +284,8 @@ class ModelRouter:
                                 "task_type": task_type,
                                 "prompt_tokens": usage.prompt_tokens,
                                 "completion_tokens": usage.completion_tokens,
-                                "total_tokens": usage.total_tokens
+                                "total_tokens": usage.total_tokens,
+                                "user_id": user_id  # NEW: Pass user_id to log_llm_usage
                             }
                         )
                     except Exception as e:

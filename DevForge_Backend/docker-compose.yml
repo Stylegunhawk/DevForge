@@ -75,12 +75,52 @@ services:
     networks:
       - devforge-network
 
-  # Celery worker
+  # Celery worker - Primary
   celery-worker:
     profiles: [ "rag" ]
     image: devforge-backend:latest
     container_name: devforge-celery-worker
-    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_WORKERS:-4}
+    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_WORKERS:-4} --queues=default,analytics
+    env_file:
+      - .env.docker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - devforge-network
+
+  # Celery worker - Analytics dedicated
+  celery-worker-analytics:
+    profiles: [ "rag" ]
+    image: devforge-backend:latest
+    container_name: devforge-celery-worker-analytics
+    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_ANALYTICS_WORKERS:-2} --queues=analytics,usage
+    env_file:
+      - .env.docker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - devforge-network
+
+  # Celery worker - Additional for high load
+  celery-worker-secondary:
+    profiles: [ "rag", "scale" ]
+    image: devforge-backend:latest
+    container_name: devforge-celery-worker-secondary
+    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_SECONDARY_WORKERS:-2} --queues=default,usage
     env_file:
       - .env.docker
     depends_on:

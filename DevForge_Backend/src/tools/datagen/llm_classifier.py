@@ -55,7 +55,8 @@ Return ONLY the JSON object. No markdown, no backticks, no explanations."""
         self, 
         ctx: FieldContext,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> Optional[SemanticFieldInfo]:
         """
         Classify field using LLM.
@@ -75,7 +76,8 @@ Return ONLY the JSON object. No markdown, no backticks, no explanations."""
                 prompt=prompt,
                 tenant_id=tenant_id,
                 integration_name=integration_name,
-                task_type="datagen_field_classification"
+                task_type="datagen_field_classification",
+                user_id=user_id  # NEW: Pass user_id to ModelRouter
             )
             text = usage_result.content
             

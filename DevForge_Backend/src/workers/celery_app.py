@@ -17,7 +17,8 @@ def create_celery_app() -> Celery:
         include=[
             "src.workers.tasks.rag_tasks",
             "src.workers.tasks.auth_tasks",
-            "src.workers.tasks.usage_tasks"
+            "src.workers.tasks.usage_tasks",
+            "src.workers.tasks.analytics_tasks"  # NEW: Phase 4 analytics
         ],
     )
 
@@ -49,6 +50,34 @@ def create_celery_app() -> Celery:
         # Worker settings
         worker_prefetch_multiplier=1,
         worker_concurrency=4,
+        
+        # Queue routing for Phase 4 analytics
+        task_routes={
+            'src.workers.tasks.analytics_tasks.log_request_call': {'queue': 'analytics'},
+            'src.workers.tasks.usage_tasks.log_llm_usage': {'queue': 'usage'},
+            'src.workers.tasks.auth_tasks.update_key_last_used': {'queue': 'default'},
+            'src.workers.tasks.rag_tasks.*': {'queue': 'rag'},
+        },
+        
+        # Queue definitions
+        task_queues={
+            'default': {
+                'exchange': 'default',
+                'routing_key': 'default',
+            },
+            'analytics': {
+                'exchange': 'analytics',
+                'routing_key': 'analytics',
+            },
+            'usage': {
+                'exchange': 'usage', 
+                'routing_key': 'usage',
+            },
+            'rag': {
+                'exchange': 'rag',
+                'routing_key': 'rag',
+            },
+        },
     )
 
     return app

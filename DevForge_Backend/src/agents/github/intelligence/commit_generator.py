@@ -79,7 +79,8 @@ class CommitGenerator:
         diff: str,
         max_length: int = 72,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> CommitMessage:
         """Generate commit message from diff
         
@@ -120,7 +121,8 @@ class CommitGenerator:
                 fallback_models=["gpt-oss:120b-cloud"],
                 tenant_id=tenant_id,
                 integration_name=integration_name,
-                task_type="github_commit_gen"
+                task_type="github_commit_gen",
+                user_id=user_id  # NEW: Pass user_id to ModelRouter
             )
             response = usage_result.content
             
@@ -346,7 +348,8 @@ Respond with ONLY the commit message, no explanation.
         file_path: Optional[str] = None,
         is_new: bool = False,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> CommitMessage:
         """Proactively generate a commit message from query/params when no diff exists.
         
@@ -392,7 +395,8 @@ Respond with ONLY the commit message.
                 prompt=prompt,
                 tenant_id=tenant_id,
                 integration_name=integration_name,
-                task_type="github_proactive_commit_gen"
+                task_type="github_proactive_commit_gen",
+                user_id=user_id  # NEW: Pass user_id to ModelRouter
             )
             response = usage_result.content
             

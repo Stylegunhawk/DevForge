@@ -123,7 +123,8 @@ class AdvancedGeneratorV2:
                 schema, 
                 user_prompt,
                 tenant_id=tenant_id,
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to _analyze_schema_semantically
             )
             analysis_end_time = time.time()
             self._report("semantic_analysis", 40, "Schema semantic analysis complete")
@@ -215,7 +216,8 @@ class AdvancedGeneratorV2:
         schema: dict, 
         user_prompt: str = None,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> dict[str, List[SemanticFieldInfo]]:
         """
         Analyze schema using semantic analyzer.
@@ -237,7 +239,8 @@ class AdvancedGeneratorV2:
                 schema, 
                 user_prompt,
                 tenant_id=tenant_id,
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to semantic_analyzer
             )
             
             # Log analysis results
@@ -759,7 +762,8 @@ async def generate_advanced_data_v2(
     enable_semantic_generation: bool = True,
     progress_callback: Optional[Any] = None,
     tenant_id: str = "unknown",
-    integration_name: str = "unknown"
+    integration_name: str = "unknown",
+    user_id: Optional[str] = None  # NEW: Phase 4 analytics support
 ) -> dict[str, Any]:
     """
     Generate advanced synthetic data using Phase 1 components.
@@ -793,7 +797,8 @@ async def generate_advanced_data_v2(
                     domain=domain,
                     default_rows=default_rows,
                     tenant_id=tenant_id,
-                    integration_name=integration_name
+                    integration_name=integration_name,
+                    user_id=user_id  # NEW: Pass user_id to schema_designer
                 )
             except Exception as e:
                 return {

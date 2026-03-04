@@ -651,6 +651,13 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
 
     try:
         # ------------------------------------------------------------------- #
+        # Phase 4: Extract user_id and request context for analytics
+        # ------------------------------------------------------------------- #
+        user_id = getattr(request.state, "user_id", None)
+        tenant_id = getattr(request.state, "tenant_id", "unknown")
+        integration_name = getattr(request.state, "integration_name", "unknown")
+
+        # ------------------------------------------------------------------- #
         # Special handling for github_operation (v0.8 with context support)
         # ------------------------------------------------------------------- #
         if tool_name == "github_operation":
@@ -671,28 +678,22 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
             # Strip token from context BEFORE any logging — never log raw tokens
             github_token = context.pop("github_token", None)
 
-            # Phase 2: Per-tenant tracking
-            tenant_id = getattr(request.state, "tenant_id", "unknown")
-            integration_name = getattr(request.state, "integration_name", "unknown")
-
             logging.info(f"Calling {tool_name} for tenant {tenant_id} with query: {query[:100]}...")
             result = await agent_func(
                 query=query, 
                 context=context, 
                 github_token=github_token,
                 tenant_id=tenant_id,
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to agent
             )
         else:
-            # Phase 2: Per-tenant tracking
-            tenant_id = getattr(request.state, "tenant_id", "unknown")
-            integration_name = getattr(request.state, "integration_name", "unknown")
-
             logging.info(f"Calling {tool_name} for tenant {tenant_id} with args: {args}")
             result = await agent_func(
                 args, 
                 tenant_id=tenant_id, 
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to agent
             )
 
         exec_time = time.time() - start_time
@@ -739,6 +740,27 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
             extra={"tool": tool_name, "success": success, "execution_time": exec_time},
         )
 
+        # ------------------------------------------------------------------- #
+        # Phase 4: Async request logging for analytics
+        # ------------------------------------------------------------------- #
+        try:
+            from src.workers.tasks.analytics_tasks import log_request_call
+            from src.utils.sanitization import truncate_input
+            
+            input_summary = truncate_input(args)
+            log_request_call.delay(
+                user_id=user_id,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                tool_name=tool_name,
+                input_summary=input_summary,
+                success=success,
+                duration_ms=int(exec_time * 1000)
+            )
+        except Exception as e:
+            # Never block tool response for analytics logging
+            logging.warning(f"Failed to queue analytics logging: {e}")
+
         # Return standardized response format
         return JSONResponse(
             content={
@@ -767,6 +789,28 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
             extra={"tool": tool_name, "error": str(e), "execution_time": exec_time},
             exc_info=True,
         )
+        
+        # ------------------------------------------------------------------- #
+        # Phase 4: Log failed requests too
+        # ------------------------------------------------------------------- #
+        try:
+            from src.workers.tasks.analytics_tasks import log_request_call
+            from src.utils.sanitization import truncate_input
+            
+            input_summary = truncate_input(args)
+            log_request_call.delay(
+                user_id=getattr(request.state, "user_id", None),
+                tenant_id=getattr(request.state, "tenant_id", "unknown"),
+                integration_name=getattr(request.state, "integration_name", "unknown"),
+                tool_name=tool_name,
+                input_summary=input_summary,
+                success=False,
+                duration_ms=int(exec_time * 1000)
+            )
+        except Exception as log_e:
+            # Never block tool response for analytics logging
+            logging.warning(f"Failed to queue analytics logging for error: {log_e}")
+        
         return JSONResponse(
             status_code=500,
             content={
@@ -928,6 +972,11 @@ async def mcp_endpoint(request: Request):
             try:
                 agent_func = SUPPORTED_TOOLS[tool_name]
 
+                # Phase 4: Extract user_id and request context for analytics
+                user_id = getattr(request.state, "user_id", None)
+                tenant_id = getattr(request.state, "tenant_id", "unknown")
+                integration_name = getattr(request.state, "integration_name", "unknown")
+
                 # Special handling for github_operation
                 if tool_name == "github_operation":
                     query = arguments.get("query")
@@ -947,22 +996,18 @@ async def mcp_endpoint(request: Request):
                     # Strip token from context BEFORE any logging — never log raw tokens
                     github_token = context.pop("github_token", None)
 
-                    # Phase 2: Per-tenant tracking
-                    tenant_id = getattr(request.state, "tenant_id", "unknown")
-                    integration_name = getattr(request.state, "integration_name", "unknown")
-
+                    start_time = time.time()
                     result = await agent_func(
                         query=query, 
                         context=context, 
                         github_token=github_token,
                         tenant_id=tenant_id,
-                        integration_name=integration_name
+                        integration_name=integration_name,
+                        user_id=user_id  # NEW: Pass user_id to agent
                     )
 
                 else:
-                    # Phase 2: Per-tenant tracking
-                    tenant_id = getattr(request.state, "tenant_id", "unknown")
-                    integration_name = getattr(request.state, "integration_name", "unknown")
+                    start_time = time.time()
 
                     if tool_name == "generate_data":
                         # Refinement: Include request_id in log messages as requested
@@ -976,14 +1021,41 @@ async def mcp_endpoint(request: Request):
                             arguments, 
                             progress_callback=progress_callback,
                             tenant_id=tenant_id,
-                            integration_name=integration_name
+                            integration_name=integration_name,
+                            user_id=user_id  # NEW: Pass user_id to agent
                         )
                     else:
                         result = await agent_func(
                             arguments,
                             tenant_id=tenant_id,
-                            integration_name=integration_name
+                            integration_name=integration_name,
+                            user_id=user_id  # NEW: Pass user_id to agent
                         )
+
+                exec_time = time.time() - start_time
+
+                # ------------------------------------------------------------------- #
+                # Phase 4: Async request logging for analytics (MCP endpoint)
+                # ------------------------------------------------------------------- #
+                try:
+                    from src.workers.tasks.analytics_tasks import log_request_call
+                    from src.utils.sanitization import truncate_input
+                    
+                    input_summary = truncate_input(arguments)
+                    success = result.get("success", True)
+                    
+                    log_request_call.delay(
+                        user_id=user_id,
+                        tenant_id=tenant_id,
+                        integration_name=integration_name,
+                        tool_name=tool_name,
+                        input_summary=input_summary,
+                        success=success,
+                        duration_ms=int(exec_time * 1000)
+                    )
+                except Exception as e:
+                    # Never block tool response for analytics logging
+                    logging.warning(f"Failed to queue analytics logging for MCP: {e}")
 
                 # If tool returns error
                 if result.get("error"):

@@ -44,7 +44,8 @@ class PromptEnhancer:
         code_context: Optional['CodeContext'] = None,
         project_files: Optional[Dict[str, str]] = None,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> Dict[str, Any]:
         """Enhance a prompt based on domain and context.
 
@@ -136,7 +137,8 @@ class PromptEnhancer:
                 model_name=model_name,
                 tenant_id=tenant_id,
                 integration_name=integration_name,
-                task_type=f"prompt_refiner_{domain}"
+                task_type=f"prompt_refiner_{domain}",
+                user_id=user_id  # NEW: Pass user_id to ModelRouter
             )
             
             refined_prompt = usage_result.content.strip()

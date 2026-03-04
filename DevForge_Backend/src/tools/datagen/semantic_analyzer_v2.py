@@ -42,7 +42,8 @@ class SemanticAnalyzer:
         self, 
         ctx: FieldContext,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> SemanticFieldInfo:
         """
         Analyze a single field using multi-tier pipeline.
@@ -73,7 +74,8 @@ class SemanticAnalyzer:
             result = await self.llm.classify(
                 ctx,
                 tenant_id=tenant_id,
-                integration_name=integration_name
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to LLM classifier
             )
             if result and result.confidence >= self.LLM_THRESHOLD:
                 logger.debug(f"Field {ctx.entity_name}.{ctx.field_name} classified via LLM: {result.semantic_type}")
@@ -87,7 +89,8 @@ class SemanticAnalyzer:
         schema: dict, 
         user_prompt: str = None,
         tenant_id: Optional[str] = None,
-        integration_name: Optional[str] = None
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> dict[str, List[SemanticFieldInfo]]:
         """
         Analyze all fields in a schema.
@@ -123,7 +126,8 @@ class SemanticAnalyzer:
                 result = await self.analyze_field(
                     ctx,
                     tenant_id=tenant_id,
-                    integration_name=integration_name
+                    integration_name=integration_name,
+                    user_id=user_id  # NEW: Pass user_id to analyze_field
                 )
                 results[entity_name].append(result)
         

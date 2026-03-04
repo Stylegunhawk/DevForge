@@ -62,6 +62,7 @@ class GitHubState(TypedDict):
     commit_confidence: Optional[float] # Commit message confidence
     tenant_id: Optional[str]           # Phase 2: per-tenant tracking
     integration_name: Optional[str]    # Phase 2: integration identifier
+    user_id: Optional[str]             # NEW: Phase 4 analytics support
 
 
 @dataclass
@@ -217,7 +218,8 @@ Extract all relevant parameters from the user request."""
                     fallback_models=["deepseek-v3.1:671b-cloud"],
                     tenant_id=state.get("tenant_id"),
                     integration_name=state.get("integration_name"),
-                    task_type="github_intent_classification"
+                    task_type="github_intent_classification",
+                    user_id=state.get("user_id")  # NEW: Pass user_id to ModelRouter
                 ),
                 timeout=30.0
             )
@@ -396,7 +398,8 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                     repo=parameters.get("repo_name", "unknown"),
                     diff=diff,
                     tenant_id=state.get("tenant_id"),
-                    integration_name=state.get("integration_name")
+                    integration_name=state.get("integration_name"),
+                    user_id=state.get("user_id")  # NEW: Pass user_id to commit_generator
                 )
             else:
                 # Proactive fallback: generate from query/file params
@@ -407,7 +410,8 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                     file_path=parameters.get("file_path"),
                     is_new=not parameters.get("file_url"), # Heuristic: if no file_url, it's likely a creation
                     tenant_id=state.get("tenant_id"),
-                    integration_name=state.get("integration_name")
+                    integration_name=state.get("integration_name"),
+                    user_id=state.get("user_id")  # NEW: Pass user_id to commit_generator
                 )
             
             parameters["commit_message"] = commit_msg.text
@@ -1169,6 +1173,7 @@ async def github_agent_invoke(
     github_token: Optional[str] = None,
     tenant_id: str = "unknown",
     integration_name: str = "github",
+    user_id: str = None  # NEW: Phase 4 analytics support
 ) -> Dict[str, Any]:
     """Invoke enhanced GitHub agent with a user query.
 
@@ -1197,7 +1202,7 @@ async def github_agent_invoke(
         "result": None,
         "error": None,
         "context": safe_context,
-        "github_token": github_token,   # transient \u2014 stays in state, never serialized out
+        "github_token": github_token,   # transient — stays in state, never serialized out
         "audit_id": None,
         "timeline": None,
         "intent_confidence": None,
@@ -1205,6 +1210,7 @@ async def github_agent_invoke(
         "commit_confidence": None,
         "tenant_id": tenant_id,
         "integration_name": integration_name,
+        "user_id": user_id,  # NEW: Phase 4 analytics support
     }
     
     try:

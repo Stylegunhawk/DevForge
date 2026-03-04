@@ -76,12 +76,12 @@ class APIKeyStore:
         """
         key_hash = self._hash_key(raw_key)
         
-        # 1. Check Redis Cache
+        # 1. Check Redis Cache (v2 with user_id support)
         # (Redis client used directly to avoid circular imports if any)
         try:
             from src.storage.redis_file_store import RedisFileStore
             redis = RedisFileStore().client
-            cache_key = f"api_key:{key_hash}"
+            cache_key = f"api_key:v2:{key_hash}"  # v2 prefix with user_id support
             cached_data = await redis.get(cache_key)
             
             if cached_data:
@@ -115,7 +115,7 @@ class APIKeyStore:
                 user_id=str(row["user_id"]) if row["user_id"] else None
             )
 
-            # 3. Update Cache
+            # 3. Update Cache (v2 with user_id support)
             try:
                 await redis.setex(
                     cache_key,
