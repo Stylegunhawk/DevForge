@@ -1,17 +1,19 @@
 # DevForge API Documentation
 
-Complete API reference for DevForge backend including authentication, tool endpoints, and admin analytics.
+Complete API reference for DevForge backend including authentication, tier pricing, rate limit overrides, tool endpoints, and admin analytics.
 
 ## Table of Contents
 
 1. [Authentication](#authentication)
-2. [API Key Management (Admin)](#api-key-management-admin)
-3. [MCP Tool Endpoints](#mcp-tool-endpoints)
-4. [Admin Analytics](#admin-analytics)
-5. [User Key Management](#user-key-management)
-6. [Complete Curl Examples](#complete-curl-examples)
-7. [Environment Variables Reference](#environment-variables-reference)
-8. [Error Reference](#error-reference)
+2. [Tier Pricing Management](#tier-pricing-management)
+3. [API Key Management (Admin)](#api-key-management-admin)
+4. [Rate Limit Overrides](#rate-limit-overrides)
+5. [MCP Tool Endpoints](#mcp-tool-endpoints)
+6. [Admin Analytics](#admin-analytics)
+7. [User Key Management](#user-key-management)
+8. [Complete Curl Examples](#complete-curl-examples)
+9. [Environment Variables Reference](#environment-variables-reference)
+10. [Error Reference](#error-reference)
 
 ---
 
@@ -133,7 +135,114 @@ Authorization: Bearer <dashboard_jwt>
 
 ---
 
-## API Key Management (Admin)
+## Tier Pricing Management
+
+### Get All Tier Configurations
+**GET** `/api/admin/pricing`
+
+Retrieve all tier configurations with pricing, limits, and expiry settings.
+
+**Headers:**
+```
+Authorization: Bearer <admin_jwt>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "tiers": {
+    "free": {
+      "tier": "free",
+      "hourly_limit": 50,
+      "monthly_limit": 500,
+      "cost_per_1k_tokens": 0.01,
+      "max_expiry_days": 180,
+      "is_active": true,
+      "updated_at": null,
+      "updated_by_email": null
+    },
+    "pro": {
+      "tier": "pro",
+      "hourly_limit": 500,
+      "monthly_limit": 20000,
+      "cost_per_1k_tokens": 0.008,
+      "max_expiry_days": 180,
+      "is_active": true,
+      "updated_at": "2026-03-06T08:48:56.772754+00:00",
+      "updated_by_email": "admin@devforge.ai"
+    },
+    "enterprise": {
+      "tier": "enterprise",
+      "hourly_limit": 2000,
+      "monthly_limit": null,
+      "cost_per_1k_tokens": 0.005,
+      "max_expiry_days": 180,
+      "is_active": true,
+      "updated_at": null,
+      "updated_by_email": null
+    }
+  }
+}
+```
+
+---
+
+### Update Tier Configuration
+**PATCH** `/api/admin/pricing/{tier}`
+
+Update pricing, limits, or expiry settings for a specific tier.
+
+**Headers:**
+```
+Authorization: Bearer <admin_jwt>
+Content-Type: application/json
+```
+
+**Path Parameters:**
+- `tier` (required) - Tier name: `free`, `pro`, or `enterprise`
+
+**Request Body:**
+```json
+{
+  "hourly_limit": 100,
+  "monthly_limit": 1000,
+  "cost_per_1k_tokens": 0.009,
+  "max_expiry_days": 90
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "tier": "free",
+  "config": {
+    "tier": "free",
+    "hourly_limit": 100,
+    "monthly_limit": 1000,
+    "cost_per_1k_tokens": 0.009,
+    "max_expiry_days": 90,
+    "is_active": true,
+    "updated_at": "2026-03-06T08:48:56.772754+00:00",
+    "updated_by_email": "admin@devforge.ai"
+  },
+  "message": "free tier updated successfully"
+}
+```
+
+**Validation Rules:**
+- `hourly_limit`: 1-10000 requests per hour
+- `monthly_limit`: 1-1000000 requests per month or null for unlimited
+- `cost_per_1k_tokens`: 0.001-1.0 USD per 1000 tokens
+- `max_expiry_days`: 30, 90, or 180 days
+
+**Error Responses:**
+- `400` - Invalid tier or validation error
+- `403` - Admin privileges required
+- `500` - Failed to update tier configuration
+
+---
 
 ### Create API Key
 **POST** `/api/admin/keys`
@@ -223,6 +332,135 @@ Authorization: Bearer <admin_jwt>
   "message": "API key 456e7890-f12b-23d4-b567-537714285111 revoked successfully"
 }
 ```
+
+---
+
+## Rate Limit Overrides
+
+### Get Key Overrides
+**GET** `/api/admin/keys/{key_id}/overrides`
+
+Retrieve current rate limit overrides and effective limits for a specific API key.
+
+**Headers:**
+```
+Authorization: Bearer <admin_jwt>
+```
+
+**Path Parameters:**
+- `key_id` (required) - UUID of the API key
+
+**Response:**
+```json
+{
+  "api_key_id": "f0a87b83-edae-470e-8426-254fbd100f47",
+  "tier": "free",
+  "name": "Test Free Tier Key",
+  "integration_name": "test-rate-limit",
+  "tier_defaults": {
+    "hourly_limit": 50,
+    "monthly_limit": 500
+  },
+  "overrides": {
+    "hourly_limit_override": 100,
+    "monthly_limit_override": null
+  },
+  "effective_limits": {
+    "hourly": 100,
+    "monthly": 500
+  }
+}
+```
+
+---
+
+### Update Key Overrides
+**PATCH** `/api/admin/keys/{key_id}/overrides`
+
+Set or clear rate limit overrides for a specific API key.
+
+**Headers:**
+```
+Authorization: Bearer <admin_jwt>
+Content-Type: application/json
+```
+
+**Path Parameters:**
+- `key_id` (required) - UUID of the API key
+
+**Request Body:**
+```json
+{
+  "hourly_limit_override": 150,
+  "monthly_limit_override": 2000
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "api_key_id": "f0a87b83-edae-470e-8426-254fbd100f47",
+  "effective_limits": {
+    "hourly": 150,
+    "monthly": 2000
+  },
+  "message": "Overrides updated successfully"
+}
+```
+
+**Validation Rules:**
+- `hourly_limit_override`: 1-10000 or null to clear
+- `monthly_limit_override`: 1-1000000 or null to clear
+- Cannot exceed enterprise tier limits (2000 hourly, unlimited monthly)
+- At least one field must be provided
+
+**Clear Override Example:**
+```json
+{
+  "hourly_limit_override": null,
+  "monthly_limit_override": null
+}
+```
+
+**Error Responses:**
+- `400` - Invalid override values or validation error
+- `403` - Admin privileges required
+- `404` - API key not found
+- `500` - Failed to update overrides
+
+---
+
+### Enhanced Key Usage with Override Info
+**GET** `/api/admin/keys/{key_id}/usage`
+
+Get current rate limit usage with override information.
+
+**Response:**
+```json
+{
+  "api_key_id": "f0a87b83-edae-470e-8426-254fbd100f47",
+  "tier": "free",
+  "name": "Test Free Tier Key",
+  "integration_name": "test-rate-limit",
+  "hourly_used": 1,
+  "hourly_limit": 100,
+  "monthly_used": 13,
+  "monthly_limit": 500,
+  "hourly_reset_at": "2026-03-06T07:00:00+00:00",
+  "monthly_reset_at": "2026-04-01T00:00:00+00:00",
+  "hourly_remaining": 99,
+  "monthly_remaining": 487,
+  "hourly_limit_override": 100,
+  "monthly_limit_override": null,
+  "using_override": true
+}
+```
+
+**Override Status Fields:**
+- `hourly_limit_override`: Current hourly override or null
+- `monthly_limit_override`: Current monthly override or null
+- `using_override`: Boolean indicating if any override is active
 
 ---
 
@@ -756,6 +994,68 @@ curl -X GET http://localhost:8001/api/auth/me \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 
+### Tier Pricing Management
+
+```bash
+# Get all tier configurations
+curl -X GET http://localhost:8001/api/admin/pricing \
+  -H "Authorization: Bearer <admin_jwt>"
+
+# Update free tier hourly limit to 100
+curl -X PATCH http://localhost:8001/api/admin/pricing/free \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit": 100}'
+
+# Update pro tier pricing and limits
+curl -X PATCH http://localhost:8001/api/admin/pricing/pro \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit": 1000, "cost_per_1k_tokens": 0.007, "max_expiry_days": 90}'
+
+# Revert free tier back to defaults
+curl -X PATCH http://localhost:8001/api/admin/pricing/free \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit": 50}'
+```
+
+### Rate Limit Overrides
+
+```bash
+# Get current overrides for a key
+curl -X GET http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>"
+
+# Set hourly override (higher than tier default)
+curl -X PATCH http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": 150}'
+
+# Set both hourly and monthly overrides
+curl -X PATCH http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": 200, "monthly_limit_override": 5000}'
+
+# Clear hourly override (revert to tier default)
+curl -X PATCH http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": null}'
+
+# Clear all overrides
+curl -X PATCH http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": null, "monthly_limit_override": null}'
+
+# Check usage with override info
+curl -X GET http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/usage \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
 ### Admin API Key Management
 
 ```bash
@@ -961,11 +1261,80 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0
    - Users create keys via `/api/users/keys`
    - Keys contain `user_id` for analytics tracking
    - Cache-first validation with Redis
+   - **Rate Limit Overrides**: Per-key limits can override tier defaults
 
 3. **RAG Users**: Use JWT authentication (`Authorization: Bearer <token>`)
    - Tenant-based tokens for RAG endpoints
    - Separate from Dashboard JWTs
    - Protected by `JWTAuthMiddleware`
+
+4. **Tier-Based Rate Limiting**: 
+   - Global tier configurations (`/api/admin/pricing`)
+   - Dynamic limit fetching from database
+   - Per-key overrides (`/api/admin/keys/{key_id}/overrides`)
+   - Real-time limit updates without restart
+
+---
+
+## Feature Integration Examples
+
+### Complete Workflow: Tier Management → Key Creation → Override Setting
+
+```bash
+# 1. Check current tier pricing
+curl -X GET http://localhost:8001/api/admin/pricing \
+  -H "Authorization: Bearer <admin_jwt>"
+
+# 2. Update free tier limits
+curl -X PATCH http://localhost:8001/api/admin/pricing/free \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit": 100}'
+
+# 3. Create API key for user
+curl -X POST http://localhost:8001/api/admin/keys \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "User Key", "integration_name": "vscode", "tier": "free", "user_id": "123e4567-e89b-12d3-a456-426614174000"}'
+
+# 4. Set custom limits for the key
+curl -X PATCH http://localhost:8001/api/admin/keys/{key_id}/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": 200, "monthly_limit_override": 1000}'
+
+# 5. Verify effective limits
+curl -X GET http://localhost:8001/api/admin/keys/{key_id}/usage \
+  -H "Authorization: Bearer <admin_jwt>"
+
+# 6. Test API call with overridden limits
+curl -X POST http://localhost:8001/api/gateway \
+  -H "x-api-key: <api_key>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "generate_data", "arguments": {"rows": 10}}'
+```
+
+### Rate Limit Override Use Cases
+
+```bash
+# High-volume user: Increase limits temporarily
+curl -X PATCH http://localhost:8001/api/admin/keys/{key_id}/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": 1000, "monthly_limit_override": 50000}'
+
+# Testing user: Reduce limits for safety
+curl -X PATCH http://localhost:8001/api/admin/keys/{key_id}/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": 10, "monthly_limit_override": 100}'
+
+# Enterprise user: Custom high limits
+curl -X PATCH http://localhost:8001/api/admin/keys/{key_id}/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": 5000, "monthly_limit_override": null}'
+```
 
 ---
 

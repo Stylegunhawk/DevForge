@@ -2,11 +2,13 @@
 
 ## 📋 Overview
 
-This document covers the high-level authentication architecture for DevForge. For detailed implementation guides, see:
+This document covers the comprehensive authentication architecture for DevForge, including user authentication, API key management, tier-based rate limiting, and per-key overrides.
 
-- 📑 [Dashboard Authentication Guide](file:///Users/siddesh.kale/Documents/DevForge/DevForge_Backend/docs/DASHBOARD_AUTH_GUIDE.md) - User accounts, Google/Local login, and Admin features.
-- 📑 [Gateway & MCP Authentication Guide](file:///Users/siddesh.kale/Documents/DevForge/DevForge_Backend/docs/GATEWAY_MCP_AUTH_GUIDE.md) - API Key based access for IDEs and CLI.
-- 📑 [Phase 1/2 RAG Flow](# rag-session-auth) - Tenant-based stateless auth for RAG.
+**Authentication Methods:**
+- 📑 **Dashboard Authentication** - User accounts, Google/Local login, and Admin features
+- 🔑 **API Key Authentication** - Rate-limited access for IDEs and CLI tools  
+- 🏢 **Tenant-based Authentication** - Stateless JWT for RAG endpoints
+- ⚙️ **Tier-based Rate Limiting** - Dynamic limits with per-key overrides
 
 ---
 
@@ -14,14 +16,655 @@ This document covers the high-level authentication architecture for DevForge. Fo
 
 ### Authentication Flow
 ```
-Frontend → Google OAuth → JWT Token → RAG Endpoints (Protected)
+Frontend → Google OAuth → JWT Token → Dashboard Endpoints (Protected)
+          → API Keys → Rate Limiting → Tool Endpoints (Protected)
 ```
 
 ### Components
-1. **Google OAuth Verification** (`src/core/auth.py`)
-2. **JWT Token Generation** (`src/core/auth.py`)
-3. **JWT Authentication Middleware** (`src/core/middleware.py`)
-4. **Protected RAG Endpoints** (`src/api/routers/rag.py`)
+1. **User Authentication** (`src/core/auth.py`, `src/api/routers/auth.py`)
+2. **API Key Authentication** (`src/core/api_key_middleware.py`)
+3. **Rate Limiting** (`src/core/rate_limiter.py`, `src/storage/tier_config_store.py`)
+4. **Tier Management** (`src/api/routers/admin.py`)
+5. **Per-key Overrides** (`src/api/routers/admin.py`)
+
+---
+
+## 🔐 User Authentication
+
+### Local Registration & Login
+
+#### Register User
+**POST** `/api/auth/register`
+
+```bash
+curl -X POST http://localhost:8001/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "securePass123", "name": "John Doe"}'
+```
+
+**Response:**
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "email": "user@example.com", 
+  "name": "John Doe",
+  "is_admin": false,
+  "created_at": "2026-03-06T10:00:00Z"
+}
+```
+
+#### Login
+**POST** `/api/auth/login`
+
+```bash
+curl -X POST http://localhost:8001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "securePass123"}'
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer"
+}
+```
+
+### Google OAuth Integration
+
+#### Google SSO Login
+**POST** `/api/auth/google/dashboard`
+
+```bash
+curl -X POST http://localhost:8001/api/auth/google/dashboard \
+  -H "Content-Type: application/json" \
+  -d '{"id_token": "google_id_token_here"}'
+```
+
+**Features:**
+- ✅ Auto-registers users on first login
+- ✅ Syncs profile data (name, avatar) from Google
+- ✅ Supports admin privilege assignment
+- ✅ JWT token generation for dashboard access
+
+---
+
+## 🔑 API Key Authentication
+
+### API Key Management
+
+#### Create API Key (Admin)
+**POST** `/api/admin/keys`
+
+```bash
+curl -X POST http://localhost:8001/api/admin/keys \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production API Key",
+    "integration_name": "cursor-ide", 
+    "tenant_id": "production",
+    "tier": "pro",
+    "user_id": "123e4567-e89b-12d3-a456-426614174000"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "raw_key": "df_abc123def456ghi789jkl012mno345pqr678stu901vwx234yz",
+  "message": "Copy this key now. It will never be shown again in raw format."
+}
+```
+
+#### Create API Key (User)
+**POST** `/api/users/keys`
+
+```bash
+curl -X POST http://localhost:8001/api/users/keys \
+  -H "Authorization: Bearer <user_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Development Key",
+    "integration_name": "vscode",
+    "tier": "free"
+  }'
+```
+
+### API Key Usage
+
+#### Tool Execution with API Key
+**POST** `/api/gateway`
+
+```bash
+curl -X POST http://localhost:8001/api/gateway \
+  -H "x-api-key: df_abc123def456ghi789jkl012mno345pqr678stu901vwx234yz" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "generate_data",
+    "arguments": {"rows": 10, "format": "json"}
+  }'
+```
+
+**Rate Limit Headers:**
+```
+x-ratelimit-limit-hourly: 50
+x-ratelimit-used-hourly: 1
+x-ratelimit-limit-monthly: 500
+x-ratelimit-used-monthly: 13
+```
+
+---
+
+## ⚙️ Tier-Based Rate Limiting
+
+### Tier Configuration Management
+
+#### Get All Tier Configurations
+**GET** `/api/admin/pricing`
+
+```bash
+curl -X GET http://localhost:8001/api/admin/pricing \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "tiers": {
+    "free": {
+      "tier": "free",
+      "hourly_limit": 50,
+      "monthly_limit": 500,
+      "cost_per_1k_tokens": 0.01,
+      "max_expiry_days": 180,
+      "is_active": true
+    },
+    "pro": {
+      "tier": "pro", 
+      "hourly_limit": 500,
+      "monthly_limit": 20000,
+      "cost_per_1k_tokens": 0.008,
+      "max_expiry_days": 180,
+      "is_active": true
+    },
+    "enterprise": {
+      "tier": "enterprise",
+      "hourly_limit": 2000,
+      "monthly_limit": null,
+      "cost_per_1k_tokens": 0.005,
+      "max_expiry_days": 180,
+      "is_active": true
+    }
+  }
+}
+```
+
+#### Update Tier Configuration
+**PATCH** `/api/admin/pricing/{tier}`
+
+```bash
+# Update free tier hourly limit
+curl -X PATCH http://localhost:8001/api/admin/pricing/free \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit": 100}'
+
+# Update pro tier pricing
+curl -X PATCH http://localhost:8001/api/admin/pricing/pro \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hourly_limit": 1000,
+    "cost_per_1k_tokens": 0.007,
+    "max_expiry_days": 90
+  }'
+```
+
+**Validation Rules:**
+- `hourly_limit`: 1-10000 requests per hour
+- `monthly_limit`: 1-1000000 or null for unlimited
+- `cost_per_1k_tokens`: 0.001-1.0 USD
+- `max_expiry_days`: 30, 90, or 180 days
+
+---
+
+## 🎯 Per-Key Rate Limit Overrides
+
+### Override Management
+
+#### Get Key Overrides
+**GET** `/api/admin/keys/{key_id}/overrides`
+
+```bash
+curl -X GET http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
+**Response:**
+```json
+{
+  "api_key_id": "f0a87b83-edae-470e-8426-254fbd100f47",
+  "tier": "free",
+  "name": "Test Free Tier Key",
+  "tier_defaults": {
+    "hourly_limit": 50,
+    "monthly_limit": 500
+  },
+  "overrides": {
+    "hourly_limit_override": 150,
+    "monthly_limit_override": 2000
+  },
+  "effective_limits": {
+    "hourly": 150,
+    "monthly": 2000
+  }
+}
+```
+
+#### Set Key Overrides
+**PATCH** `/api/admin/keys/{key_id}/overrides`
+
+```bash
+# Set custom limits
+curl -X PATCH http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hourly_limit_override": 200,
+    "monthly_limit_override": 5000
+  }'
+
+# Clear override (revert to tier default)
+curl -X PATCH http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/overrides \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": null}'
+```
+
+**Validation Rules:**
+- `hourly_limit_override`: 1-10000 or null to clear
+- `monthly_limit_override`: 1-1000000 or null to clear
+- Cannot exceed enterprise tier limits
+- At least one field must be provided
+
+#### Usage with Override Info
+**GET** `/api/admin/keys/{key_id}/usage`
+
+```bash
+curl -X GET http://localhost:8001/api/admin/keys/f0a87b83-edae-470e-8426-254fbd100f47/usage \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
+**Response:**
+```json
+{
+  "api_key_id": "f0a87b83-edae-470e-8426-254fbd100f47",
+  "hourly_used": 1,
+  "hourly_limit": 150,
+  "monthly_used": 13,
+  "monthly_limit": 2000,
+  "hourly_limit_override": 150,
+  "monthly_limit_override": 2000,
+  "using_override": true
+}
+```
+
+---
+
+## 🏢 Tenant-Based Authentication (RAG)
+
+### JWT Token for RAG Endpoints
+
+#### Get RAG JWT Token
+**POST** `/api/auth/google`
+
+```bash
+curl -X POST http://localhost:8001/api/auth/google \
+  -H "Content-Type: application/json" \
+  -d '{
+    "google_token": "google_oauth_id_token",
+    "mongodb_id": "tenant-123"
+  }'
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 3600
+}
+```
+
+#### Use RAG Endpoints
+**GET** `/api/v1/rag/files`
+
+```bash
+curl -X GET http://localhost:8001/api/v1/rag/files \
+  -H "Authorization: Bearer <rag_jwt>"
+```
+
+**JWT Payload:**
+```json
+{
+  "tenant_id": "tenant-123",
+  "exp": 1772452532,
+  "original_issued_at": "2026-03-06T10:55:32.319271+00:00"
+}
+```
+
+---
+
+## 🧪 Complete Testing Guide
+
+### Prerequisites
+1. **DevForge backend running** on `http://localhost:8001`
+2. **Admin credentials**: `admin@devforge.ai` / `adminpass123`
+3. **Test user**: Create via registration or use existing
+
+### Step 1: Admin Authentication
+
+```bash
+# Login as admin
+ADMIN_TOKEN=$(curl -s -X POST http://localhost:8001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@devforge.ai", "password": "adminpass123"}' | \
+  jq -r '.access_token')
+
+echo "Admin Token: $ADMIN_TOKEN"
+```
+
+### Step 2: Tier Management Testing
+
+```bash
+# Check current tiers
+curl -X GET http://localhost:8001/api/admin/pricing \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.tiers.free.hourly_limit'
+
+# Update free tier
+curl -X PATCH http://localhost:8001/api/admin/pricing/free \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit": 100}'
+
+# Verify update
+curl -X GET http://localhost:8001/api/admin/pricing \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.tiers.free.hourly_limit'
+
+# Revert change
+curl -X PATCH http://localhost:8001/api/admin/pricing/free \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit": 50}'
+```
+
+### Step 3: API Key Creation
+
+```bash
+# Create API key
+KEY_RESPONSE=$(curl -s -X POST http://localhost:8001/api/admin/keys \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Test Override Key",
+    "integration_name": "test-override",
+    "tier": "free"
+  }')
+
+API_KEY=$(echo $KEY_RESPONSE | jq -r '.raw_key')
+KEY_ID=$(echo $KEY_RESPONSE | jq -r '.key_id')
+
+echo "API Key: $API_KEY"
+echo "Key ID: $KEY_ID"
+```
+
+### Step 4: Override Testing
+
+```bash
+# Set override
+curl -X PATCH http://localhost:8001/api/admin/keys/$KEY_ID/overrides \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": 150}'
+
+# Check override
+curl -X GET http://localhost:8001/api/admin/keys/$KEY_ID/overrides \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.effective_limits'
+
+# Check usage with override
+curl -X GET http://localhost:8001/api/admin/keys/$KEY_ID/usage \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '{hourly_limit, using_override}'
+
+# Test API call with override
+curl -X POST http://localhost:8001/api/gateway \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "generate_data", "arguments": {"rows": 5}}'
+
+# Clear override
+curl -X PATCH http://localhost:8001/api/admin/keys/$KEY_ID/overrides \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hourly_limit_override": null}'
+```
+
+### Step 5: User Authentication Testing
+
+```bash
+# Register test user
+curl -X POST http://localhost:8001/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "password": "testPass123", "name": "Test User"}'
+
+# Login as test user
+USER_TOKEN=$(curl -s -X POST http://localhost:8001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "password": "testPass123"}' | \
+  jq -r '.access_token')
+
+# Create user key
+USER_KEY=$(curl -s -X POST http://localhost:8001/api/users/keys \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "User Test Key", "integration_name": "vscode", "tier": "free"}' | \
+  jq -r '.key')
+
+# Test user key
+curl -X POST http://localhost:8001/api/gateway \
+  -H "x-api-key: $USER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "generate_data", "arguments": {"rows": 3}}'
+```
+
+---
+
+## 🔧 Configuration
+
+### Environment Variables
+
+```bash
+# Dashboard Authentication
+DASHBOARD_JWT_SECRET=your-secure-dashboard-secret-here
+
+# Google OAuth (Optional)
+GOOGLE_DASHBOARD_CLIENT_ID=your-google-client-id
+GOOGLE_DASHBOARD_SECRET=your-google-client-secret
+
+# API Key Management
+API_KEY_CACHE_TTL=300
+
+# Rate Limiting & Tier Config
+REDIS_URL=redis://localhost:6379/0
+
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/devforge
+```
+
+### Database Schema
+
+#### Users Table
+```sql
+users (
+  id UUID PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT,
+  name TEXT,
+  is_admin BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  auth_provider TEXT DEFAULT 'local',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+)
+```
+
+#### API Keys Table
+```sql
+api_keys (
+  id UUID PRIMARY KEY,
+  key_hash TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  integration_name TEXT NOT NULL,
+  tier TEXT DEFAULT 'free',
+  tenant_id TEXT NOT NULL,
+  user_id UUID REFERENCES users(id),
+  hourly_limit_override INTEGER,
+  monthly_limit_override INTEGER,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_by UUID REFERENCES users(id),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+)
+```
+
+#### Tier Config Table
+```sql
+tier_config (
+  tier TEXT PRIMARY KEY,
+  hourly_limit INTEGER NOT NULL,
+  monthly_limit INTEGER,
+  cost_per_1k_tokens DECIMAL(10,6) NOT NULL,
+  max_expiry_days INTEGER DEFAULT 180,
+  is_active BOOLEAN DEFAULT true,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_by UUID REFERENCES users(id)
+)
+```
+
+---
+
+## 🛡️ Security Features
+
+### ✅ Implemented Security Measures
+
+1. **Multi-layer Authentication**
+   - JWT tokens for dashboard users
+   - API keys for tool access
+   - Tenant-based tokens for RAG
+
+2. **Rate Limiting & Abuse Prevention**
+   - Tier-based rate limits
+   - Per-key override capabilities
+   - Real-time limit enforcement
+
+3. **Data Isolation**
+   - User-scoped API keys
+   - Tenant-based RAG data isolation
+   - Admin privilege separation
+
+4. **Token Security**
+   - 24-hour session limits
+   - Automatic token refresh
+   - Secure JWT secrets
+
+5. **Audit Trail**
+   - Override change tracking
+   - User activity logging
+   - Admin action attribution
+
+### ⚠️ Security Considerations
+
+1. **API Key Management**
+   - Keys shown only once during creation
+   - Secure storage required for key management
+   - Regular key rotation recommended
+
+2. **Rate Limit Override**
+   - Admin-only access to override settings
+   - Validation prevents exceeding enterprise limits
+   - Audit trail tracks all changes
+
+3. **JWT Token Security**
+   - Use strong secrets (32+ characters)
+   - Different secrets per environment
+   - Regular secret rotation
+
+---
+
+## 📞 Support & Troubleshooting
+
+### Common Issues
+
+#### Authentication Errors
+```bash
+# Check admin credentials
+curl -X POST http://localhost:8001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@devforge.ai", "password": "adminpass123"}'
+
+# Check JWT token validity
+curl -X GET http://localhost:8001/api/auth/me \
+  -H "Authorization: Bearer <token>"
+```
+
+#### Rate Limit Issues
+```bash
+# Check current tier limits
+curl -X GET http://localhost:8001/api/admin/pricing \
+  -H "Authorization: Bearer <admin_token>"
+
+# Check key overrides
+curl -X GET http://localhost:8001/api/admin/keys/<key_id>/overrides \
+  -H "Authorization: Bearer <admin_token>"
+
+# Check key usage
+curl -X GET http://localhost:8001/api/admin/keys/<key_id>/usage \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+#### API Key Issues
+```bash
+# List all keys
+curl -X GET http://localhost:8001/api/admin/keys \
+  -H "Authorization: Bearer <admin_token>"
+
+# Test key validity
+curl -X POST http://localhost:8001/api/gateway \
+  -H "x-api-key: <api_key>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "generate_data", "arguments": {"rows": 1}}'
+```
+
+### Debug Commands
+
+```bash
+# Check application health
+curl http://localhost:8001/health
+
+# Check environment variables
+docker exec devforge-api env | grep -E "(JWT_SECRET|GOOGLE_CLIENT_ID|REDIS_URL)"
+
+# Check database connections
+docker exec devforge-postgres psql -U devforge -c "SELECT COUNT(*) FROM users;"
+
+# Check Redis connectivity
+docker exec devforge-redis redis-cli ping
+```
+
+---
+
+*Last updated: 2026-03-06*
 
 ---
 

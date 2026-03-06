@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
+from src.core.rate_limiter import rate_limiter
 
 # Import agents
 from src.agents.datagen.agent import datagen_agent
@@ -656,6 +657,46 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
         user_id = getattr(request.state, "user_id", None)
         tenant_id = getattr(request.state, "tenant_id", "unknown")
         integration_name = getattr(request.state, "integration_name", "unknown")
+        
+        # ------------------------------------------------------------------- #
+        # Rate Limiting Check (Phase 4)
+        # ------------------------------------------------------------------- #
+        api_key_id = getattr(request.state, "api_key_id", None)
+        tier = getattr(request.state, "tier", "free")
+        
+        if api_key_id:
+            allowed, limit_info = await rate_limiter.check_limits(
+                api_key_id, 
+                tier,
+                hourly_override=getattr(request.state, "hourly_limit_override", None),
+                monthly_override=getattr(request.state, "monthly_limit_override", None)
+            )
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "success": False,
+                        "error": "rate_limit_exceeded",
+                        "message": f"Rate limit exceeded for {tier} tier",
+                        "limit_info": {
+                            "hourly_used": limit_info["hourly_used"],
+                            "hourly_limit": limit_info["hourly_limit"],
+                            "monthly_used": limit_info["monthly_used"],
+                            "monthly_limit": limit_info["monthly_limit"],
+                            "hourly_reset_at": limit_info["hourly_reset_at"],
+                            "monthly_reset_at": limit_info["monthly_reset_at"],
+                            "upgrade_url": "http://localhost:3000/dashboard/settings"
+                        }
+                    },
+                    headers={
+                        "X-RateLimit-Limit-Hourly": str(limit_info["hourly_limit"] or "unlimited"),
+                        "X-RateLimit-Used-Hourly": str(limit_info["hourly_used"]),
+                        "X-RateLimit-Reset-Hourly": limit_info["hourly_reset_at"],
+                        "X-RateLimit-Limit-Monthly": str(limit_info["monthly_limit"] or "unlimited"),
+                        "X-RateLimit-Used-Monthly": str(limit_info["monthly_used"]),
+                        "Retry-After": limit_info["hourly_reset_at"],
+                    }
+                )
 
         # ------------------------------------------------------------------- #
         # Special handling for github_operation (v0.8 with context support)
@@ -741,6 +782,26 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
         )
 
         # ------------------------------------------------------------------- #
+        # Phase 4: Rate Limiting Increment (after successful execution)
+        # ------------------------------------------------------------------- #
+        tokens_used = 1  # Default fallback
+        if success and api_key_id:
+            try:
+                # Try to extract actual token usage from result if available
+                if isinstance(result, dict) and "tokens_used" in result:
+                    tokens_used = result["tokens_used"]
+                elif isinstance(result_data, dict) and "tokens_used" in result_data:
+                    tokens_used = result_data["tokens_used"]
+                
+                await rate_limiter.check_and_increment(
+                    api_key_id, tier, tokens_used,
+                    hourly_override=getattr(request.state, "hourly_limit_override", None),
+                    monthly_override=getattr(request.state, "monthly_limit_override", None)
+                )
+            except Exception as e:
+                logging.warning(f"Failed to increment rate limit: {e}")
+
+        # ------------------------------------------------------------------- #
         # Phase 4: Async request logging for analytics
         # ------------------------------------------------------------------- #
         try:
@@ -761,6 +822,23 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
             # Never block tool response for analytics logging
             logging.warning(f"Failed to queue analytics logging: {e}")
 
+        # ------------------------------------------------------------------- #
+        # Build response with rate limit headers
+        # ------------------------------------------------------------------- #
+        response_headers = {}
+        if api_key_id:
+            try:
+                usage = await rate_limiter.get_usage(api_key_id, tier)
+                response_headers = {
+                    "X-RateLimit-Limit-Hourly": str(usage["hourly_limit"] or "unlimited"),
+                    "X-RateLimit-Used-Hourly": str(usage["hourly_used"]),
+                    "X-RateLimit-Reset-Hourly": usage["hourly_reset_at"],
+                    "X-RateLimit-Limit-Monthly": str(usage["monthly_limit"] or "unlimited"),
+                    "X-RateLimit-Used-Monthly": str(usage["monthly_used"]),
+                }
+            except Exception as e:
+                logging.warning(f"Failed to get rate limit usage for headers: {e}")
+
         # Return standardized response format
         return JSONResponse(
             content={
@@ -768,6 +846,7 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
                 "data": result_data,
                 "message": message,
             },
+            headers=response_headers
         )
 
     except Exception as e:
@@ -977,6 +1056,52 @@ async def mcp_endpoint(request: Request):
                 tenant_id = getattr(request.state, "tenant_id", "unknown")
                 integration_name = getattr(request.state, "integration_name", "unknown")
 
+                # ------------------------------------------------------------------- #
+                # Rate Limiting Check (Phase 4) - MCP Endpoint
+                # ------------------------------------------------------------------- #
+                api_key_id = getattr(request.state, "api_key_id", None)
+                tier = getattr(request.state, "tier", "free")
+                
+                if api_key_id:
+                    allowed, limit_info = await rate_limiter.check_limits(
+                        api_key_id, 
+                        tier,
+                        hourly_override=getattr(request.state, "hourly_limit_override", None),
+                        monthly_override=getattr(request.state, "monthly_limit_override", None)
+                    )
+                    if not allowed:
+                        return JSONResponse(
+                            content={
+                                "jsonrpc": "2.0",
+                                "id": req_id,
+                                "error": {
+                                    "code": -32000,
+                                    "message": "Rate limit exceeded",
+                                    "data": {
+                                        "error": "rate_limit_exceeded",
+                                        "message": f"Rate limit exceeded for {tier} tier",
+                                        "limit_info": {
+                                            "hourly_used": limit_info["hourly_used"],
+                                            "hourly_limit": limit_info["hourly_limit"],
+                                            "monthly_used": limit_info["monthly_used"],
+                                            "monthly_limit": limit_info["monthly_limit"],
+                                            "hourly_reset_at": limit_info["hourly_reset_at"],
+                                            "monthly_reset_at": limit_info["monthly_reset_at"],
+                                            "upgrade_url": "http://localhost:3000/dashboard/settings"
+                                        }
+                                    }
+                                }
+                            },
+                            headers={
+                                "X-RateLimit-Limit-Hourly": str(limit_info["hourly_limit"] or "unlimited"),
+                                "X-RateLimit-Used-Hourly": str(limit_info["hourly_used"]),
+                                "X-RateLimit-Reset-Hourly": limit_info["hourly_reset_at"],
+                                "X-RateLimit-Limit-Monthly": str(limit_info["monthly_limit"] or "unlimited"),
+                                "X-RateLimit-Used-Monthly": str(limit_info["monthly_used"]),
+                                "Retry-After": limit_info["hourly_reset_at"],
+                            }
+                        )
+
                 # Special handling for github_operation
                 if tool_name == "github_operation":
                     query = arguments.get("query")
@@ -1035,6 +1160,25 @@ async def mcp_endpoint(request: Request):
                 exec_time = time.time() - start_time
 
                 # ------------------------------------------------------------------- #
+                # Phase 4: Rate Limiting Increment (after successful execution) - MCP
+                # ------------------------------------------------------------------- #
+                tokens_used = 1  # Default fallback
+                success = result.get("success", True)
+                if success and api_key_id:
+                    try:
+                        # Try to extract actual token usage from result if available
+                        if isinstance(result, dict) and "tokens_used" in result:
+                            tokens_used = result["tokens_used"]
+                        
+                        await rate_limiter.check_and_increment(
+                            api_key_id, tier, tokens_used,
+                            hourly_override=getattr(request.state, "hourly_limit_override", None),
+                            monthly_override=getattr(request.state, "monthly_limit_override", None)
+                        )
+                    except Exception as e:
+                        logging.warning(f"Failed to increment rate limit for MCP: {e}")
+
+                # ------------------------------------------------------------------- #
                 # Phase 4: Async request logging for analytics (MCP endpoint)
                 # ------------------------------------------------------------------- #
                 try:
@@ -1042,7 +1186,6 @@ async def mcp_endpoint(request: Request):
                     from src.utils.sanitization import truncate_input
                     
                     input_summary = truncate_input(arguments)
-                    success = result.get("success", True)
                     
                     log_request_call.delay(
                         user_id=user_id,
@@ -1096,6 +1239,23 @@ async def mcp_endpoint(request: Request):
                 # (constraint violations / FK failures → isError=True)
                 is_error = not result.get("success", True)
 
+                # ------------------------------------------------------------------- #
+                # Build response with rate limit headers - MCP Endpoint
+                # ------------------------------------------------------------------- #
+                response_headers = {}
+                if api_key_id:
+                    try:
+                        usage = await rate_limiter.get_usage(api_key_id, tier)
+                        response_headers = {
+                            "X-RateLimit-Limit-Hourly": str(usage["hourly_limit"] or "unlimited"),
+                            "X-RateLimit-Used-Hourly": str(usage["hourly_used"]),
+                            "X-RateLimit-Reset-Hourly": usage["hourly_reset_at"],
+                            "X-RateLimit-Limit-Monthly": str(usage["monthly_limit"] or "unlimited"),
+                            "X-RateLimit-Used-Monthly": str(usage["monthly_used"]),
+                        }
+                    except Exception as e:
+                        logging.warning(f"Failed to get rate limit usage for MCP headers: {e}")
+
                 return JSONResponse(
                     content={
                         "jsonrpc": "2.0",
@@ -1104,7 +1264,8 @@ async def mcp_endpoint(request: Request):
                             "content": [{"type": "text", "text": result_json_str}],
                             "isError": is_error,
                         },
-                    }
+                    },
+                    headers=response_headers
                 )
 
             except Exception as e:

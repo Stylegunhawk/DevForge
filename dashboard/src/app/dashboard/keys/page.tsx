@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiKey, CreateKeyRequest, getUserKeys, createUserKey, revokeUserKey } from "@/lib/api";
 import { Key, Plus, Copy, Trash2, CheckCircle, XCircle } from "lucide-react";
 
@@ -40,6 +41,35 @@ function getTierColor(tier: string): string {
   }
 }
 
+function getExpiryBadge(key: ApiKey): { text: string; className: string } | null {
+  if (key.days_remaining === null) {
+    return null; // No expiry
+  }
+  
+  if (key.is_expired) {
+    return {
+      text: "Expired",
+      className: "bg-red-100 text-red-800 border-red-200"
+    };
+  }
+  
+  const days = key.days_remaining;
+  let className = "";
+  
+  if (days > 30) {
+    className = "bg-zinc-100 text-zinc-800 border-zinc-200";
+  } else if (days <= 30 && days > 7) {
+    className = "bg-yellow-100 text-yellow-800 border-yellow-200";
+  } else if (days <= 7 && days > 0) {
+    className = "bg-orange-100 text-orange-800 border-orange-200";
+  }
+  
+  return {
+    text: `Expires in ${days} day${days !== 1 ? 's' : ''}`,
+    className
+  };
+}
+
 export default function KeysPage() {
   const { data: session } = useSession();
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -56,7 +86,8 @@ export default function KeysPage() {
     integration_name: "",
     tenant_id: "",
     tier: "free",
-    scopes: []
+    scopes: [],
+    expiry_duration: null
   });
   const [isCreating, setIsCreating] = useState(false);
 
@@ -94,7 +125,7 @@ export default function KeysPage() {
       const result = await createUserKey(session.user.accessToken, formData);
       setCreatedKey(result);
       setIsCreateDialogOpen(false);
-      setFormData({ name: "", integration_name: "", tenant_id: "", tier: "free", scopes: [] });
+      setFormData({ name: "", integration_name: "", tenant_id: "", tier: "free", scopes: [], expiry_duration: null });
       await fetchKeys(); // Refresh the list
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create API key");
@@ -218,6 +249,26 @@ export default function KeysPage() {
                   <option value="enterprise">Enterprise</option>
                 </select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="expiry">Expiry</Label>
+                <Select
+                  value={formData.expiry_duration || ""}
+                  onValueChange={(value) => setFormData(prev => ({ 
+                    ...prev, 
+                    expiry_duration: value === "" ? null : value as "30d" | "90d" | "180d"
+                  }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select expiry duration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No expiry</SelectItem>
+                    <SelectItem value="30d">30 days</SelectItem>
+                    <SelectItem value="90d">90 days</SelectItem>
+                    <SelectItem value="180d">180 days / 6 months</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex justify-end space-x-2">
                 <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                   Cancel
@@ -308,6 +359,26 @@ export default function KeysPage() {
                       <option value="enterprise">Enterprise</option>
                     </select>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="expiry">Expiry</Label>
+                    <Select
+                      value={formData.expiry_duration || ""}
+                      onValueChange={(value) => setFormData(prev => ({ 
+                        ...prev, 
+                        expiry_duration: value === "" ? null : value as "30d" | "90d" | "180d"
+                      }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select expiry duration" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">No expiry</SelectItem>
+                        <SelectItem value="30d">30 days</SelectItem>
+                        <SelectItem value="90d">90 days</SelectItem>
+                        <SelectItem value="180d">180 days / 6 months</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="flex justify-end space-x-2">
                     <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                       Cancel
@@ -348,6 +419,11 @@ export default function KeysPage() {
                         <><XCircle className="w-3 h-3 mr-1" />Inactive</>
                       )}
                     </Badge>
+                    {getExpiryBadge(key) && (
+                      <Badge className={getExpiryBadge(key)!.className}>
+                        {getExpiryBadge(key)!.text}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </CardHeader>

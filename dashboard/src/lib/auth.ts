@@ -15,7 +15,7 @@ export const authOptions: NextAuthOptions = {
         
         try {
           // Step 1: Login
-          const loginRes = await fetch('/api/proxy/api/auth/login', {
+          const loginRes = await fetch('http://localhost:8001/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -40,7 +40,7 @@ export const authOptions: NextAuthOptions = {
           }
           
           // Step 2: Get user profile
-          const meRes = await fetch('/api/proxy/api/auth/me', {
+          const meRes = await fetch('http://localhost:8001/api/auth/me', {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
           
@@ -70,14 +70,99 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      console.log('SignIn callback triggered:', { provider: account?.provider, user: user?.email });
+      
+      if (account?.provider === 'google') {
+        try {
+          console.log('Processing Google sign in...');
+          
+          const res = await fetch(
+            'http://localhost:8001/api/auth/google/dashboard',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                id_token: account.id_token 
+              })
+            }
+          );
+          
+          console.log('Google auth backend response status:', res.status);
+          
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.error('Google auth backend error:', res.status, errorText);
+            return false;
+          }
+          
+          const data = await res.json();
+          console.log('Google auth response:', data);
+          
+          const accessToken = data.access_token;
+          if (!accessToken) {
+            console.error('No access token in Google auth response');
+            return false;
+          }
+          
+          // Fetch user profile
+          const meRes = await fetch(
+            'http://localhost:8001/api/auth/me',
+            {
+              headers: { 
+                'Authorization': `Bearer ${accessToken}` 
+              }
+            }
+          );
+          
+          console.log('Me endpoint response status:', meRes.status);
+          
+          if (!meRes.ok) {
+            const errorText = await meRes.text();
+            console.error('Failed to fetch user profile:', meRes.status, errorText);
+            return false;
+          }
+          
+          const profile = await meRes.json();
+          console.log('User profile:', profile);
+          
+          // Attach to user object for jwt callback
+          user.accessToken = accessToken;
+          user.isAdmin = profile.is_admin;
+          user.id = profile.id;
+          user.authProvider = 'google';
+          
+          console.log('Google sign in successful for:', profile.email);
+          return true;
+        } catch (error) {
+          console.error('Google sign in error:', error);
+          return false;
+        }
+      }
+      
+      // For credentials provider, set authProvider
+      if (account?.provider === 'credentials') {
+        user.authProvider = 'local';
+      }
+      
+      return true;
+    },
     async jwt({ token, user }) {
       if (user) {
         token.accessToken = user.accessToken;
         token.isAdmin = user.isAdmin;
         token.id = user.id;
+        token.authProvider = user.authProvider;
       }
       return token;
     },
@@ -85,6 +170,7 @@ export const authOptions: NextAuthOptions = {
       session.user.accessToken = token.accessToken as string;
       session.user.isAdmin = token.isAdmin as boolean;
       session.user.id = token.id as string;
+      session.user.authProvider = token.authProvider as string;
       return session;
     },
   },

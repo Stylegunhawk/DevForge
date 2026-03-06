@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from src.core.auth import (
     hash_password, verify_password, 
@@ -11,9 +11,26 @@ from src.core.auth import (
 )
 from src.storage.db import PostgresPoolManager
 from src.storage.api_key_store import api_key_store
+from src.storage.tier_config_store import tier_config_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+async def validate_expiry_for_tier(expiry_duration: Optional[str], tier: str) -> bool:
+    """Validate expiry duration against tier's max_expiry_days."""
+    if not expiry_duration:
+        return True  # null expiry is always valid
+    
+    try:
+        config = await tier_config_store.get_tier(tier)
+        max_days = config.get("max_expiry_days", 180)
+        duration_days = {"30d": 30, "90d": 90, "180d": 180}
+        requested_days = duration_days.get(expiry_duration, 0)
+        return requested_days <= max_days
+    except Exception:
+        # Fallback to 180 days if tier config unavailable
+        duration_days = {"30d": 30, "90d": 90, "180d": 180}
+        return duration_days.get(expiry_duration, 0) <= 180
 
 # --- Schemas ---
 
@@ -35,6 +52,10 @@ class APIKeyCreateRequest(BaseModel):
     tenant_id: str
     tier: str = "free"
     scopes: List[str] = []
+    expiry_duration: Optional[str] = Field(
+        default=None,
+        description="30d, 90d, or 180d"
+    )
 
 class UserResponse(BaseModel):
     id: str
@@ -172,6 +193,22 @@ async def create_my_key(request: Request, req: APIKeyCreateRequest):
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Validate expiry duration against tier limits
+    if not await validate_expiry_for_tier(req.expiry_duration, req.tier):
+        config = await tier_config_store.get_tier(req.tier)
+        max_days = config.get("max_expiry_days", 180)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid expiry_duration for {req.tier} tier. Maximum allowed: {max_days}d"
+        )
+    
+    # Validate expiry duration format
+    if req.expiry_duration and req.expiry_duration not in ("30d", "90d", "180d"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid expiry_duration. Must be: 30d, 90d, 180d, or null"
+        )
         
     raw_key = await api_key_store.create_key(
         name=req.name,
@@ -179,7 +216,8 @@ async def create_my_key(request: Request, req: APIKeyCreateRequest):
         integration_name=req.integration_name,
         tier=req.tier,
         scopes=req.scopes,
-        user_id=user_id
+        user_id=user_id,
+        expiry_duration=req.expiry_duration  # NEW: Pass expiry_duration
     )
     return {"key": raw_key, "message": "Save this key, it will not be shown again."}
 

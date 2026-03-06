@@ -7,17 +7,34 @@ Protected by ADMIN_SECRET header check.
 from datetime import datetime, timezone
 import uuid
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Header, HTTPException, Depends, Request
 
 from src.core.config import settings
 from src.storage.api_key_store import api_key_store
+from src.storage.tier_config_store import tier_config_store
 from src.storage.db import PostgresPoolManager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+async def validate_expiry_for_tier(expiry_duration: Optional[str], tier: str) -> bool:
+    """Validate expiry duration against tier's max_expiry_days."""
+    if not expiry_duration:
+        return True  # null expiry is always valid
+    
+    try:
+        config = await tier_config_store.get_tier(tier)
+        max_days = config.get("max_expiry_days", 180)
+        duration_days = {"30d": 30, "90d": 90, "180d": 180}
+        requested_days = duration_days.get(expiry_duration, 0)
+        return requested_days <= max_days
+    except Exception:
+        # Fallback to 180 days if tier config unavailable
+        duration_days = {"30d": 30, "90d": 90, "180d": 180}
+        return duration_days.get(expiry_duration, 0) <= 180
 
 class CreateKeyRequest(BaseModel):
     name: str = Field(..., description="A friendly name for the key")
@@ -26,6 +43,10 @@ class CreateKeyRequest(BaseModel):
     tier: str = Field(default="free", description="Usage tier (free, pro, enterprise)")
     scopes: List[str] = Field(default_factory=list, description="List of allowed tools/scopes")
     user_id: Optional[str] = Field(default=None, description="User ID for user-scoped keys")
+    expiry_duration: Optional[str] = Field(
+        default=None,
+        description="Key expiry: '30d', '90d', '180d', or null for no expiry"
+    )
 
 def verify_is_admin(request: Request):
     """Verify that the user has admin privileges (from DashboardAuthMiddleware)."""
@@ -39,13 +60,30 @@ def verify_is_admin(request: Request):
 @router.post("/keys", dependencies=[Depends(verify_is_admin)])
 async def create_api_key(request: CreateKeyRequest):
     """Generate a new API key."""
+    # Validate expiry duration against tier limits
+    if not await validate_expiry_for_tier(request.expiry_duration, request.tier):
+        config = await tier_config_store.get_tier(request.tier)
+        max_days = config.get("max_expiry_days", 180)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid expiry_duration for {request.tier} tier. Maximum allowed: {max_days}d"
+        )
+    
+    # Validate expiry duration format
+    if request.expiry_duration and request.expiry_duration not in ("30d", "90d", "180d"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid expiry_duration. Must be: 30d, 90d, 180d, or null"
+        )
+    
     raw_key = await api_key_store.create_key(
         name=request.name,
         tenant_id=request.tenant_id,
         integration_name=request.integration_name,
         tier=request.tier,
         scopes=request.scopes,
-        user_id=request.user_id  # NEW: Pass user_id to create_key
+        user_id=request.user_id,  # NEW: Pass user_id to create_key
+        expiry_duration=request.expiry_duration  # NEW: Pass expiry_duration
     )
     return {
         "success": True,
@@ -358,7 +396,7 @@ async def get_request_logs(
         where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
         
         # Get total count for pagination
-        count_query = f"SELECT COUNT(*) as total FROM request_logs {where_clause}"
+        count_query = f"SELECT COUNT(*) as total FROM request_logs r LEFT JOIN users u ON r.user_id = u.id {where_clause}"
         total_count = await conn.fetchval(count_query, *params)
         
         # Get paginated results
@@ -370,18 +408,21 @@ async def get_request_logs(
         
         query = f"""
             SELECT 
-                id,
-                user_id,
-                tenant_id,
-                integration_name,
-                tool_name,
-                input_summary,
-                success,
-                duration_ms,
-                created_at
-            FROM request_logs
+                r.id,
+                r.user_id,
+                r.tenant_id,
+                r.integration_name,
+                r.tool_name,
+                r.input_summary,
+                r.success,
+                r.duration_ms,
+                r.created_at,
+                COALESCE(u.email, 'Anonymous') as user_email,
+                COALESCE(u.name, 'Anonymous') as user_name
+            FROM request_logs r
+            LEFT JOIN users u ON r.user_id = u.id
             {where_clause}
-            ORDER BY created_at DESC
+            ORDER BY r.created_at DESC
             LIMIT ${param_count-1} OFFSET ${param_count}
         """
         
@@ -488,4 +529,306 @@ async def get_dashboard_summary():
             "top_tools": [dict(r) for r in top_tools],
             "recent_activity": [dict(r) for r in recent_activity],
             "generated_at": datetime.now(timezone.utc).isoformat()
+        }
+
+
+@router.get("/keys/{key_id}/usage", dependencies=[Depends(verify_is_admin)])
+async def get_key_usage_status(key_id: str):
+    """Get current rate limit counters for a specific API key."""
+    pool = await PostgresPoolManager.get_pool()
+    async with pool.acquire() as conn:
+        # Get key info
+        row = await conn.fetchrow(
+            "SELECT id, tier, name, integration_name, hourly_limit_override, monthly_limit_override "
+            "FROM api_keys WHERE id = $1", 
+            uuid.UUID(key_id)
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="API key not found")
+        
+        # Get usage status
+        usage = await api_key_store.get_key_usage_status(
+            str(row["id"]), 
+            row["tier"],
+            row["hourly_limit_override"],
+            row["monthly_limit_override"]
+        )
+        
+        # Calculate remaining
+        hourly_remaining = None
+        if usage["hourly_limit"] is not None:
+            hourly_remaining = max(0, usage["hourly_limit"] - usage["hourly_used"])
+        
+        monthly_remaining = None
+        if usage["monthly_limit"] is not None:
+            monthly_remaining = max(0, usage["monthly_limit"] - usage["monthly_used"])
+        
+        return {
+            "api_key_id": str(row["id"]),
+            "tier": row["tier"],
+            "name": row["name"],
+            "integration_name": row["integration_name"],
+            "hourly_used": usage["hourly_used"],
+            "hourly_limit": usage["hourly_limit"],
+            "monthly_used": usage["monthly_used"],
+            "monthly_limit": usage["monthly_limit"],
+            "hourly_reset_at": usage["hourly_reset_at"],
+            "monthly_reset_at": usage["monthly_reset_at"],
+            "hourly_remaining": hourly_remaining,
+            "monthly_remaining": monthly_remaining,
+            "hourly_limit_override": row["hourly_limit_override"],
+            "monthly_limit_override": row["monthly_limit_override"],
+            "using_override": bool(row["hourly_limit_override"] or row["monthly_limit_override"])
+        }
+
+
+# --- Pricing Management Endpoints ---
+
+class UpdateTierRequest(BaseModel):
+    hourly_limit: Optional[int] = Field(None, description="Hourly request limit (1-10000)")
+    monthly_limit: Optional[int] = Field(None, description="Monthly request limit (1-1000000 or null for unlimited)")
+    cost_per_1k_tokens: Optional[float] = Field(None, description="Cost per 1k tokens (0.001-1.0)")
+    max_expiry_days: Optional[int] = Field(None, description="Maximum expiry days (30, 90, or 180)")
+
+
+@router.get("/pricing", dependencies=[Depends(verify_is_admin)])
+async def get_pricing():
+    """Get all tier configurations."""
+    try:
+        tiers = await tier_config_store.get_all_tiers()
+        return {
+            "success": True,
+            "tiers": tiers
+        }
+    except Exception as e:
+        logger.error(f"Failed to get pricing: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve pricing information")
+
+
+@router.patch("/pricing/{tier}", dependencies=[Depends(verify_is_admin)])
+async def update_pricing(tier: str, request: UpdateTierRequest, req: Request):
+    """Update tier configuration."""
+    # Validate tier
+    valid_tiers = ["free", "pro", "enterprise"]
+    if tier not in valid_tiers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid tier. Must be one of: {', '.join(valid_tiers)}"
+        )
+    
+    # Get user_id from request state or use admin user_id
+    user_id = getattr(req.state, "user_id", None)
+    if not user_id:
+        # Fallback to admin user_id for admin routes
+        user_id = "4909dad3-01e0-4e36-b088-7cf022a38984"  # Admin user ID
+    
+    # Build updates dict
+    updates = {}
+    if request.hourly_limit is not None:
+        updates["hourly_limit"] = request.hourly_limit
+    if request.monthly_limit is not None:
+        updates["monthly_limit"] = request.monthly_limit
+    if request.cost_per_1k_tokens is not None:
+        updates["cost_per_1k_tokens"] = request.cost_per_1k_tokens
+    if request.max_expiry_days is not None:
+        updates["max_expiry_days"] = request.max_expiry_days
+    
+    if not updates:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one field must be provided for update"
+        )
+    
+    try:
+        updated_config = await tier_config_store.update_tier(tier, updates, user_id)
+        return {
+            "success": True,
+            "tier": tier,
+            "config": updated_config,
+            "message": f"{tier} tier updated successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to update tier {tier}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update tier configuration")
+
+
+# TODO: Add pricing history endpoint
+# @router.get("/pricing/history", dependencies=[Depends(verify_is_admin)])
+# async def get_pricing_history():
+#     """Get recent pricing changes history."""
+#     pass
+
+
+# --- Key Override Management Endpoints ---
+
+@router.get("/keys/{key_id}/overrides", dependencies=[Depends(verify_is_admin)])
+async def get_key_overrides(key_id: str):
+    """Get current overrides for a specific API key."""
+    pool = await PostgresPoolManager.get_pool()
+    async with pool.acquire() as conn:
+        # Get key info
+        row = await conn.fetchrow(
+            "SELECT id, tier, name, integration_name, hourly_limit_override, monthly_limit_override "
+            "FROM api_keys WHERE id = $1", 
+            uuid.UUID(key_id)
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="API key not found")
+        
+        # Get tier defaults
+        tier_config = await tier_config_store.get_tier(row["tier"])
+        
+        # Calculate effective limits
+        effective_hourly = row["hourly_limit_override"] or tier_config["hourly_limit"]
+        effective_monthly = row["monthly_limit_override"] or tier_config["monthly_limit"]
+        
+        return {
+            "api_key_id": key_id,
+            "tier": row["tier"],
+            "name": row["name"],
+            "integration_name": row["integration_name"],
+            "tier_defaults": {
+                "hourly_limit": tier_config["hourly_limit"],
+                "monthly_limit": tier_config["monthly_limit"]
+            },
+            "overrides": {
+                "hourly_limit_override": row["hourly_limit_override"],
+                "monthly_limit_override": row["monthly_limit_override"]
+            },
+            "effective_limits": {
+                "hourly": effective_hourly,
+                "monthly": effective_monthly
+            }
+        }
+
+
+class UpdateKeyOverridesRequest(BaseModel):
+    hourly_limit_override: Optional[int] = Field(None, description="Hourly limit override (1-10000 or null to clear)")
+    monthly_limit_override: Optional[int] = Field(None, description="Monthly limit override (1-1000000 or null to clear)")
+
+    model_config = {
+        "extra": "forbid"
+    }
+
+
+@router.patch("/keys/{key_id}/overrides", dependencies=[Depends(verify_is_admin)])
+async def update_key_overrides(key_id: str, request: UpdateKeyOverridesRequest, req: Request):
+    """Set or clear overrides for a specific API key."""
+    # Get user_id from request state or use admin user_id
+    user_id = getattr(req.state, "user_id", None)
+    if not user_id:
+        # Fallback to admin user_id for admin routes
+        user_id = "4909dad3-01e0-4e36-b088-7cf022a38984"  # Admin user ID
+    
+    # Validate overrides
+    if request.hourly_limit_override is not None:
+        if not isinstance(request.hourly_limit_override, int) or request.hourly_limit_override < 1 or request.hourly_limit_override > 10000:
+            raise HTTPException(
+                status_code=400,
+                detail="hourly_limit_override must be an integer between 1 and 10000, or null"
+            )
+    
+    if request.monthly_limit_override is not None:
+        if not isinstance(request.monthly_limit_override, int) or request.monthly_limit_override < 1 or request.monthly_limit_override > 1000000:
+            raise HTTPException(
+                status_code=400,
+                detail="monthly_limit_override must be an integer between 1 and 1000000, or null"
+            )
+    
+    # Check if key exists and get tier
+    pool = await PostgresPoolManager.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT tier FROM api_keys WHERE id = $1", 
+            uuid.UUID(key_id)
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="API key not found")
+        
+        key_tier = row["tier"]
+        
+        # Get enterprise limits for validation
+        enterprise_config = await tier_config_store.get_tier("enterprise")
+        enterprise_hourly = enterprise_config["hourly_limit"]
+        enterprise_monthly = enterprise_config["monthly_limit"]
+        
+        # Cannot exceed enterprise limits
+        if request.hourly_limit_override and enterprise_hourly and request.hourly_limit_override > enterprise_hourly:
+            raise HTTPException(
+                status_code=400,
+                detail=f"hourly_limit_override cannot exceed enterprise tier limit of {enterprise_hourly}"
+            )
+        
+        if request.monthly_limit_override and enterprise_monthly and request.monthly_limit_override > enterprise_monthly:
+            raise HTTPException(
+                status_code=400,
+                detail=f"monthly_limit_override cannot exceed enterprise tier limit of {enterprise_monthly}"
+            )
+        
+        # Update overrides
+        update_fields = []
+        update_values = []
+        param_idx = 1
+        
+        # Check if fields are explicitly provided in the request
+        request_dict = request.model_dump(exclude_unset=True)
+        
+        if "hourly_limit_override" in request_dict:
+            update_fields.append(f"hourly_limit_override = ${param_idx}")
+            update_values.append(request.hourly_limit_override)
+            param_idx += 1
+        
+        if "monthly_limit_override" in request_dict:
+            update_fields.append(f"monthly_limit_override = ${param_idx}")
+            update_values.append(request.monthly_limit_override)
+            param_idx += 1
+        
+        if not update_fields:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one override field must be provided"
+            )
+        
+        # Add updated_by
+        update_fields.append(f"updated_by = ${param_idx}")
+        update_values.append(user_id)
+        param_idx += 1
+        
+        await conn.execute(f"""
+            UPDATE api_keys 
+            SET {', '.join(update_fields)}
+            WHERE id = ${param_idx}
+        """, *update_values, uuid.UUID(key_id))
+        
+        # Invalidate API key cache
+        try:
+            key_hash_row = await conn.fetchrow("SELECT key_hash FROM api_keys WHERE id = $1", uuid.UUID(key_id))
+            if key_hash_row:
+                from src.storage.redis_file_store import RedisFileStore
+                redis = RedisFileStore().client
+                await redis.delete(f"api_key:v2:{key_hash_row['key_hash']}")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate cache for key {key_id}: {e}")
+        
+        # Get updated overrides
+        updated_row = await conn.fetchrow(
+            "SELECT hourly_limit_override, monthly_limit_override FROM api_keys WHERE id = $1", 
+            uuid.UUID(key_id)
+        )
+        
+        # Get tier defaults for effective limits
+        tier_config = await tier_config_store.get_tier(key_tier)
+        effective_hourly = updated_row["hourly_limit_override"] or tier_config["hourly_limit"]
+        effective_monthly = updated_row["monthly_limit_override"] or tier_config["monthly_limit"]
+        
+        return {
+            "success": True,
+            "api_key_id": key_id,
+            "effective_limits": {
+                "hourly": effective_hourly,
+                "monthly": effective_monthly
+            },
+            "message": "Overrides updated successfully"
         }

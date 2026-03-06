@@ -4,6 +4,8 @@ declare module 'next-auth' {
   interface User {
     isAdmin?: boolean;
     accessToken?: string;
+    id?: string;
+    authProvider?: string;
   }
   interface Session {
     user: {
@@ -12,6 +14,7 @@ declare module 'next-auth' {
       name: string;
       isAdmin: boolean;
       accessToken: string;
+      authProvider: string;
     }
   }
 }
@@ -20,5 +23,6 @@ declare module 'next-auth/jwt' {
     accessToken?: string;
     isAdmin?: boolean;
     id?: string;
+    authProvider?: string;
   }
 }

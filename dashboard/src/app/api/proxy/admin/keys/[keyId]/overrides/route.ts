@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET(request: NextRequest) {
-  const backendUrl = 'http://localhost:8001/api/users/keys';
-  const method = request.method;
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ keyId: string }> }
+) {
+  const { keyId } = await params;
+  const backendUrl = `http://localhost:8001/api/admin/keys/${keyId}/overrides`;
   const headers = new Headers(request.headers);
   
   // Remove host header to avoid conflicts
@@ -10,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const response = await fetch(backendUrl, {
-      method,
+      method: 'GET',
       headers,
     });
 
@@ -33,7 +36,7 @@ export async function GET(request: NextRequest) {
       headers: responseHeaders,
     });
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('GET key overrides proxy error:', error);
     return NextResponse.json(
       { error: 'Failed to proxy request to backend' },
       { status: 500 }
@@ -41,22 +44,24 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
-  const backendUrl = 'http://localhost:8001/api/users/keys';
-  const method = request.method;
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ keyId: string }> }
+) {
+  const { keyId } = await params;
+  const backendUrl = `http://localhost:8001/api/admin/keys/${keyId}/overrides`;
   const headers = new Headers(request.headers);
   
   // Remove host header to avoid conflicts
   headers.delete('host');
-  
-  // Get request body
-  const body = await request.text();
 
   try {
+    const body = await request.text();
+    
     const response = await fetch(backendUrl, {
-      method,
+      method: 'PATCH',
       headers,
-      body,
+      body: body
     });
 
     const responseData = await response.text();
@@ -78,7 +83,7 @@ export async function POST(request: NextRequest) {
       headers: responseHeaders,
     });
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('PATCH key overrides proxy error:', error);
     return NextResponse.json(
       { error: 'Failed to proxy request to backend' },
       { status: 500 }

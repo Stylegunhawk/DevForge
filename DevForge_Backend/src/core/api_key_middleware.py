@@ -46,6 +46,32 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     media_type="application/json",
                 )
 
+            # Check expiry
+            if metadata.expires_at:
+                from src.utils.expiry import is_expired
+                if is_expired(metadata.expires_at):
+                    # Invalidate Redis cache for expired key
+                    try:
+                        from src.storage.redis_file_store import RedisFileStore
+                        redis = RedisFileStore().client
+                        key_hash = api_key_store._hash_key(auth_key)
+                        await redis.delete(f"api_key:v2:{key_hash}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clear cache for expired key: {e}")
+                    
+                    logger.warning(f"[API_KEY] Expired API key used for {path}")
+                    return Response(
+                        content=json.dumps({
+                            "success": False,
+                            "error": "key_expired",
+                            "detail": "API key has expired",
+                            "expired_at": metadata.expires_at.isoformat(),
+                            "message": "Please generate a new API key at your DevForge dashboard"
+                        }),
+                        status_code=401,
+                        media_type="application/json",
+                    )
+
             # Populate request state for downstream use
             request.state.tenant_id = metadata.tenant_id
             request.state.integration_name = metadata.integration_name
@@ -53,6 +79,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             request.state.scopes = metadata.scopes
             request.state.api_key_id = metadata.id
             request.state.user_id = metadata.user_id  # NEW: Phase 4 analytics support
+            request.state.hourly_limit_override = metadata.hourly_limit_override
+            request.state.monthly_limit_override = metadata.monthly_limit_override
             
             logger.info(f"[API_KEY] Authenticated {metadata.integration_name} ({metadata.tier}) for {path}")
             
