@@ -255,14 +255,14 @@ export default function KeysPage() {
                   value={formData.expiry_duration || ""}
                   onValueChange={(value) => setFormData(prev => ({ 
                     ...prev, 
-                    expiry_duration: value === "" ? null : value as "30d" | "90d" | "180d"
+                    expiry_duration: value === "none" ? null : value as "30d" | "90d" | "180d"
                   }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select expiry duration" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No expiry</SelectItem>
+                    <SelectItem value="none">No expiry</SelectItem>
                     <SelectItem value="30d">30 days</SelectItem>
                     <SelectItem value="90d">90 days</SelectItem>
                     <SelectItem value="180d">180 days / 6 months</SelectItem>
@@ -365,14 +365,14 @@ export default function KeysPage() {
                       value={formData.expiry_duration || ""}
                       onValueChange={(value) => setFormData(prev => ({ 
                         ...prev, 
-                        expiry_duration: value === "" ? null : value as "30d" | "90d" | "180d"
+                        expiry_duration: value === "none" ? null : value as "30d" | "90d" | "180d"
                       }))}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select expiry duration" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No expiry</SelectItem>
+                        <SelectItem value="none">No expiry</SelectItem>
                         <SelectItem value="30d">30 days</SelectItem>
                         <SelectItem value="90d">90 days</SelectItem>
                         <SelectItem value="180d">180 days / 6 months</SelectItem>
