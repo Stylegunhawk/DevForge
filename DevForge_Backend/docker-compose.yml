@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: devforge-api
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload --reload-dir src
     ports:
       - "8001:8001"
     env_file:
@@ -80,7 +80,7 @@ services:
     profiles: [ "rag" ]
     image: devforge-backend:latest
     container_name: devforge-celery-worker
-    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_WORKERS:-4} --queues=default,analytics
+    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_WORKERS:-4} --queues=default,analytics,rag
     env_file:
       - .env.docker
     depends_on:
@@ -120,7 +120,7 @@ services:
     profiles: [ "rag", "scale" ]
     image: devforge-backend:latest
     container_name: devforge-celery-worker-secondary
-    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_SECONDARY_WORKERS:-2} --queues=default,usage
+    command: celery -A src.workers.celery_app worker -l info -c ${CELERY_SECONDARY_WORKERS:-2} --queues=default,usage,rag
     env_file:
       - .env.docker
     depends_on:

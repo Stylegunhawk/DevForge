@@ -247,27 +247,20 @@ class ChromaVectorStore(BaseVectorStore):
             
             offset += batch_size
     
-    async def delete_by_source(self, source: str, tenant_id: str = "default", collection_name: Optional[str] = None) -> int:
+    async def delete_by_source(self, source: str) -> int:
         """
-        Delete all chunks from a source file (tenant-scoped).
+        Delete all chunks from a source file.
         
         Args:
             source: Source file path
-            tenant_id: Tenant context for data isolation
-            collection_name: Optional explicit collection name
         
         Returns:
             Number of chunks deleted
         """
-        # Get IDs to delete (with tenant scoping)
+        # Get IDs to delete
         results = await asyncio.to_thread(
             self._collection.get,
-            where={
-                "$and": [
-                    {"source": {"$eq": source}},
-                    {"tenant_id": {"$eq": tenant_id}}
-                ]
-            },
+            where={"source": {"$eq": source}},
             include=[],  # Only need IDs
         )
         
@@ -275,39 +268,7 @@ class ChromaVectorStore(BaseVectorStore):
         
         if ids:
             await asyncio.to_thread(self._collection.delete, ids=ids)
-            logger.info(f"Deleted {len(ids)} chunks from {source} (tenant={tenant_id})")
-        
-        return len(ids)
-
-    async def delete_by_file_id(self, file_id: str, tenant_id: str = "default", collection_name: Optional[str] = None) -> int:
-        """
-        Delete all chunks for a specific file by its ID (tenant-scoped).
-        
-        Args:
-            file_id: File UUID
-            tenant_id: Tenant context for data isolation
-            collection_name: Optional explicit collection name
-            
-        Returns:
-            Number of chunks deleted
-        """
-        # Get IDs to delete (with tenant scoping)
-        results = await asyncio.to_thread(
-            self._collection.get,
-            where={
-                "$and": [
-                    {"file_id": {"$eq": file_id}},
-                    {"tenant_id": {"$eq": tenant_id}}
-                ]
-            },
-            include=[],  # Only need IDs
-        )
-        
-        ids = results.get("ids", [])
-        
-        if ids:
-            await asyncio.to_thread(self._collection.delete, ids=ids)
-            logger.info(f"Deleted {len(ids)} orphaned chunks for file_id={file_id} (tenant={tenant_id})")
+            logger.info(f"Deleted {len(ids)} chunks from {source}")
         
         return len(ids)
 

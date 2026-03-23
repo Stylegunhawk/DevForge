@@ -80,19 +80,46 @@ class QueryCache:
                 try:
                     cached_json = await self.redis.get(f"query_cache:{cache_key}")
                     if cached_json:
+                        cached_result = json.loads(cached_json)
+                        
+                        # Invalidate if cached docs have no file_id (legacy cache entry)
+                        # Guard: only validate if cached_result is a dict
+                        if isinstance(cached_result, dict):
+                            docs = cached_result.get("documents", [])
+                            if docs and isinstance(docs[0], dict) and not docs[0].get("metadata", {}).get("file_id"):
+                                logger.warning(f"Stale cache entry (no file_id) for key {cache_key[:12]} — invalidating")
+                                await self.delete(cache_key)
+                                return None
+                            # Invalidate empty result sets (stale orphan-filtered results)
+                            if not docs:
+                                logger.warning(f"Empty cached result for key {cache_key[:12]} — invalidating")
+                                await self.delete(cache_key)
+                                return None
+                            
                         self._hits += 1
                         logger.info(f"[RAG-DEBUG] ✅ EXACT CACHE HIT (Redis): {cache_key[:12]}...")
-                        return json.loads(cached_json)
+                        return cached_result
                 except Exception as redis_err:
                     logger.warning(f"Redis get failed: {redis_err}, trying memory cache")
             
             # Fallback to in-memory LRU
             if cache_key in self._memory_cache:
+                cached_result = self._memory_cache[cache_key]
+                
+                # Invalidate if cached docs have no file_id (legacy cache entry)
+                # Guard: only validate if cached_result is a dict
+                if isinstance(cached_result, dict):
+                    docs = cached_result.get("documents", [])
+                    if docs and isinstance(docs[0], dict) and not docs[0].get("metadata", {}).get("file_id"):
+                        logger.warning(f"Stale memory cache entry (no file_id) for key {cache_key[:12]} — invalidating")
+                        await self.delete(cache_key)
+                        return None
+
                 self._hits += 1
                 # Move to end (LRU)
                 self._memory_cache.move_to_end(cache_key)
                 logger.info(f"[RAG-DEBUG] ✅ EXACT CACHE HIT (memory): {cache_key[:12]}...")
-                return self._memory_cache[cache_key]
+                return cached_result
             
             # Miss
             self._misses += 1
@@ -157,6 +184,23 @@ class QueryCache:
             return 0.0
         return self._hits / total
     
+    async def delete(self, cache_key: str):
+        """
+        Delete a specific cache entry from both Redis and memory.
+        
+        Args:
+            cache_key: Cache key to delete
+        """
+        try:
+            if self.redis:
+                await self.redis.delete(f"query_cache:{cache_key}")
+            
+            if cache_key in self._memory_cache:
+                del self._memory_cache[cache_key]
+                
+        except Exception as e:
+            logger.error(f"Cache delete error: {e}")
+
     async def clear(self):
         """Clear all cache entries (both Redis and memory)."""
         try:

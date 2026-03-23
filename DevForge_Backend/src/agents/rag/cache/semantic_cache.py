@@ -86,6 +86,7 @@ class SemanticCache:
         self,
         query: str,
         intent: str,
+        tenant_id: str = "default",
         query_embedding: Optional[np.ndarray] = None
     ) -> Optional[Dict[str, Any]]:
         """
@@ -94,20 +95,23 @@ class SemanticCache:
         Args:
             query: User query
             intent: Intent classification
+            tenant_id: Tenant identifier
             query_embedding: Pre-computed embedding (optional)
         
         Returns:
             Cached results or None if no similar query found
         """
-        logger.info(f"[RAG-DEBUG] SemanticCache.get() called: query='{query[:50]}...', intent={intent}")
+        logger.info(f"[RAG-DEBUG] SemanticCache.get() called: query='{query[:50]}...', intent={intent}, tenant_id={tenant_id}")
+        
+        intent_key = f"{tenant_id}::{intent}"
         
         # Get or create intent-specific cache
-        if intent not in self._caches:
+        if intent_key not in self._caches:
             self._misses += 1
-            logger.debug(f"Semantic cache MISS: no cache for intent={intent}")
+            logger.debug(f"Semantic cache MISS: no cache for intent_key={intent_key}")
             return None
         
-        intent_cache = self._caches[intent]
+        intent_cache = self._caches[intent_key]
         
         if not intent_cache:
             self._misses += 1
@@ -160,6 +164,7 @@ class SemanticCache:
         query: str,
         intent: str,
         results: Dict[str, Any],
+        tenant_id: str = "default",
         query_embedding: Optional[np.ndarray] = None
     ):
         """
@@ -169,19 +174,22 @@ class SemanticCache:
             query: User query
             intent: Intent classification
             results: Final retrieval results (post-expansion, post-fusion)
+            tenant_id: Tenant identifier
             query_embedding: Pre-computed embedding (optional)
         """
-        logger.info(f"[RAG-DEBUG] SemanticCache.set() called: query='{query[:50]}...', intent={intent}")
+        logger.info(f"[RAG-DEBUG] SemanticCache.set() called: query='{query[:50]}...', intent={intent}, tenant_id={tenant_id}")
         
         # Get query embedding
         if query_embedding is None:
             query_embedding = await self._embed_query(query)
         
-        # Get or create intent-specific cache
-        if intent not in self._caches:
-            self._caches[intent] = OrderedDict()
+        intent_key = f"{tenant_id}::{intent}"
         
-        intent_cache = self._caches[intent]
+        # Get or create intent-specific cache
+        if intent_key not in self._caches:
+            self._caches[intent_key] = OrderedDict()
+        
+        intent_cache = self._caches[intent_key]
         
         # LRU eviction if full
         if len(intent_cache) >= self.max_size_per_intent:

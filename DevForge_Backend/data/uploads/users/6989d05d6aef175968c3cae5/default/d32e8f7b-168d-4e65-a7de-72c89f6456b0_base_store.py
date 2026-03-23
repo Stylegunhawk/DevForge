@@ -140,21 +140,6 @@ class BaseVectorStore(ABC):
     async def clear(self) -> None:
         """Clear all chunks from the store."""
         pass
-        
-    @abstractmethod
-    async def delete_by_file_id(self, file_id: str, tenant_id: str = "default", collection_name: Optional[str] = None) -> int:
-        """
-        Delete all chunks for a specific file by its ID.
-        
-        Args:
-            file_id: File UUID
-            tenant_id: Tenant context for data isolation
-            collection_name: Optional explicit collection name
-            
-        Returns:
-            Number of chunks deleted
-        """
-        pass
     
     @abstractmethod
     async def get_chunks_by_file_id(

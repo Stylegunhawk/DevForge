@@ -72,4 +72,4 @@ curl "http://localhost:8000/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10"
 
 ---
 
-**Version:** 15.3 (2026-02-26)
+**Version:** 15.4 (2026-03-23)

@@ -269,11 +269,17 @@ async def semantic_search_for_chat(
             file_meta = await redis_store.get_file_metadata(file_id)
         
         if not file_meta and metadata.get("source"):
-            file_meta = await redis_store.get_file_metadata_by_path(metadata.get("source"))
+            source = metadata.get("source")
+            # Normalize Docker-internal absolute paths (/app/data/...) to relative (data/...)
+            # Redis stores diskPath as relative to the project root
+            if source and source.startswith("/app/"):
+                source = source[len("/app/"):]
+            file_meta = await redis_store.get_file_metadata_by_path(source)
         
         # 🛑 STRICT FILTER 2: Drop Orphans (Deleted Files)
         # If Redis has no record of this file, it means the file was deleted.
         # We skip it so the UI doesn't show a broken "unknown" citation.
+        logger.warning(f"[ORPHAN_DEBUG] file_id={file_id} | file_meta={file_meta} | source={metadata.get('source')} | metadata_keys={list(metadata.keys())}")
         if not file_meta:
             continue
             
@@ -319,20 +325,39 @@ async def semantic_search_for_chat(
     description="Delete file, metadata, and vector embeddings. Requires JWT authentication.",
     dependencies=[Depends(security_scheme)]
 )
-async def delete_file(file_id: str, request: Request):
+async def delete_file(file_id: str, request: Request, force: bool = False):
     """
     Delete file, metadata, and vector embeddings accurately using the factory.
+    If force=True, bypasses Redis checks to delete orphaned vector store chunks.
     """
     file_meta = await redis_store.get_file_metadata(file_id)
-    if not file_meta:
-        raise HTTPException(status_code=404, detail="File not found")
-
     tenant_id = request.state.tenant_id
+    collection_name = f"user_{tenant_id}"
+    
+    if not file_meta:
+        if force:
+            # Bypass Redis and force a vector store cascade deletion for orphaned chunks
+            logger.warning(f"Force deleting orphaned chunks for file_id={file_id} (tenant={tenant_id})")
+            try:
+                agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
+                # Use the orphan deletion method if available (does not require source file path)
+                if hasattr(agent, "delete_orphaned_file"):
+                    await agent.delete_orphaned_file(
+                        file_id=file_id, 
+                        tenant_id=tenant_id, 
+                        collection_name=collection_name
+                    )
+            except Exception as e:
+                logger.error(f"Failed to force delete orphaned vectors for file {file_id}: {e}")
+            return {"success": True, "fileId": file_id, "status": "forced_orphan_cleanup"}
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+
     if file_meta.get("tenant_id") != tenant_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     
     file_path = file_meta.get("diskPath")
-    collection_name = file_meta.get("collection_name", f"user_{tenant_id}")
+    collection_name = file_meta.get("collection_name", collection_name)
     
     if file_path:
         # Delete from disk
@@ -341,14 +366,16 @@ async def delete_file(file_id: str, request: Request):
         except Exception as e:
             logger.error(f"Failed to delete file {file_path}: {e}")
         
-        # Delete from Vector Store using the FACTORY
+        # Delete from Vector Store and Caches using the FACTORY
         try:
             agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
-            await agent.vector_store.delete_by_source(file_path, tenant_id=tenant_id, collection_name=collection_name)
-            # Invalidate graph for this collection
-            agent._code_graph = None
+            cascade_results = await agent.delete_file_cascade(
+                file_path=file_path, 
+                tenant_id=tenant_id, 
+                collection_name=collection_name
+            )
         except Exception as e:
-            logger.error(f"Failed to delete vectors for {file_path}: {e}")
+            logger.error(f"Failed to delete vectors/caches for {file_path}: {e}")
             
     # Delete metadata
     await redis_store.delete_file_metadata(file_id)

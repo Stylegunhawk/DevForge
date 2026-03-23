@@ -1,8 +1,8 @@
 # RAG Integration Flow
 
-**Version:** 15.3 Complete ✅  
-**Phase:** Phase 15.3 Sequential Support  
-**Date:** 2026-02-26  
+**Version:** 15.4 Complete ✅  
+**Phase:** Phase 15.4 Multi-Tenant Security & Reliability  
+**Date:** 2026-03-23  
 **Status:** Production Ready
 
 This document details the integration flow of the RAG pipeline, including Phase 12A query intelligence features.
@@ -521,14 +521,14 @@ def validate(value):
 utils.py::validate → utils.py::add  (call edge)
 ```
 
-### QID Format
+### QID Format (Phase 15.4 Multi-Tenant)
 
 ```
-QID: utils.py::add
-     └─ file  └─ entity
+QID: tenant123::utils.py::add
+     └─ tenant └─ file  └─ entity
 
-QID: utils.py::validate
-     └─ file   └─ entity
+QID: tenant123::utils.py::validate
+     └─ tenant └─ file   └─ entity
 ```
 
 ---
@@ -542,4 +542,4 @@ QID: utils.py::validate
 ---
 
 **All integration paths verified ✅**  
-**Last Updated:** February 26, 2026
+**Last Updated:** March 23, 2026

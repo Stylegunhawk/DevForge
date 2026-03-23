@@ -1,9 +1,9 @@
 # rerank_docs - Document Reranking Tool
 
 **Tool Name:** `rerank_docs`  
-**Version:** 3.4 (Phase 15.3 Integrated)  
+**Version:** 3.4 (Phase 15.4 Integrated)  
 **Status:** ✅ Implemented  
-**Last Updated:** February 26, 2026
+**Last Updated:** March 23, 2026
 
 ---
 
@@ -487,12 +487,12 @@ The following endpoints are the ONLY ones used by Lobe Chat:
 - /api/v1/rag/file/{id}
 - /api/v1/rag/file/{id}/chunks
 - /api/v1/rag/chunk/semanticSearchForChat
-- /api/v1/rag/file/{id} (DELETE)
+- /api/v1/rag/file/{id}[?force=true] (DELETE)
 
 All other endpoints are legacy or internal tools.
 
 
 
-**Last Updated:** February 26, 2026  
+**Last Updated:** March 23, 2026  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository

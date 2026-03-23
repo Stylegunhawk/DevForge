@@ -429,6 +429,7 @@ async def rebuild_bm25_index():
         if not settings.ENABLE_HYBRID_SEARCH:
             return {"status": "disabled", "message": "Hybrid search is not enabled"}
 
+        # Admin route: isolate from user caching by instantiating directly
         agent = RAGAgent()
 
         if agent._bm25_index:
@@ -466,6 +467,7 @@ async def get_fallback_usage():
     try:
         from src.agents.rag.agent import RAGAgent
 
+        # Admin route: isolate from user caching by instantiating directly
         agent = RAGAgent()
 
         if not hasattr(agent, "_intent_classifier") or not agent._intent_classifier:
@@ -487,9 +489,10 @@ async def get_fallback_usage():
 async def get_expansion_quality():
     """Get query expansion quality metrics."""
     try:
-        from src.agents.rag.agent import get_rag_agent
+        from src.agents.rag.agent import RAGAgent
 
-        agent = get_rag_agent()
+        # Admin route: isolate from user caching by instantiating directly
+        agent = RAGAgent()
 
         if not hasattr(agent, "_query_expander") or not agent._query_expander:
             return {"enabled": False, "message": "Query expansion not initialized"}
@@ -505,9 +508,10 @@ async def get_expansion_quality():
 async def get_intent_distribution():
     """Get intent classification distribution."""
     try:
-        from src.agents.rag.agent import get_rag_agent
+        from src.agents.rag.agent import RAGAgent
 
-        agent = get_rag_agent()
+        # Admin route: isolate from user caching by instantiating directly
+        agent = RAGAgent()
 
         if not hasattr(agent, "_intent_classifier") or not agent._intent_classifier:
             return {
@@ -531,9 +535,10 @@ async def get_intent_distribution():
 async def get_cache_by_intent():
     """Get semantic cache effectiveness by intent."""
     try:
-        from src.agents.rag.agent import get_rag_agent
+        from src.agents.rag.agent import RAGAgent
 
-        agent = get_rag_agent()
+        # Admin route: isolate from user caching by instantiating directly
+        agent = RAGAgent()
 
         if not hasattr(agent, "_semantic_cache") or not agent._semantic_cache:
             return {"enabled": False, "message": "Semantic cache not initialized"}
