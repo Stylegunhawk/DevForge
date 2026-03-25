@@ -136,6 +136,10 @@ class PgVectorStore(BaseVectorStore):
                 chunk_id = meta.get("chunk_id") or str(uuid.uuid4())
                 meta["chunk_id"] = chunk_id # Ensure synced
                 
+                # DEBUG: Log metadata before storing
+                logger.info(f"[STORE_DEBUG] Before pg_vector storage: type(meta.get('calls'))={type(meta.get('calls'))}, calls={meta.get('calls')}")
+                logger.info(f"[STORE_DEBUG] Full metadata: {meta}")
+                
                 # Extract source for the optimized column
                 source = meta.get("source")
                 
@@ -167,6 +171,71 @@ class PgVectorStore(BaseVectorStore):
             
         finally:
             await conn.close()
+    
+    def _ensure_list_types(self, metadata: Dict) -> Dict:
+        """
+        Ensure calls and imports fields are always List[str], not str.
+        
+        This fixes the issue where PostgreSQL returns these fields as strings
+        like "['func1', 'func2']" instead of proper lists.
+        """
+        # Process calls field
+        calls = metadata.get("calls", [])
+        if isinstance(calls, str):
+            try:
+                # Try to parse as JSON list
+                parsed_calls = json.loads(calls)
+                if isinstance(parsed_calls, list):
+                    metadata["calls"] = [str(item) for item in parsed_calls]
+                else:
+                    metadata["calls"] = []
+            except (json.JSONDecodeError, TypeError):
+                # If parsing fails, check if it's a single item string
+                calls_stripped = calls.strip()
+                if calls_stripped.startswith('[') and calls_stripped.endswith(']'):
+                    # Try to eval Python list representation (safe since we control content)
+                    try:
+                        import ast
+                        parsed_calls = ast.literal_eval(calls_stripped)
+                        if isinstance(parsed_calls, list):
+                            metadata["calls"] = [str(item) for item in parsed_calls]
+                        else:
+                            metadata["calls"] = []
+                    except (ValueError, SyntaxError):
+                        metadata["calls"] = []
+                else:
+                    # Single string, wrap in list
+                    metadata["calls"] = [calls_stripped] if calls_stripped else []
+        
+        # Process imports field
+        imports = metadata.get("imports", [])
+        if isinstance(imports, str):
+            try:
+                # Try to parse as JSON list
+                parsed_imports = json.loads(imports)
+                if isinstance(parsed_imports, list):
+                    metadata["imports"] = [str(item) for item in parsed_imports]
+                else:
+                    metadata["imports"] = []
+            except (json.JSONDecodeError, TypeError):
+                # If parsing fails, check if it's a single item string
+                imports_stripped = imports.strip()
+                if imports_stripped.startswith('[') and imports_stripped.endswith(']'):
+                    # Try to eval Python list representation (safe since we control content)
+                    try:
+                        import ast
+                        parsed_imports = ast.literal_eval(imports_stripped)
+                        if isinstance(parsed_imports, list):
+                            metadata["imports"] = [str(item) for item in parsed_imports]
+                        else:
+                            metadata["imports"] = []
+                    except (ValueError, SyntaxError):
+                        metadata["imports"] = []
+                else:
+                    # Single string, wrap in list
+                    metadata["imports"] = [imports_stripped] if imports_stripped else []
+        
+        return metadata
 
     async def search(
         self,
@@ -200,10 +269,18 @@ class PgVectorStore(BaseVectorStore):
             
             results = []
             for row in rows:
+                metadata = json.loads(row["metadata"])
+                
+                # FIX: Ensure calls/imports are always List[str], not str
+                metadata = self._ensure_list_types(metadata)
+                
+                # DEBUG: Log metadata after retrieval
+                logger.info(f"[RETRIEVE_DEBUG] After pg_vector retrieval: type(metadata.get('calls'))={type(metadata.get('calls'))}, calls={metadata.get('calls')}")
+                
                 results.append(ChunkResult(
                     id=row["chunk_id"],
                     content=row["content"],
-                    metadata=json.loads(row["metadata"]),
+                    metadata=metadata,
                     score=float(row["similarity"])
                 ))
             
@@ -248,10 +325,15 @@ class PgVectorStore(BaseVectorStore):
             row = await conn.fetchrow(query, file_path, entity_name, tenant, collection)
             
             if row:
+                metadata = json.loads(row["metadata"])
+                
+                # FIX: Ensure calls/imports are always List[str], not str
+                metadata = self._ensure_list_types(metadata)
+                
                 return ChunkResult(
                     id=row["chunk_id"],
                     content=row["content"],
-                    metadata=json.loads(row["metadata"]),
+                    metadata=metadata,
                     score=None
                 )
             return None
@@ -284,7 +366,20 @@ class PgVectorStore(BaseVectorStore):
                     if not rows:
                         break
                     
-                    yield [json.loads(row["metadata"]) for row in rows]
+                    # Process metadata with safe list type conversion
+                    processed_metas = []
+                    for row in rows:
+                        metadata = json.loads(row["metadata"])
+                        # FIX: Ensure calls/imports are always List[str], not str
+                        metadata = self._ensure_list_types(metadata)
+                        processed_metas.append(metadata)
+                    
+                    yield processed_metas
+                    
+                    # DEBUG: Log first metadata in batch for graph building
+                    if processed_metas:
+                        first_meta = processed_metas[0]
+                        logger.info(f"[ITER_DEBUG] For graph building: type(first_meta.get('calls'))={type(first_meta.get('calls'))}, calls={first_meta.get('calls')}")
                     
         finally:
             await conn.close()
@@ -306,6 +401,45 @@ class PgVectorStore(BaseVectorStore):
             logger.info(f"Deleted {count} chunks for {source} from PgVector (tenant={tenant_id}, collection={collection})")
             return count
             
+        finally:
+            await conn.close()
+
+    async def delete_by_file_id(
+        self,
+        file_id: str,
+        tenant_id: str = "default",
+        collection_name: Optional[str] = None
+    ) -> int:
+        """Delete all chunks for a given file_id."""
+        conn = await self._get_conn()
+        try:
+            collection = collection_name or self.collection_name
+            result = await conn.execute(
+                f"DELETE FROM {self.table_name} "
+                f"WHERE metadata->>'file_id' = $1 "
+                f"AND tenant_id = $2 "
+                f"AND collection_name = $3",
+                file_id, tenant_id, collection
+            )
+            deleted = int(result.split()[-1])
+            logger.info(f"delete_by_file_id: deleted {deleted} chunks for file_id={file_id}")
+            return deleted
+        finally:
+            await conn.close()
+
+    async def delete_collection(self, tenant_id: str, collection_name: str) -> int:
+        """Dev-only: Drop all vectors for a tenant collection."""
+        conn = await self._get_conn()
+        try:
+            result = await conn.execute(
+                f"DELETE FROM {self.table_name} "
+                f"WHERE tenant_id = $1 "
+                f"AND collection_name = $2",
+                tenant_id, collection_name
+            )
+            deleted = int(result.split()[-1])
+            logger.warning(f"DEV PURGE: Deleted {deleted} chunks for tenant={tenant_id}, collection={collection_name}")
+            return deleted
         finally:
             await conn.close()
 
@@ -333,10 +467,15 @@ class PgVectorStore(BaseVectorStore):
             
             results = []
             for row in rows:
+                metadata = json.loads(row["metadata"])
+                
+                # FIX: Ensure calls/imports are always List[str], not str
+                metadata = self._ensure_list_types(metadata)
+                
                 results.append(ChunkResult(
                     id=row["chunk_id"],
                     content=row["content"],
-                    metadata=json.loads(row["metadata"]),
+                    metadata=metadata,
                     score=None
                 ))
             

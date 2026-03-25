@@ -173,6 +173,7 @@ yarl==1.22.0
 zipp==3.23.0
 zstandard==0.25.0
 python-magic==0.4.27
+tree-sitter==0.21.3
 # Compatibility floor (kept as requested)
 rank-bm25>=0.2.2
 flower>=2.0.0
@@ -182,3 +183,4 @@ google-auth
 google-auth-httplib2
 python-jose[cryptography]
 email-validator==2.2.0
+tree-sitter-languages==1.10.2

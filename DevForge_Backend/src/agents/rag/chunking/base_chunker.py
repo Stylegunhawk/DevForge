@@ -72,6 +72,12 @@ class BaseChunker(ABC):
         Returns:
             Chunk dictionary with content and metadata
         """
+        # DEBUG: Log types before creating dict
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[CHUNK_DICT_DEBUG] calls type: {type(metadata.calls)}, value: {metadata.calls}")
+        logger.info(f"[CHUNK_DICT_DEBUG] imports type: {type(metadata.imports)}, value: {metadata.imports}")
+        
         return {
             "content": content,
             "metadata": {

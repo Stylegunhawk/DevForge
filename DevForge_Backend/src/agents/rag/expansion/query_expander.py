@@ -53,10 +53,17 @@ Original: {query}
 Requirements:
 - Specific implementation focus
 - Example usage focus
-- Related patterns focus
+- Related patterns or interface focus
 - Each variation on a new line
 - Minimum 5 words per variation
 - No numbering or bullets
+
+Example:
+Original: authentication token verification
+Variations:
+how is verify_token implemented structurally
+verify_token usage examples in middleware
+authentication token verification interface and abstraction
 
 Variations:
 """
@@ -273,8 +280,8 @@ class QueryExpander:
             
             if variations:
                 logger.info(
-                    f"LLM expansion success: {len(variations)} variations "
-                    f"(intent={intent})"
+                    f"[ISSUE-2-VERIFY] LLM expansion success: {len(variations)} variations "
+                    f"(intent={intent}). Variations: {variations}"
                 )
                 return variations
             else:
@@ -313,11 +320,21 @@ class QueryExpander:
         for line in lines:
             cleaned = line.strip()
             
-            # Remove numbering/bullets
+            # Remove numbering/bullets (strips leading digits, dots, dashes, etc.)
             cleaned = cleaned.lstrip('0123456789.-) ')
             
-            # Minimum length filter (5 words)
-            if len(cleaned.split()) >= 5:
+            # Phase 2 Refinement: Lower threshold to 2 words + add safety guards
+            # - Must be at least 2 words (covers "pgvector implementation")
+            # - Must be at least 10 chars (skips noise like "Here:")
+            # - Must not start with common list markers or quotes
+            is_valid = (
+                len(cleaned.split()) >= 2 and 
+                len(cleaned) > 10 and 
+                not cleaned.startswith(("-", '"', "•")) and
+                not (cleaned and cleaned[0].isdigit())
+            )
+            
+            if is_valid:
                 variations.append(cleaned)
             
             # Cap at requested count

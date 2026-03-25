@@ -463,11 +463,10 @@ async def ingest_documents(
                         meta["knowledge_id"] = knowledge_id
                     
                     # 4. Flatten metadata (ChromaDB requirement)
-                    import json
                     flat_meta = {}
                     for k, v in meta.items():
                         if isinstance(v, (list, dict)):
-                            flat_meta[k] = json.dumps(v)
+                            flat_meta[k] = json.dumps(v) if backend != "postgres" else v
                         elif v is None:
                             flat_meta[k] = ""
                         else:

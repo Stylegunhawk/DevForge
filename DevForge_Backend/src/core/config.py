@@ -101,6 +101,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
+    DEBUG: bool = True  # Enable dev-only endpoints and debugging features
 
     # Ollama Configuration
     OLLAMA_HOST: str

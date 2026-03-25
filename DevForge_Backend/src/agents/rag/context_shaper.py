@@ -77,6 +77,31 @@ class ContextShaper:
         
         return limited
     
+    def _get_score(self, chunk) -> float:
+        """Helper to get score robustly from dicts or objects."""
+        if isinstance(chunk, dict):
+            return chunk.get("rerank_score") or chunk.get("score") or 0.0
+        return getattr(chunk, "rerank_score", None) or getattr(chunk, "score", 0.0) or 0.0
+
+    def _get_metadata(self, chunk) -> dict:
+        """Helper to get metadata robustly from dicts or objects."""
+        if isinstance(chunk, dict):
+            meta = chunk.get("metadata", {})
+            # Fast-path for graph expansion flag sometimes put at top-level
+            if chunk.get("is_graph_expansion"):
+                meta["is_graph_expansion"] = True
+            return meta
+        return chunk.metadata if hasattr(chunk, 'metadata') else {}
+
+    def _set_metadata(self, chunk, key: str, value: Any):
+        """Helper to set metadata robustly on dicts or objects."""
+        if isinstance(chunk, dict):
+            if "metadata" not in chunk:
+                chunk["metadata"] = {}
+            chunk["metadata"][key] = value
+        elif hasattr(chunk, 'metadata'):
+            chunk.metadata[key] = value
+
     def _get_dedup_key(self, chunk) -> str:
         """Get deduplication key with qualified ID priority.
         
@@ -86,12 +111,12 @@ class ContextShaper:
         3. (file_id, name, type) - last resort
         
         Args:
-            chunk: ChunkResult object
+            chunk: ChunkResult object or dict
         
         Returns:
             Deduplication key string
         """
-        metadata = chunk.metadata if hasattr(chunk, 'metadata') else {}
+        metadata = self._get_metadata(chunk)
         
         # Priority 1: Use qualified_id if available (best)
         if "qualified_id" in metadata:
@@ -130,12 +155,12 @@ class ContextShaper:
         deduped = []
         for key, group in groups.items():
             # Keep highest scored chunk
-            best = max(group, key=lambda c: getattr(c, 'rerank_score', None) or getattr(c, 'score', 0.0) or 0.0)
+            best = max(group, key=self._get_score)
             
             # METADATA PROVENANCE: Merge critical flags
             # If ANY chunk in group was from graph expansion, preserve that
-            if any(c.metadata.get("is_graph_expansion") for c in group):
-                best.metadata["is_graph_expansion"] = True
+            if any(self._get_metadata(c).get("is_graph_expansion") for c in group):
+                self._set_metadata(best, "is_graph_expansion", True)
             
             deduped.append(best)
         
@@ -161,20 +186,21 @@ class ContextShaper:
         # Sort by score to find primary
         scored = sorted(
             chunks,
-            key=lambda c: getattr(c, 'rerank_score', None) or getattr(c, 'score', 0.0) or 0.0,
+            key=self._get_score,
             reverse=True
         )
         
         # EXACTLY ONE ENTRY (highest scored)
         if scored:
-            scored[0].metadata["role"] = "entry"
+            self._set_metadata(scored[0], "role", "entry")
         
         # Assign rest based on is_graph_expansion
         for chunk in scored[1:]:
-            if chunk.metadata.get("is_graph_expansion"):
-                chunk.metadata["role"] = "dependency"
+            if self._get_metadata(chunk).get("is_graph_expansion"):
+                self._set_metadata(chunk, "role", "dependency")
+                logger.info(f"[ISSUE-1-VERIFY] Assigned 'dependency' role to graph chunk: {self._get_metadata(chunk).get('name', 'unknown')}")
             else:
-                chunk.metadata["role"] = "supporting"
+                self._set_metadata(chunk, "role", "supporting")
         
         # ✅ FIX: Return the sorted list 'scored', not the original 'chunks'
         return scored
@@ -193,9 +219,9 @@ class ContextShaper:
         role_priority = {"entry": 1, "dependency": 2, "supporting": 3}
         
         return sorted(chunks, key=lambda c: (
-            role_priority.get(c.metadata.get("role"), 999),  # Role first
-            -(getattr(c, 'rerank_score', None) or getattr(c, 'score', 0.0) or 0.0),  # Score descending
-            c.metadata.get("name", ""),  # Name ascending
+            role_priority.get(self._get_metadata(c).get("role"), 999),  # Role first
+            -self._get_score(c),  # Score descending
+            self._get_metadata(c).get("name", ""),  # Name ascending
             self._get_dedup_key(c)  # Qualified ID as tie-breaker
         ))
     
@@ -213,9 +239,9 @@ class ContextShaper:
             return chunks
         
         # Separate by role
-        entry = [c for c in chunks if c.metadata.get("role") == "entry"]
-        dependency = [c for c in chunks if c.metadata.get("role") == "dependency"]
-        supporting = [c for c in chunks if c.metadata.get("role") == "supporting"]
+        entry = [c for c in chunks if self._get_metadata(c).get("role") == "entry"]
+        dependency = [c for c in chunks if self._get_metadata(c).get("role") == "dependency"]
+        supporting = [c for c in chunks if self._get_metadata(c).get("role") == "supporting"]
         
         # Entry has no limit (always included)
         # Limit secondary roles

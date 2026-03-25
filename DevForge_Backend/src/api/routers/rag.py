@@ -315,6 +315,39 @@ async def semantic_search_for_chat(
         queryId=query_id
     )
     
+@router.delete("/dev/purge-tenant-collection", tags=["rag", "dev"])
+async def purge_tenant_collection(tenant_id: str, collection_name: str):
+    """
+    DEV ONLY: Drop all vectors for a tenant collection and clear cache.
+    """
+    from src.core.config import settings
+    debug_mode = getattr(settings, 'DEBUG', False)
+    if not debug_mode:
+        raise HTTPException(status_code=403, detail="Only available in DEBUG mode")
+        
+    # Use the existing get_rag_agent helper
+    agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
+    
+    # 1. Drop all vectors from vector store
+    deleted_count = await agent.vector_store.delete_collection(tenant_id=tenant_id, collection_name=collection_name)
+    
+    # 2. Clear Redis graph cache key
+    redis_client = agent._init_redis()
+    if redis_client:
+        cache_key = f"rag_graph:v2:{collection_name}"
+        await redis_client.delete(cache_key)
+        await redis_client.close()
+        
+    # 3. Return count
+    return {
+        "status": "success",
+        "deleted_chunks": deleted_count,
+        "tenant_id": tenant_id,
+        "collection_name": collection_name,
+        "cache_cleared": True
+    }
+
+
 # ============================================================================
 # 4. FILE DELETION
 # ============================================================================

@@ -311,6 +311,19 @@ class ChromaVectorStore(BaseVectorStore):
         
         return len(ids)
 
+    async def delete_collection(self, tenant_id: str, collection_name: str) -> int:
+        """Dev-only: Drop all vectors for a tenant collection."""
+        results = await asyncio.to_thread(
+            self._collection.get,
+            where={"tenant_id": {"$eq": tenant_id}},
+            include=[],
+        )
+        ids = results.get("ids", [])
+        if ids:
+            await asyncio.to_thread(self._collection.delete, ids=ids)
+            logger.warning(f"DEV PURGE: Deleted {len(ids)} chunks for tenant={tenant_id}")
+        return len(ids)
+
     async def get_chunks_by_file_id(
         self,
         file_id: str,

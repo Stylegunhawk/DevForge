@@ -631,11 +631,25 @@ class RAGAgent:
             collection_name=collection_name or self.collection_name,
         )
         
-        # FIX: Problem 1 - Graph Freshness
-        # Invalidate graph so it rebuilds on next query with new data
+        # FIX: Problem 1 - Graph Freshness (Phase 16: Redis Invalidation)
+        # 1. Invalidate in-memory instance
         self._code_graph = None
+        
+        # 2. Delete Redis cache key to force rebuild from new metadata
+        redis_client = self._init_redis()
+        if redis_client:
+            try:
+                # Use current collection name
+                coll = collection_name or self.collection_name
+                cache_key = f"rag_graph:v2:{coll}"
+                await redis_client.delete(cache_key)
+                await redis_client.close()
+                logger.info(f"Invalidated Redis graph cache for {coll}")
+            except Exception as e:
+                logger.warning(f"Failed to invalidate Redis graph cache: {e}")
+
         logger.info(
-            f"Document ingested: {file_path}. Graph invalidated.",
+            f"Document ingested: {file_path}. Graph and Cache invalidated.",
             extra={"chunks": result.get("chunks_created", 0)}
         )
         
@@ -1025,7 +1039,8 @@ class RAGAgent:
                             id=cand_id,
                             content=cand.get("content"),
                             metadata=cand.get("metadata"),
-                            score=0.0 # Neutral score (Constraint C)
+                            score=0.0, # Neutral score (Constraint C)
+                            is_graph_expansion=True # ✅ Propagate flag
                         )
                         initial_results.append(new_chunk)
                         seen_ids.add(cand_id)
@@ -1078,25 +1093,29 @@ class RAGAgent:
                         id=r.get("id", str(i)),
                         content=r.get("content", r.get("page_content", "")),
                         metadata=r.get("metadata", {}),
-                        score=r.get("score")
+                        score=r.get("score"),
+                        is_graph_expansion=r.get("is_graph_expansion", False) # ✅ Propagate flag
                     )
                     for i, r in enumerate(initial_results)
                 ]
             else:
                 chunk_candidates = initial_results
             
-            # Phase 11 Day 3: Apply code-aware boosting BEFORE reranking
-            # This preserves the calibration of the CrossEncoder's outputs.
-            boosted_candidates = self.reranker.apply_code_boost(chunk_candidates)
-            
             # Rerank all candidates (CrossEncoder will recalibrate)
-            reranked = await self.reranker.rerank(query, boosted_candidates, top_k=top_k*2)
+            reranked = await self.reranker.rerank(query, chunk_candidates, top_k=top_k*2)
             
-            # Re-sort is handled by rerank inherently, but just in case:
-            reranked.sort(key=lambda c: c.rerank_score if getattr(c, 'rerank_score', None) is not None else -1, reverse=True)
+            # Phase 11 Day 3 (FIXED): Apply code-aware boosting AFTER reranking
+            boosted = self.reranker.apply_code_boost(reranked)
             
-            # Apply threshold filter
-            filtered = [c for c in reranked if getattr(c, 'rerank_score', 0) >= settings.RERANK_SCORE_THRESHOLD]
+            # Re-sort based on boosted scores
+            boosted.sort(key=lambda c: getattr(c, 'rerank_score', 0), reverse=True)
+            
+            # Apply threshold filter (Exempt graph chunks - Task 2)
+            filtered = [
+                c for c in boosted 
+                if getattr(c, 'rerank_score', 0) >= settings.RERANK_SCORE_THRESHOLD
+                or getattr(c, 'is_graph_expansion', False)
+            ]
             
             # MANDATORY FALLBACK: Never return zero results
             if len(filtered) >= 3:
@@ -1272,23 +1291,26 @@ class RAGAgent:
         # Build QIDs from initial results (Anchors)
         for result in results:
             metadata = result.get("metadata", {})
+            tenant_id = metadata.get("tenant_id") or getattr(self, 'tenant_id', 'default')
             source = metadata.get("source", "")
             name = metadata.get("name", "")
             
             if source and name:
-                qid = f"{source}::{name}"  # CRITICAL: :: separator
+                qid = f"{tenant_id}::{source}::{name}"  # NEW format
                 seen_qids.add(qid)
         
         # Find related chunks via graph
         for result in results:
             metadata = result.get("metadata", {})
+            tenant_id = metadata.get("tenant_id") or getattr(self, 'tenant_id', 'default')
             source = metadata.get("source", "")
             name = metadata.get("name", "")
             
             if not source or not name:
                 continue
             
-            qid = f"{source}::{name}"
+            qid = f"{tenant_id}::{source}::{name}"
+            logger.info(f"[GRAPH-DEBUG] anchor qid={qid}, in_graph={qid in self.code_graph._graph}")
             
             # Constraint D: Respect Bounds (Depth & Max Chunks)
             related_qids = self.code_graph.get_related(
@@ -1296,6 +1318,10 @@ class RAGAgent:
                 depth=settings.GRAPH_CONTEXT_DEPTH,
                 max_results=settings.GRAPH_MAX_CONTEXT_CHUNKS,
             )
+            logger.info(f"[GRAPH-DEBUG] related for {name}: {related_qids[:3]}")
+            
+            if related_qids:
+                logger.debug(f"[GRAPH] Anchor {qid} -> Found {len(related_qids)} related QIDs")
             
             # Fetch related chunks
             for related_qid in related_qids:

@@ -21,6 +21,7 @@ class ChunkResult:
     metadata: Dict
     score: Optional[float] = None
     rerank_score: Optional[float] = None  # Phase 11: Reranking score
+    is_graph_expansion: bool = False     # Phase 12A: Graph-injected chunk
 
 
 class BaseVectorStore(ABC):
@@ -153,6 +154,13 @@ class BaseVectorStore(ABC):
             
         Returns:
             Number of chunks deleted
+        """
+        pass
+        
+    @abstractmethod
+    async def delete_collection(self, tenant_id: str, collection_name: str) -> int:
+        """
+        Dev-only: Drop all vectors for a tenant collection.
         """
         pass
     

@@ -38,12 +38,16 @@ class CodeGraph:
         Add a node to the graph.
         
         Args:
-            qid: Qualified ID (file::entity)
+            qid: Qualified ID (tenant::file::entity)
             **metadata: Chunk metadata (chunk_type, name, calls, imports, etc.)
         """
-        if "::" not in qid:
-            logger.warning("Invalid QID format (missing ::)", extra={"qid": qid})
+        parts = qid.split("::")
+        if len(parts) < 3:
+            logger.warning(f"Invalid QID format (expected tenant::file::entity): {qid}")
             return
+        
+        tenant_id = parts[0]
+        source = parts[1]
         
         # Initialize node if not exists
         if qid not in self._graph:
@@ -56,17 +60,27 @@ class CodeGraph:
         calls = metadata.get("calls", [])
         imports = metadata.get("imports", [])
         
+        # DEBUG: Log before iteration in graph builder
+        logger.info(f"[GRAPH_DEBUG] Before iteration: type(calls)={type(calls)}, calls={calls}")
+        logger.info(f"[GRAPH_DEBUG] Before iteration: type(imports)={type(imports)}, imports={imports}")
+        
         # Add call edges
         for call in calls:
-            # calls[] may be simple names or QIDs
+            # Resolve simple names to full QIDs in same file
             if "::" in call:
-                self.add_edge(qid, call, relation="calls")
-            # If simple name, try to resolve later (optional enhancement)
+                called_qid = call
+            else:
+                called_qid = f"{tenant_id}::{source}::{call}"
+            self.add_edge(qid, called_qid, relation="calls")
         
         # Add import edges
         for imp in imports:
             if "::" in imp:
                 self.add_edge(qid, imp, relation="imports")
+            else:
+                # Handle possible local imports
+                called_qid = f"{tenant_id}::{source}::{imp}"
+                self.add_edge(qid, called_qid, relation="imports")
     
     def add_edge(self, source_qid: str, target_qid: str, relation: str = "related") -> None:
         """
