@@ -1,46 +1,77 @@
 .
-├── .cursor
-│   └── commands
-│       ├── PHASE_STATUS.md
-│       ├── devforge-backend.md
-│       ├── devforge-lobe-chat.md
-│       └── github-examples.md
-├── data
-│   ├── rag
-│   │   └── phase_11_2_guide.md
-│   ├── tools
-│   │   ├── README.md
-│   │   ├── generate_cheatsheet.md
-│   │   ├── generate_data.md
-│   │   ├── github_operation.md
-│   │   ├── rag_unification_verified.md
-│   │   ├── refine_prompt.md
-│   │   ├── rerank_docs.md
-│   │   └── retrieve_docs.md
-│   ├── backend-frontend-rag-integration-plan-ENHANCED.md
-│   ├── github_operations_curls.md
+├── CLAUDE.md
+├── Dockerfile
+├── Dockerfile.api
+├── Dockerfile.gpu
+├── Dockerfile.prod
+├── docker-compose.api.yml
+├── docker-compose.gpu.yml
+├── docker-compose.prod.yml
+├── docker-compose.yml
+├── docker-start.sh
+├── docs
+│   ├── API.md
+│   ├── AUTHENTICATION_GUIDE.md
+│   ├── CELERY_SCALING.md
+│   ├── DOCKER_GUIDE.md
+│   ├── docker-quick-reference.md
 │   ├── phase12a_completion.md
 │   ├── phase12a_response.md
 │   ├── phase12a_tests.md
-│   ├── rag_architecture.md
-│   ├── rag_comprehensive_tests.md
-│   ├── rag_golden_path_test.md
-│   ├── rag_ingest_tool_response_curl.md
-│   ├── rag_integration_flow.md
-│   ├── rag_postman_tests.md
-│   └── reranking.md
+│   ├── reranking.md
+│   └── tools
+│       ├── README.md
+│       ├── generate_cheatsheet.md
+│       ├── generate_data.md
+│       ├── generate_data_flowchart.md
+│       ├── github_operation.md
+│       ├── github_operation_curl_tests.md
+│       ├── rag
+│       │   ├── Rag_Audit_report.md
+│       │   ├── Rag_remediation changelog.md
+│       │   ├── get_file_chunks_api.md
+│       │   ├── get_files_api.md
+│       │   ├── rag_integration_flow.md
+│       │   ├── rerank_docs.md
+│       │   └── retrieve_docs.md
+│       ├── rag_architecture.md
+│       ├── rag_unification_verified.md
+│       └── refine_prompt.md
 ├── manifests
 │   ├── __init__.py
 │   └── devforge.json
 ├── migrations
+├── publish-docker.sh
+├── requirements.lock.txt
+├── requirements.txt
 ├── scripts
+│   ├── README_Windows.md
+│   ├── create_admin.py
+│   ├── create_initial_schema.sql
+│   ├── generate_api_key.py
+│   ├── generate_test_token.py
 │   ├── ingest_test.py
 │   ├── ingest_tools_docs.py
 │   ├── mcp_inspector.py
+│   ├── migrate_production_corrected.sql
+│   ├── monitor_celery.sh
+│   ├── postgres_commands_reference.md
+│   ├── postgres_inspection.bat
+│   ├── postgres_inspection.sh
+│   ├── quick_postgres_check.bat
+│   ├── quick_postgres_check.sh
+│   ├── quick_setup.bat
+│   ├── quick_setup.sh
+│   ├── scale_celery.sh
 │   ├── simple_ingest.py
-│   └── test_retrieval.py
+│   ├── test_retrieval.py
+│   ├── verify_api_key.py
+│   ├── verify_llm_tracking.py
+│   └── verify_pgvector.py
 ├── src
+│   ├── __init__.py
 │   ├── agents
+│   │   ├── __init__.py
 │   │   ├── cheatsheet
 │   │   │   ├── agent.py
 │   │   │   ├── complexity_scorer.py
@@ -56,16 +87,17 @@
 │   │   │   ├── __init__.py
 │   │   │   └── agent.py
 │   │   ├── github
+│   │   │   ├── __init__.py
+│   │   │   ├── agent.py
 │   │   │   ├── intelligence
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── commit_generator.py
 │   │   │   │   ├── log_parser.py
 │   │   │   │   └── repo_discovery.py
-│   │   │   ├── workflows
-│   │   │   │   ├── __init__.py
-│   │   │   │   └── rollback.py
-│   │   │   ├── __init__.py
-│   │   │   └── agent.py
+│   │   │   ├── schemas.py
+│   │   │   └── workflows
+│   │   │       ├── __init__.py
+│   │   │       └── rollback.py
 │   │   ├── prompt_refiner
 │   │   │   ├── agent.py
 │   │   │   ├── code_parser.py
@@ -79,6 +111,8 @@
 │   │   │   ├── sanitizer.py
 │   │   │   └── templates.py
 │   │   ├── rag
+│   │   │   ├── __init__.py
+│   │   │   ├── agent.py
 │   │   │   ├── analytics
 │   │   │   │   ├── __init__.py
 │   │   │   │   └── intent_classifier.py
@@ -92,6 +126,7 @@
 │   │   │   │   ├── base_chunker.py
 │   │   │   │   ├── code_chunker.py
 │   │   │   │   └── text_chunker.py
+│   │   │   ├── context_shaper.py
 │   │   │   ├── expansion
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── query_expander.py
@@ -106,35 +141,40 @@
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── base_reranker.py
 │   │   │   │   └── cross_encoder_reranker.py
-│   │   │   ├── retrieval
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── bm25_index.py
-│   │   │   │   └── hybrid_retriever.py
-│   │   │   ├── __init__.py
-│   │   │   ├── agent.py
-│   │   │   └── context_shaper.py
-│   │   ├── __init__.py
+│   │   │   └── retrieval
+│   │   │       ├── __init__.py
+│   │   │       ├── bm25_index.py
+│   │   │       └── hybrid_retriever.py
 │   │   ├── reranker.py
 │   │   └── supervisor.py
 │   ├── api
-│   │   ├── routers
-│   │   │   ├── __init__.py
-│   │   │   └── rag.py
-│   │   ├── schemas
-│   │   │   └── rag.py
 │   │   ├── __init__.py
 │   │   ├── monitoring.py
-│   │   └── rag_models.py
+│   │   ├── rag_models.py
+│   │   ├── routers
+│   │   │   ├── __init__.py
+│   │   │   ├── admin.py
+│   │   │   ├── auth.py
+│   │   │   ├── rag.py
+│   │   │   └── users.py
+│   │   └── schemas
+│   │       └── rag.py
 │   ├── core
 │   │   ├── __init__.py
+│   │   ├── api_key_middleware.py
 │   │   ├── audit.py
+│   │   ├── auth.py
 │   │   ├── confidence.py
 │   │   ├── config.py
+│   │   ├── dashboard_middleware.py
 │   │   ├── features.py
 │   │   ├── jobs.py
 │   │   ├── middleware.py
 │   │   ├── model_router.py
 │   │   ├── performance.py
+│   │   ├── policy.py
+│   │   ├── rate_limiter.py
+│   │   ├── risk.py
 │   │   ├── schemas.py
 │   │   ├── security.py
 │   │   ├── session.py
@@ -142,16 +182,27 @@
 │   ├── llm
 │   │   ├── __init__.py
 │   │   └── ollama_client.py
+│   ├── main.py
+│   ├── migrations
+│   │   └── create_monthly_usage_table.sql
+│   ├── notifications
 │   ├── storage
 │   │   ├── __init__.py
+│   │   ├── api_key_store.py
 │   │   ├── base_store.py
 │   │   ├── chroma_health_check.py
 │   │   ├── chroma_store.py
-│   │   └── redis_file_store.py
+│   │   ├── db.py
+│   │   ├── pgvector_store.py
+│   │   ├── redis_file_store.py
+│   │   └── tier_config_store.py
 │   ├── tools
+│   │   ├── __init__.py
+│   │   ├── changelog.py
 │   │   ├── cheatsheet
 │   │   │   ├── templates.py
 │   │   │   └── tools.py
+│   │   ├── ci_diagnostics.py
 │   │   ├── datagen
 │   │   │   ├── __init__.py
 │   │   │   ├── advanced_generator.py
@@ -175,139 +226,106 @@
 │   │   │   ├── semantic_types.py
 │   │   │   ├── simple_distributions.py
 │   │   │   ├── tools.py
-│   │   │   └── value_catalog_builder.py
+│   │   │   ├── value_catalog_builder.py
+│   │   │   └── verify_invariants.py
 │   │   ├── github
 │   │   │   ├── __init__.py
 │   │   │   └── tools.py
 │   │   ├── rag
 │   │   │   ├── __init__.py
 │   │   │   └── tools.py
-│   │   ├── __init__.py
-│   │   ├── changelog.py
-│   │   ├── ci_diagnostics.py
 │   │   └── scaffold.py
-│   ├── workers
-│   │   ├── tasks
-│   │   │   ├── __init__.py
-│   │   │   └── rag_tasks.py
-│   │   ├── __init__.py
-│   │   └── celery_app.py
-│   ├── __init__.py
-│   └── main.py
-├── tests
-│   ├── agents
-│   │   └── rag
-│   │       └── test_context_shaper.py
-│   ├── fixtures
-│   │   └── code_samples.py
-│   ├── integration
-│   │   └── test_phase_11_2.py
-│   ├── rag
-│   │   ├── test_intent_classifier.py
-│   │   ├── test_phase12a_minimal.py
-│   │   ├── test_phase12a_simple.py
-│   │   ├── test_query_cache.py
-│   │   └── test_semantic_cache.py
-│   ├── __init__.py
-│   ├── test_api.py
-│   ├── test_changelog.py
-│   ├── test_cheatsheet.py
-│   ├── test_cheatsheet_context_parser.py
-│   ├── test_cheatsheet_performance.py
-│   ├── test_ci_diagnostics.py
-│   ├── test_commit_generator.py
-│   ├── test_complexity_scorer.py
-│   ├── test_confidence.py
-│   ├── test_context_parser.py
-│   ├── test_datagen.py
-│   ├── test_day2_validation.py
-│   ├── test_day34_validation.py
-│   ├── test_day5_validation.py
-│   ├── test_day6_validation.py
-│   ├── test_day7_validation.py
-│   ├── test_distributions.py
-│   ├── test_domain_templates.py
-│   ├── test_e2e_semantic.py
-│   ├── test_end_to_end.py
-│   ├── test_fallback.py
-│   ├── test_features.py
-│   ├── test_field_value_generator.py
-│   ├── test_github.py
-│   ├── test_github_agent_integration.py
-│   ├── test_github_integration.py
-│   ├── test_github_rollback.py
-│   ├── test_integration.py
-│   ├── test_integration_phase1.py
-│   ├── test_integration_phase1_patterns.py
-│   ├── test_jobs.py
-│   ├── test_lexical_expansion.py
-│   ├── test_library_detector.py
-│   ├── test_log_parser.py
-│   ├── test_monitoring.py
-│   ├── test_performance.py
-│   ├── test_phase1_regression.py
-│   ├── test_prompt_refiner.py
-│   ├── test_prompt_refiner_phase2.py
-│   ├── test_python_levels.py
-│   ├── test_rag.py
-│   ├── test_realism.py
-│   ├── test_relationships.py
-│   ├── test_repo_discovery.py
-│   ├── test_reranker.py
-│   ├── test_reranking_integration.py
-│   ├── test_reranking_performance.py
-│   ├── test_rollback.py
-│   ├── test_sanitizer.py
-│   ├── test_scaffold.py
-│   ├── test_schema_designer.py
-│   ├── test_semantic_analyzer.py
-│   ├── test_semantic_analyzer_v2.py
-│   ├── test_semantic_models.py
-│   ├── test_semantic_router.py
-│   ├── test_session.py
-│   └── test_value_catalog_builder.py
-├── .env.example
-├── .gitignore
-├── BACKEND_PLAN.md
-├── CHANGELOG.md
-├── CODE_SNIPPETS.md
-├── Dockerfile
-├── IMPLEMENTATION_REVIEW.md
-├── INTEGRATION_PLAN.md
-├── MCP_GATEWAY_FIX.md
-├── PHASE3_SUMMARY.md
-├── PHASE_STATUS.md
-├── PROJECT_OVERVIEW.md
-├── README.md
-├── README_v0.8.0.md
-├── SECURITY.md
-├── USAGE.md
-├── baseline_output.json
-├── curl_stderr.log
-├── debug_shaper_types.py
-├── docker-compose.yml
-├── dump.rdb
-├── final_shaped_output.json
-├── pytest.ini
-├── rag_frontend_test.py
-├── reproduce_issue.py
-├── requirements.txt
-├── response.json
-├── setup.py
-├── shaped_output.json
+│   ├── utils
+│   │   ├── expiry.py
+│   │   └── sanitization.py
+│   └── workers
+│       ├── __init__.py
+│       ├── celery_app.py
+│       └── tasks
+│           ├── __init__.py
+│           ├── analytics_tasks.py
+│           ├── auth_tasks.py
+│           ├── rag_tasks.py
+│           └── usage_tasks.py
 ├── structure.txt
-├── temp_shaper_test.py
-├── upload_id.txt
-├── uvicorn.log
-├── validate_chunking.py
-├── verification_cloud_force.json
-├── verification_logs.json
-├── verification_result.json
-├── verification_results.json
-├── verification_results_v2.json
-├── verify_broker.py
-├── verify_multitenancy.py
-├── verify_tree_sitter.py
-└── verify_unification.py
+└── tests
+    ├── __init__.py
+    ├── agents
+    │   └── rag
+    │       └── test_context_shaper.py
+    ├── fixtures
+    │   └── code_samples.py
+    ├── hello.py
+    ├── integration
+    │   └── test_phase_11_2.py
+    ├── rag
+    │   ├── test_intent_classifier.py
+    │   ├── test_phase12a_minimal.py
+    │   ├── test_phase12a_simple.py
+    │   ├── test_query_cache.py
+    │   └── test_semantic_cache.py
+    ├── test_api.py
+    ├── test_changelog.py
+    ├── test_cheatsheet.py
+    ├── test_cheatsheet_context_parser.py
+    ├── test_cheatsheet_performance.py
+    ├── test_ci_diagnostics.py
+    ├── test_commit_generator.py
+    ├── test_complexity_scorer.py
+    ├── test_confidence.py
+    ├── test_context_parser.py
+    ├── test_datagen.py
+    ├── test_day2_validation.py
+    ├── test_day34_validation.py
+    ├── test_day5_validation.py
+    ├── test_day6_validation.py
+    ├── test_day7_validation.py
+    ├── test_distributions.py
+    ├── test_domain_templates.py
+    ├── test_e2e_semantic.py
+    ├── test_end_to_end.py
+    ├── test_fallback.py
+    ├── test_features.py
+    ├── test_field_value_generator.py
+    ├── test_github.py
+    ├── test_github_agent_integration.py
+    ├── test_github_integration.py
+    ├── test_github_rollback.py
+    ├── test_integration.py
+    ├── test_integration_phase1.py
+    ├── test_integration_phase1_patterns.py
+    ├── test_jobs.py
+    ├── test_lexical_expansion.py
+    ├── test_library_detector.py
+    ├── test_log_parser.py
+    ├── test_monitoring.py
+    ├── test_performance.py
+    ├── test_phase1_regression.py
+    ├── test_phase3_contextual_risk.py
+    ├── test_phase4_policy.py
+    ├── test_phase5_audit.py
+    ├── test_prompt_refiner.py
+    ├── test_prompt_refiner_phase2.py
+    ├── test_python_levels.py
+    ├── test_rag.py
+    ├── test_rag_auth.py
+    ├── test_rag_files_endpoint.py
+    ├── test_realism.py
+    ├── test_relationships.py
+    ├── test_repo_discovery.py
+    ├── test_reranker.py
+    ├── test_reranking_integration.py
+    ├── test_reranking_performance.py
+    ├── test_risk.py
+    ├── test_rollback.py
+    ├── test_sanitizer.py
+    ├── test_scaffold.py
+    ├── test_schema_designer.py
+    ├── test_semantic_analyzer.py
+    ├── test_semantic_analyzer_v2.py
+    ├── test_semantic_models.py
+    ├── test_semantic_router.py
+    ├── test_session.py
+    └── test_value_catalog_builder.py
 
-57 directories, 276 files
+46 directories, 283 files
