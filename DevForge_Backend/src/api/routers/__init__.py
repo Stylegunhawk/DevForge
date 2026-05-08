@@ -1426,31 +1426,6 @@ def _get_tool_schema(tool_name: str) -> dict:
             },
             "required": ["query"],
         },
-        "rerank_docs": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Query for reranking documents",
-                },
-                "documents": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "content": {"type": "string"},
-                            "metadata": {"type": "object"},
-                        },
-                    },
-                    "description": "Documents to rerank (with content and metadata)",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Number of top results to return (default: 5)",
-                },
-            },
-            "required": ["query", "documents"],
-        },
         "refine_prompt": {
             "type": "object",
             "properties": {
