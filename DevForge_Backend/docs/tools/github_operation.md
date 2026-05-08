@@ -1,7 +1,8 @@
 # github_operation - Intelligent GitHub Automation Tool
 
 **Tool Name:** `github_operation`  
-**Version:** 0.8.5  
+**Version:** 0.8.0  
+**Last Updated:** 2026-05-08
 **Phase:** GitOps v0.8 - Phase 5 (Audit & Policy Hardened)
 **Status:** ✅ Production Ready (Hardened)
 
@@ -61,7 +62,7 @@ The `github_operation` tool is an intelligent GitHub automation system that tran
 ## File-by-File Implementation Details
 
 ### 1. Agent Core: `src/agents/github/agent.py`
-**Lines:** 558 | **Purpose:** LangGraph state machine orchestrating GitHub operations
+**Purpose:** LangGraph state machine orchestrating GitHub operations
 
 #### Key Components:
 
@@ -109,7 +110,7 @@ async def github_agent_invoke(
 ---
 
 ### 2. GitHub Tools: `src/tools/github/tools.py`
-**Lines:** 423 | **Purpose:** PyGithub wrapper for GitHub API operations
+**Purpose:** PyGithub wrapper for GitHub API operations
 
 #### `GitHubTools` Class Methods:
 
@@ -121,7 +122,6 @@ async def github_agent_invoke(
 | `create_issue()` | `repo_name, title, body, labels, assignees` | Create issue in repository |
 | `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | Commit file |
 | `create_pull_request()` | `repo_name, title, head, base, body, draft` | Create pull request |
-| `merge_pr()` | `repo_name, pull_number, commit_title, merge_method` | **MEDIUM to CRITICAL RISK** |
 | `list_branches()` | `repo_name` | List repo branches |
 | `create_branch()` | `repo_name, branch_name, from_branch` | Create new branch |
 | `delete_branch()` | `repo_name, branch_name` | **HIGH to CRITICAL RISK** |
@@ -143,7 +143,7 @@ create_pull_request(repo_name, title, head, base, body, token, **kwargs)
 
 ### 3. Intelligence: Repo Discovery
 **File:** `src/agents/github/intelligence/repo_discovery.py`  
-**Lines:** 230 | **Purpose:** Fuzzy repository matching with confidence scoring
+**Purpose:** Fuzzy repository matching with confidence scoring
 
 #### `RepoMatch` Dataclass:
 ```python
@@ -175,7 +175,7 @@ class RepoMatch:
 
 ### 4. Intelligence: Commit Generator
 **File:** `src/agents/github/intelligence/commit_generator.py`  
-**Lines:** 335 | **Purpose:** AI-generated Conventional Commits from git diffs
+**Purpose:** AI-generated Conventional Commits from git diffs
 
 #### `ChangeType` Enum:
 ```python
@@ -241,7 +241,7 @@ class CommitMessage:
 
 ### 5. Intelligence: Log Parser
 **File:** `src/agents/github/intelligence/log_parser.py`  
-**Lines:** 487 | **Purpose:** Multi-language stack trace parsing for issue creation
+**Purpose:** Multi-language stack trace parsing for issue creation
 
 #### `Language` Enum:
 ```python
@@ -304,7 +304,7 @@ class ParsedIssue:
 
 ### 6. Workflows: Rollback Matrix
 **File:** `src/agents/github/workflows/rollback.py`  
-**Lines:** 234 | **Purpose:** Rollback feasibility and compensating actions
+**Purpose:** Rollback feasibility and compensating actions
 
 #### `RollbackFeasibility` Enum:
 ```python
@@ -335,7 +335,7 @@ class RollbackFeasibility(Enum):
 
 ### 7. Changelog Generator
 **File:** `src/tools/changelog.py`  
-**Lines:** 272 | **Tool:** `generate_changelog`
+**Tool:** `generate_changelog`
 
 #### `ChangelogGenerator` Class:
 
@@ -360,7 +360,7 @@ class RollbackFeasibility(Enum):
 
 ### 8. CI Diagnostics
 **File:** `src/tools/ci_diagnostics.py`  
-**Lines:** 455 | **Tool:** `analyze_ci_failure`
+**Tool:** `analyze_ci_failure`
 
 #### Key Dataclasses:
 ```python
@@ -403,7 +403,9 @@ class SuggestedFix:
 
 ### 9. Repository Scaffolder
 **File:** `src/tools/scaffold.py`  
-**Lines:** 355 | **Tool:** `scaffold_repository`
+**Tool:** `scaffold_repo`
+
+> **Note:** The agent dispatches the operation as `scaffold_repo` (matches `agent.py` and `schemas.py`). The `manifests/devforge.json` entry name is `scaffold_repository` — this is a known mismatch between the manifest entry and the LLM-emitted operation string.
 
 #### Built-in Templates:
 
@@ -516,7 +518,8 @@ curl -X POST http://localhost:8001/api/gateway \
 ### Required Environment Variables
 
 ```bash
-# Required
+# GitHub PAT — Required at request time, normally supplied via context.github_token
+# (per-user/per-connection PAT). The server-level env var is an optional fallback only.
 GITHUB_TOKEN=ghp_your_token_here
 
 # Optional
@@ -530,15 +533,17 @@ GITHUB_USERNAME=your_username
 GITOPS_ENABLE_FUZZY_SEARCH=true
 GITOPS_ENABLE_COMMIT_GEN=true
 GITOPS_ENABLE_LOG_PARSING=true
-GITOPS_ENABLE_CONFIDENCE_GATING=true
 
 # Thresholds
 GITOPS_FUZZY_THRESHOLD=0.85
-GITOPS_COMMIT_CONFIDENCE_THRESHOLD=0.90
 
 # Performance
 GITOPS_REPO_CACHE_TTL=3600    # 1 hour
 GITOPS_SESSION_TTL=1800       # 30 minutes
+
+# Policy / Environment
+GITOPS_PROTECTED_MODE=false
+GITOPS_ENV=development
 ```
 
 ---
@@ -571,6 +576,18 @@ GITOPS_SESSION_TTL=1800       # 30 minutes
     │  Node: validate_parameters (Phase 4)         │
     │  - Pydantic schema enforcement              │
     │  - Strict type and constraint checking       │
+    └─────────────────────────────────────────────┘
+                               │
+    ┌─────────────────────────────────────────────┐
+    │  Node: policy_gate_check (Phase 4)          │
+    │  - Environment-level hard blocks            │
+    │  - GITOPS_PROTECTED_MODE / GITOPS_ENV       │
+    └─────────────────────────────────────────────┘
+                               │
+    ┌─────────────────────────────────────────────┐
+    │  Node: risk_gate_check (Phase 1-3)          │
+    │  - Severity assessment (LOW/MED/HIGH/CRIT)  │
+    │  - Requires confirmed/reason for HIGH+      │
     └─────────────────────────────────────────────┘
                                │
     ┌─────────────────────────────────────────────┐
@@ -621,11 +638,11 @@ GITOPS_SESSION_TTL=1800       # 30 minutes
 # Run all tests
 pytest tests/ -v
 
-# Specific test files
-pytest tests/test_repo_discovery.py -v     # 18 tests
-pytest tests/test_commit_generator.py -v   # 20 tests
+# Specific test files (68 tests total)
+pytest tests/test_repo_discovery.py -v     # 13 tests
+pytest tests/test_commit_generator.py -v   # 19 tests
 pytest tests/test_log_parser.py -v         # 18 tests
-pytest tests/test_github_integration.py -v # 20 tests
+pytest tests/test_github_integration.py -v # 18 tests
 ```
 
 ---
@@ -644,8 +661,8 @@ pytest tests/test_github_integration.py -v # 20 tests
 
 ---
 
-**Version:** 0.8.5  
-**Last Updated:** 3 March, 2026  
+**Version:** 0.8.0  
+**Last Updated:** 2026-05-08  
 **Maintainer:** DevForge Team
 
 
