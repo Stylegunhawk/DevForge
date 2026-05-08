@@ -22,7 +22,7 @@ GET /api/v1/rag/file/{fileId}/chunks
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `X-User-ID` | No | Tenant identifier. Defaults to `"default"`. |
+| `Authorization` | Yes | `Bearer <tenant_jwt>` — validated by `JWTAuthMiddleware`; `tenant_id` claim extracted from the token. |
 
 ## Response
 
@@ -36,7 +36,7 @@ GET /api/v1/rag/file/{fileId}/chunks
       "id": "chunk-uuid-1",
       "fileId": "file-uuid",
       "filename": "document.pdf",
-      "fileUrl": "http://localhost:8000/static/...",
+      "fileUrl": "http://localhost:8001/static/...",
       "text": "Extracted text content from the first chunk...",
       "similarity": 1.0,
       "pageNumber": 1,
@@ -58,11 +58,11 @@ GET /api/v1/rag/file/{fileId}/chunks
 
 ```bash
 # Get first 10 chunks of a file
-curl "http://localhost:8000/api/v1/rag/file/uuid-123/chunks?limit=10" \
+curl "http://localhost:8001/api/v1/rag/file/uuid-123/chunks?limit=10" \
   -H "X-User-ID: my_tenant"
 
 # Get next 10 chunks (offset)
-curl "http://localhost:8000/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10"
+curl "http://localhost:8001/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10"
 ```
 
 ## Related Endpoints
@@ -72,4 +72,4 @@ curl "http://localhost:8000/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10"
 
 ---
 
-**Version:** 15.4 (2026-03-23)
+**Version:** 0.8.0 (2026-05-08)
