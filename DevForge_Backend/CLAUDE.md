@@ -1,232 +1,208 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository DevForge_Backend Folder.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository (DevForge_Backend folder).
 
 ## Skills
-- devforge-workflow — use for all code changes in this project
-- enterprise-audit-planner — use when given any audit .md file
-- system-auditor — use to create audit .md file
 
-## Quick Start
+- `devforge-workflow` — use for all code changes in this project
+- `enterprise-audit-planner` — use when given any audit `.md` file
+- `system-auditor` — use to create an audit `.md` file
 
-### Local Development
+## Quick start
+
+### Local development
 
 ```bash
-# Install dependencies
+# Create venv (Python 3.12 — matches Dockerfile)
+python -m venv venv && source venv/bin/activate   # Linux/Mac
+# venv\Scripts\activate                            # Windows
+
 pip install -r requirements.txt
-
-# Start development server
 uvicorn src.main:app --reload --port 8001
-
-# Run tests
 pytest tests/ -v
 ```
 
-### Docker Deployment
+> **PyTorch note:** `requirements.txt` pins `torch==2.9.1+cpu`. If pip resolves the GPU wheel by default on Linux, install with `--extra-index-url https://download.pytorch.org/whl/cpu` (this is what the Dockerfile does). Avoids a 1–2 GB CUDA download.
 
-The project is fully containerized with Docker Compose using profiles for modular service management.
+### Docker deployment
 
-**Services:**
+Multi-stage Dockerfile based on `python:3.12-slim`. Runs as non-root user `devforge` (uid 1000). Production CMD uses **Gunicorn** with **6 Uvicorn workers** on port 8001 (`docker-compose` overrides this for hot-reload).
+
+Compose profiles for modular service management:
+
 | Service | Purpose | Profile |
 |---------|---------|---------|
-| `api` | FastAPI backend (port 8001) | Always |
-| `redis` | Celery broker & result backend | `rag` |
+| `api` | FastAPI backend (port 8001) | always |
+| `redis` | Celery broker, query cache, result backend | `rag` |
 | `postgres` | PostgreSQL with pgvector | `rag` |
 | `celery-worker` | Primary async worker | `rag` |
 | `celery-worker-analytics` | Dedicated analytics worker | `rag` |
-| `celery-worker-secondary` | Load balancing worker | `rag`, `scale` |
+| `celery-worker-secondary` | Load-balancing worker | `rag`, `scale` |
 | `flower` | Celery monitoring UI (port 5555) | `rag` |
 
 ```bash
-# Initialize environment
 cp .env.docker .env
 
-# Start API only (minimal - no RAG)
+# API only (no RAG dependencies)
 docker compose up api -d --build
 
-# Start full stack with RAG (Redis, PostgreSQL, Celery)
+# Full stack with RAG (Redis, Postgres, Celery, Flower)
 docker compose --profile rag up -d --build
 
-# Stop all services
+# Production-grade scale-out (adds celery-worker-secondary)
+docker compose --profile rag --profile scale up -d --build
+
 docker compose --profile rag down
 ```
 
-**Volumes:** The `api` service mounts the project directory (`.: /app`) and `./data` folder for file uploads and persistence.
+The `api` service mounts the project directory and `./data` for uploads / Chroma persistence. See `docs/DOCKER_GUIDE.md` for troubleshooting.
 
-See `docs/DOCKER_GUIDE.md` for detailed Docker setup and troubleshooting.
+## Architecture
 
-## Architecture Overview
+FastAPI backend with a modular agent/tool/storage split. The supervisor agent (LangGraph state machine) classifies intent and routes to a per-feature agent.
 
-DevForge is a FastAPI-based backend with a modular agent-based architecture for AI-powered developer tools:
+### Layers
 
-### Core Layers
-
-| Layer | Purpose | Key Files |
+| Layer | Purpose | Key files |
 |-------|---------|-----------|
-| **API** | HTTP endpoints (MCP, REST, RAG) | `src/api/routers.py`, `src/api/rag.py` |
-| **Agents** | Business logic & orchestration | `src/agents/*/agent.py` |
-| **Tools** | Reusable functions | `src/tools/*/tools.py` |
-| **Storage** | Vector store abstraction | `src/storage/base_store.py`, `chroma_store.py`, `pgvector_store.py` |
-| **Workers** | Async task processing | `src/workers/celery_app.py` |
+| API | HTTP endpoints (REST gateway, MCP JSON-RPC, RAG, auth, admin) | `src/api/routers.py`, `src/api/routers/{rag,auth,users,admin}.py` |
+| Agents | Business logic & orchestration | `src/agents/*/agent.py`, `src/agents/supervisor.py` |
+| Tools | Reusable functions invoked by agents | `src/tools/*/tools.py` |
+| Storage | Vector store abstraction | `src/storage/base_store.py`, `chroma_store.py`, `pgvector_store.py` |
+| Workers | Async Celery tasks | `src/workers/celery_app.py` |
+| Core | Config, middleware, auth | `src/core/config.py`, `src/core/{middleware,api_key_middleware,dashboard_middleware}.py` |
 
-### Agent Modules
+### Request flow (tool execution)
 
-- **datagen/** - Mock data generation (CSV/JSON)
-- **supervisor.py** - Intent classification & routing (LangGraph)
-- **rag/** - Document retrieval with code-aware features (Hybrid Search, Reranking, Query Cache)
-- **github/** - GitOps automation with fuzzy repo matching & commit generation
-- **prompt_refiner/** - Domain-aware prompt optimization
-- **cheatsheet/** - Code documentation generation
-- **reranker.py** - Cross-encoder document reranking
+`POST /api/gateway` (REST) or `POST /mcp` (JSON-RPC) → `APIKeyAuthMiddleware` validates `x-api-key` → `src/api/routers.py` resolves tool name → `src/agents/supervisor.py` classifies intent (LangGraph) → individual agent (datagen / github / prompt_refiner / cheatsheet / rag) → response.
 
-### Key Technologies
+### Agent modules
 
-- **FastAPI** - Web framework with async support
-- **LangGraph** - Agent orchestration & state machines
-- **Celery** - Async task queue (Redis broker)
-- **ChromaDB/pgvector** - Vector storage with abstraction layer
-- **Tree-sitter** - AST-based code chunking
-- **Cross-encoder** - ms-marco-MiniLM-L-6-v2 for reranking
+- `datagen/` — mock data generation (CSV/JSON, uses Faker + rstr)
+- `supervisor.py` — intent classification & routing (LangGraph)
+- `rag/` — document retrieval with hybrid search, reranking, query cache, intent-aware expansion
+- `github/` — GitOps automation with fuzzy repo matching & LLM-generated commits
+- `prompt_refiner/` — domain-aware prompt optimization
+- `cheatsheet/` — code documentation generation
+- `reranker.py` — cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`)
 
-## Project Status
+### Middleware order
 
-**Current Version:** v0.8.0
-**Completed Phases:** 1-7, 10.1, 11, 11.2, 12, 12A, 15.3
-**Deferred:** Phase 5 (Deployment - partially implemented)
+Starlette wraps middleware so the **last** `app.add_middleware(...)` call in `src/main.py` runs **first** on the request. Effective request-flow order:
 
-See `BACKEND_PLAN.md` and `CHANGELOG.md` for detailed phase history.
+1. `DashboardAuthMiddleware` — `Authorization: Bearer <dashboard_jwt>` for `/api/users/*`, `/api/admin/*`
+2. `APIKeyAuthMiddleware` — `x-api-key` for `/api/gateway`, `/mcp`
+3. `JWTAuthMiddleware` — tenant JWTs for RAG endpoints
+4. `CORSMiddleware` — innermost, applied last before the route handler
+
+### Key technologies (pinned in `requirements.txt`)
+
+- **FastAPI 0.120**, **Pydantic 2.12**, **Uvicorn 0.38**, Gunicorn (prod)
+- **LangChain 1.0**, **LangGraph 1.0**, `langchain-ollama`, `langchain-qdrant`, `langchain-chroma`
+- **Celery 5.3** + **Redis 5.0** (broker / result backend / query cache)
+- **ChromaDB 1.3.5** + **pgvector 0.2.5** + **qdrant-client 1.16** (three vector backends)
+- **SQLAlchemy 2.0** + **asyncpg 0.30** (async Postgres pool)
+- **Tree-sitter 0.21** + `tree-sitter-languages 1.10.2` (AST chunking)
+- **sentence-transformers 2.6**, **transformers 4.38**, **torch 2.9 (CPU)**, **onnxruntime**
+- **rank-bm25** (hybrid search), **PyGithub 2.8** (GitOps), **PyJWT** + **python-jose** + **bcrypt** (auth), **python-magic** (MIME detection)
 
 ## Testing
 
 ```bash
-# All tests
-pytest tests/ -v
-
-# Specific test suites
-pytest tests/test_datagen.py -v
-pytest tests/test_rag.py -v
-pytest tests/test_github_integration.py -v
-pytest tests/test_end_to_end.py -v
+pytest tests/ -v                                    # all tests (90+)
+pytest tests/test_rag.py -v                         # one file
+pytest tests/test_rag.py::test_semantic_search -v -s  # one test, show prints
+pytest tests/ -k "rag and not slow" -v              # by keyword
 ```
 
-**Total: 90+ tests** covering unit, integration, and end-to-end scenarios.
+Suites: `test_datagen.py`, `test_rag.py`, `test_github_integration.py`, `test_end_to_end.py`, plus phase-specific suites in `tests/`.
 
-### Docker Testing & Troubleshooting
+### Docker debugging
 
 ```bash
-# Check if services are healthy
-docker compose --profile rag ps
-
-# View API logs
-docker compose logs -f api
-
-# Check Redis connectivity
-docker exec devforge-redis redis-cli ping
-
-# Check PostgreSQL connectivity
-docker exec devforge-postgres pg_isready -U devforge
-
-# View Celery worker logs
-docker compose logs -f celery-worker
-
-# Access Flower monitoring
-http://localhost:5555
+docker compose --profile rag ps                                     # service health
+docker compose logs -f api                                          # API logs
+docker compose logs -f celery-worker                                # worker logs
+docker exec devforge-redis redis-cli ping                           # Redis check
+docker exec devforge-postgres pg_isready -U devforge                # Postgres check
+docker exec devforge-celery-worker celery -A src.workers.celery_app inspect active
+# Flower UI: http://localhost:5555
 ```
 
-**Common Issues (see `docs/DOCKER_GUIDE.md` for details):**
-- **Port 8001 busy:** Stop local Python servers running on 8001
-- **Database connection failed:** Ensure `--profile rag` is used to start postgres/redis
-- **Ollama errors:** Verify Ollama is running and `OLLAMA_HOST=http://host.docker.internal:11434`
+Common issues:
+- **Port 8001 busy:** stop any local `uvicorn` on 8001
+- **DB connection failed:** include `--profile rag` so `postgres`/`redis` start
+- **Ollama errors:** in Docker set `OLLAMA_HOST=http://host.docker.internal:11434`
 
 ## Configuration
 
-### Environment Files
+Pydantic Settings (`src/core/config.py`) reads `.env` (local) or `.env.docker` (Docker). Auto-detects Docker via `/.dockerenv` and rewrites `redis:6379` → `localhost:6379` for local dev. Validates Redis/Postgres URL formats and warns on `localhost` URLs in `ENVIRONMENT=production`.
 
-| File | Purpose |
-|------|---------|
-| `.env` | Local development (default port 8001) |
-| `.env.docker` | Docker deployment (uses service names for DB/Redis) |
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `OLLAMA_HOST` | LLM inference endpoint | required |
+| `CORS_ORIGINS` | Comma-separated allowed origins | required |
+| `FILE_BASE_URL` | Public base URL for `/static/uploads/...` | required |
+| `VECTOR_BACKEND` | `chroma`, `postgres`, or `qdrant` | `postgres` |
+| `POSTGRES_URL` | pgvector + app DB | optional |
+| `REDIS_URL` | Celery broker, query cache, GitOps storage | optional |
+| `QDRANT_URL` / `QDRANT_API_KEY` | Qdrant Cloud connection | optional |
+| `DASHBOARD_JWT_SECRET` | Signs dashboard JWTs | required for dashboard auth |
+| `ENABLE_HYBRID_SEARCH` / `HYBRID_ALPHA` | BM25+vector fusion | `true` / `0.5` |
+| `ENABLE_RERANKING` / `RERANK_MODEL` | Cross-encoder rerank | `true` / `ms-marco-MiniLM-L-6-v2` |
 
-**Key variables:**
-- `OLLAMA_HOST` - Ollama endpoint (use `http://host.docker.internal:11434` in Docker)
-- `POSTGRES_URL` - PostgreSQL connection (auto-constructed from `POSTGRES_*` vars)
-- `REDIS_URL` - Redis broker URL
-- `CORS_ORIGINS` - Comma-separated allowed origins
+See `.env.example` and `.env.docker` for the full list.
 
-See `.env.example` and `.env.docker` for all available options.
+## RAG architecture highlights
 
-## RAG Architecture Highlights
+- **Two-stage retrieval:** vector search (top-30 candidates) → cross-encoder reranking (top-K)
+- **Code-aware:** AST chunking via tree-sitter, dependency-graph expansion (BFS depth 2), test↔source linking, function/class boost factors
+- **Query intelligence:** rule-based + LLM intent classification, intent-driven query expansion, exact + semantic caching (cosine ≥ 0.92)
+- **Hybrid search:** BM25 + vector with configurable `HYBRID_ALPHA`
+- **Targets:** <50 ms cached, <200 ms reranking overhead
 
-The RAG system includes:
+See `docs/tools/rag_architecture.md` for details.
 
-- **Two-stage retrieval:** Vector search → Cross-encoder reranking
-- **Code-aware features:** AST parsing, dependency graph, test-source linking
-- **Query intelligence:** Intent classification, query expansion, semantic caching
-- **Hybrid search:** BM25 + Vector fusion (configurable alpha)
-- **Performance:** <50ms cached, <200ms reranking overhead
+## API authentication
 
-See `docs/tools/rag_architecture.md` for detailed architecture.
+| System | Used by | Header | Endpoints |
+|--------|---------|--------|-----------|
+| Dashboard JWT | Web dashboard users | `Authorization: Bearer <jwt>` | `/api/auth/*`, `/api/users/*`, `/api/admin/*` |
+| API key | Programmatic clients (IDE integrations, MCP) | `x-api-key: <key>` | `/api/gateway`, `/mcp` |
+| Tenant JWT | Multi-tenant RAG callers | `Authorization: Bearer <jwt>` | RAG endpoints (via `JWTAuthMiddleware`) |
 
-## API Authentication
+Per-tier rate limits (free/pro/enterprise) with per-key overrides — see `docs/API.md`.
 
-Two authentication systems:
-
-1. **Dashboard JWT** - User-facing endpoints (`/api/auth/*`, `/api/users/*`, `/api/admin/*`)
-2. **API Keys** - Programmatic access (`/api/gateway`, `/mcp`, RAG endpoints)
-
-See `docs/API.md` for complete endpoint documentation.
-
-## Celery Workers
-
-Three worker types for horizontal scaling:
+## Celery workers
 
 | Worker | Queues | Purpose |
 |--------|--------|---------|
-| `celery-worker` | default, analytics | General tasks, key updates |
-| `celery-worker-analytics` | analytics, usage | Request logging, LLM tracking |
-| `celery-worker-secondary` | default, usage | Load balancing |
+| `celery-worker` | `default`, `analytics` | General tasks, key updates |
+| `celery-worker-analytics` | `analytics`, `usage` | Request logging, LLM usage tracking |
+| `celery-worker-secondary` | `default`, `usage` | Load-balancing (profile `scale`) |
 
-Run with: `./scripts/scale_celery.sh rag start`
+Start locally: `./scripts/scale_celery.sh rag start`. Scale up in Docker: `docker compose --profile rag --profile scale up -d`.
 
-## Common Tasks
+## Common tasks
 
-### Adding a New Tool
+### Add a new tool
 
-1. Create tool in `src/tools/<feature>/tools.py`
-2. Create agent in `src/agents/<feature>/agent.py` (if needed)
-3. Add to `SUPPORTED_TOOLS` in `src/api/routers.py`
+1. Implement in `src/tools/<feature>/tools.py`
+2. Add an agent in `src/agents/<feature>/agent.py` if it needs orchestration
+3. Register in `SUPPORTED_TOOLS` in `src/api/routers.py`
 4. Update `manifests/devforge.json`
-5. Add tests in `tests/test_<feature>.py`
+5. Add `tests/test_<feature>.py`
 
-### Debugging RAG
+### Debug RAG
 
 ```bash
-# Check vector store health
+# Vector store stats
 python -c "from src.storage.chroma_store import ChromaVectorStore; print(ChromaVectorStore().get_stats())"
 
-# Test retrieval
+# Run a single retrieval test with output
 pytest tests/test_rag.py::test_semantic_search -v -s
 ```
 
-### Scaling
+### Database migrations
 
-```bash
-# Scale to production configuration
-./scripts/scale_celery.sh rag scale
-
-# Monitor with Flower
-http://localhost:5555
-```
-
-### Docker Scaling
-
-```bash
-# Scale up all workers
-docker compose --profile rag,scale up -d
-
-# Restart specific service
-docker compose --profile rag restart celery-worker
-
-# Check worker status
-docker exec devforge-celery-worker celery -A src.workers.celery_app inspect active
-```
+Migrations live in `migrations/`. Apply them via `scripts/` helpers (see `docs/`).
