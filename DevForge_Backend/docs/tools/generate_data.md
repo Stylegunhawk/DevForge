@@ -1,7 +1,7 @@
 # generate_data - Advanced Synthetic Data Generation Tool
 
 **Tool Name:** `generate_data`  
-**Version:** 1.1.0 (Phase 1 Complete - Production Ready)  
+**Version:** 0.8.0 (Phase 1 Complete - Production Ready)  
 **Phase:** Phase 1 (3-Layer Semantic Architecture)  
 **Status:** ✅ Production Ready (Verified)
 
@@ -29,7 +29,7 @@ Perfect for testing, prototyping, development workflows, and generating complex 
 - ✅ Generate realistic mock data with Faker library
 - ✅ Support for CSV and JSON output formats
 - ✅ Customizable field selection
-- ✅ Configurable row counts (1-10,000 rows)
+- ✅ Configurable row counts (1-10,000 rows; Pydantic gate, V2 internal allows 100,000 but Pydantic blocks earlier)
 - ✅ Fast execution (\u003c 1s for small datasets)
 
 ### V2 Mode (Phase 1 Advanced)
@@ -44,7 +44,7 @@ Perfect for testing, prototyping, development workflows, and generating complex 
 - 🏗️ **Layer 1: Semantic Understanding** - Multi-tier classification (lexical → pattern → context → LLM → fallback)
 - 🏗️ **Layer 2: Generator Selection** - Semantic type → generator mapping via `SemanticRouter`
 - 🏗️ **Layer 3: Value Production** - Faker/catalogs only, **never LLM**
-- ✨ **303 lexical mappings** - Fast dictionary-based field name recognition
+- ✨ **299 lexical mappings** - Fast dictionary-based field name recognition
 - ✨ **Pattern matching** - Regex for suffixes (`_at`, `_id`) and prefixes (`is_`, `has_`)
 - ✨ **Context classification** - Entity-aware name resolution (flowers.name → flower_name)
 - ✨ **LLM classification** - Only returns semantic metadata, never values
@@ -64,7 +64,7 @@ The following constraints are enforced during generation:
 
 | Parameter | Type | Required | Default | Description | Mode |
 |-----------|------|----------|---------|-------------|------|
-| `rows` | integer | ✅ Yes | - | Number of rows to generate (1-10,000) | V1, V2 |
+| `rows` | integer | ✅ Yes | - | Number of rows to generate (1-10,000, enforced by Pydantic; V2 internal allows up to 100,000 but Pydantic blocks earlier) | V1, V2 |
 | `format` | string | No | `"json"` | Output format: `"json"` or `"csv"` | V1, V2 |
 | `fields` | array[string] | No | Default fields | Custom fields to generate | V1 only |
 | `prompt` | string | No | `null` | Natural language schema description | V2 only |
@@ -97,7 +97,7 @@ The tool automatically selects the appropriate mode:
 ### Supported Fields
 
 When `fields` is not specified, default fields are generated:
-- `name`, `email`, `phone`, `address`, `company`, `job`, `date`
+- `name`, `email`, `address`, `phone`, `company`, `job`, `date_of_birth`, `city`
 
 **Custom field options:**
 - Personal: `name`, `first_name`, `last_name`, `email`, `phone`, `ssn`
@@ -158,7 +158,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### Ecommerce Domain
 **Entities:** customers, products, orders  
-**Relationships:** orders → customers (1:N), orders → products (1:N) (enforced during generation)  
+**Relationships:** orders → customers (1:N), orders → products (1:N) (enforced during generation and validated via `fk_integrity`)  
 **Distributions:** Lognormal prices, categorical order statuses  
 **Default Counts:** 100 customers, 50 products, 500 orders
 
@@ -178,7 +178,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### SaaS Domain
 **Entities:** users, subscriptions, usage_logs  
-**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N) (enforced during generation)  
+**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N) (enforced during generation and validated via `fk_integrity`)  
 **Distributions:** Categorical plans, pareto API usage  
 **Default Counts:** 100 users, 120 subscriptions, 1000 usage logs
 
@@ -442,7 +442,7 @@ curl -X POST http://localhost:8001/mcp \
 }
 ```
 
-> **Note:** `semantic_generation_used` field indicates whether Phase 1 semantic analysis was successfully applied. `false` means fallback to Faker was used. The `enable_semantic_generation` parameter is not part of the Pydantic schema but is handled dynamically via `getattr()` in the agent.
+> **Note:** `semantic_generation_used` field indicates whether Phase 1 semantic analysis was successfully applied. `false` means fallback to Faker was used.
 
 ---
 
@@ -586,7 +586,7 @@ The Phase 1 architecture follows a strict pipeline to ensure data quality and pr
 
 #### 2. Semantic Analysis (5-Tier Pipeline)
 The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall approach:
-1.  **Tier 1: Lexical (Fastest)**: Checks `lexical_dict.py` for exact matches (e.g., "zip_code" → `ZIP_CODE`). Covers 303 common field mappings.
+1.  **Tier 1: Lexical (Fastest)**: Checks `lexical_dict.py` for exact matches (e.g., "zip_code" → `ZIP_CODE`). Covers 299 common field mappings.
 2.  **Tier 2: Pattern (Fast)**: Checks `PatternClassifier` for regex matches on field names (e.g., `*_id` → `UUID`, `is_*` → `BOOLEAN`).
 3.  **Tier 3: Context (Heuristic)**: Checks `ContextClassifier` for entity-specific meanings (e.g., `product.name` → `PRODUCT_NAME` vs `person.name` → `PERSON_FULL_NAME`).
 4.  **Tier 4: LLM (Fallback)**: Uses `LLMClassifier` to analyze ambiguous fields based on name and description. Returns *metadata only* (semantic type), never data values.
@@ -619,7 +619,7 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
 - **V1 Tools:** `src/tools/datagen/tools.py`
 - **Phase 1 Components:**
   - Semantic Types: `src/tools/datagen/semantic_types.py`
-  - Lexical Dictionary: `src/tools/datagen/lexical_dict.py` (303 mappings)
+  - Lexical Dictionary: `src/tools/datagen/lexical_dict.py` (299 mappings)
   - Lexical Classifier: `src/tools/datagen/lexical_classifier.py`
   - Pattern Classifier: `src/tools/datagen/pattern_classifier.py`
   - Context Classifier: `src/tools/datagen/context_classifier.py`
@@ -629,9 +629,9 @@ The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall 
   - Semantic Router: `src/tools/datagen/semantic_router.py`
 
   - **Orchestrator:** `src/tools/datagen/advanced_generator_v2.py` (Main engine - Phase 1)
-- **V2 Legacy Components (not used in Phase 1):**
+- **V2 Supporting Components:**
   - Schema Designer: `src/tools/datagen/schema_designer.py` (used for schema design)
-  - Relationship Engine: `src/tools/datagen/relationship_engine.py` (exists but not used in `advanced_generator_v2.py`)
+  - Relationship Engine: `src/tools/datagen/relationship_engine.py` (used by `_generate_with_relationships` and `_validate_fk_integrity` in `advanced_generator_v2.py`)
   - Realism Engine: `src/tools/datagen/realism_engine.py` (simplified realism in V2 generator)
 - **Tests:** `tests/test_semantic_analyzer_v2.py`, `tests/test_semantic_router.py`, `tests/test_datagen.py`, `tests/test_relationships.py`, `tests/test_realism.py`
 
@@ -664,12 +664,11 @@ curl -X POST "http://localhost:8001/api/gateway" \
 - ✅ **Lexical Expansion:** Generates valid `ip_v6`, `mac_address`, `zip_code`, `street_address`.
 - ✅ **Pattern Constraints:** Enforces `^EMP-[0-9]{5}$` and `^978-[0-9]{10}$` (ISBN) using `rstr`.
 - ✅ **Enum Constraints:** Respects status enums (`active`, `returned`, `overdue`).
-- ✅ **Multi-Entity:** Generates data for multiple entities (relationships tracked but foreign keys not validated in Phase 1).
+- ✅ **Multi-Entity:** Generates data for multiple entities; foreign keys are enforced via `_generate_with_relationships` and validated by `_validate_fk_integrity`. The response includes an `fk_integrity` block with `valid`, `errors`, and `statistics` (per-relationship `total_children`, `total_parents`, `parents_with_children`, `parents_with_zero_children`, `orphaned_children`).
 
 ### Known Limitations
 - **Enum Extraction from Prompt:** While the tool supports enums defined in the schema, the LLM Schema Designer may occasionally miss specific enum values provided in a complex natural language prompt (e.g., specific book genres might default to a generic list).
-- **Foreign Key Relationships:** In Phase 1, relationships are tracked in the schema but foreign keys are not validated or enforced during generation. The `RelationshipEngine` exists but is not used by `advanced_generator_v2.py`. Foreign key fields are generated as regular UUIDs/IDs without ensuring they reference existing parent records.
-- **enable_semantic_generation Parameter:** This parameter is not part of the `DataGenArgs` Pydantic schema but is handled dynamically via `getattr()` in the agent. It defaults to `True` if the `ENABLE_SEMANTIC_ANALYZER` environment variable is set.
+- **enable_semantic_generation Parameter:** Defined as a typed `bool` field on `DataGenArgs` (default `True`). The `ENABLE_SEMANTIC_ANALYZER` environment variable acts as the system-level feature flag.
 
 ### Invariant Enforcement
 The tool now strictly enforces data quality invariants:
@@ -790,9 +789,9 @@ pytest tests/test_datagen.py tests/test_schema_designer.py tests/test_relationsh
 ```
 
 ### Test Coverage
-- ✅ **180+ passing tests** across 8 test suites
-- ✅ V1 backward compatibility (20 tests)
-- ✅ Schema validation and LLM fallback (36 tests)
+- ✅ **169 passing tests** across 8 test suites
+- ✅ V1 backward compatibility (13 tests)
+- ✅ Schema validation and LLM fallback (32 tests)
 - ✅ **Phase 1 Semantic Analyzer (30 tests)** ← NEW
 - ✅ **Phase 1 Semantic Router (20 tests)** ← NEW
 - ✅ Relationship integrity (11 tests)
@@ -818,7 +817,7 @@ pytest tests/test_semantic_analyzer_v2.py::TestEndToEnd::test_banking_example_no
 ### V2 Mode
 4. **Use domain templates** - Faster than LLM prompts for known use cases
 5. **Start with basic realism** - Increase to medium/high as needed
-6. **Note on relationships** - Foreign keys are generated but not validated in Phase 1. Manually verify FK integrity if needed.
+6. **Note on relationships** - Foreign keys are enforced during generation and validated via `_validate_fk_integrity`; check the `fk_integrity` block in the response for per-relationship statistics.
 7. **Monitor entity counts** - Balance parent/child ratios
 8. **Test with realism** - Simulate real-world data quality issues
 9. **Semantic generation** - Enabled by default via `ENABLE_SEMANTIC_ANALYZER` environment variable
@@ -875,7 +874,7 @@ Add `domain` or `prompt` to enable V2 mode:
 **Solution:** Adjust row counts or use domain templates with balanced ratios
 
 **Issue:** Foreign keys don't match parent IDs  
-**Solution:** This is a Phase 1 limitation. Foreign keys are generated but not validated. Consider post-processing or wait for Phase 2 relationship enforcement.
+**Solution:** Foreign keys are enforced via `_generate_with_relationships` and validated by `_validate_fk_integrity`. Inspect the `fk_integrity` block in the response (`valid`, `errors`, and per-relationship `statistics`) to confirm referential integrity.
 
 **Issue:** Need more domains beyond ecommerce/saas  
 **Solution:** Use natural language prompts with LLM schema designer
@@ -891,12 +890,12 @@ Add `domain` or `prompt` to enable V2 mode:
 
 ## Changelog
 
-### Version 1.0.0 (Phase 1 Refactor - December 2025)
+### Version 0.8.0 (Phase 1 Refactor - matches manifest)
 - 🏗️ **3-Layer Semantic Architecture** - LLM confined to classification only
 - 🔒 **Key Guarantee:** LLM never generates data values (fixes "Agent every" bug)
 - 🆕 Multi-tier classification pipeline (lexical → pattern → context → LLM → fallback)
 - 🆕 `semantic_types.py` - Core data models (`SemanticType`, `FieldContext`, `SemanticFieldInfo`)
-- 🆕 `lexical_dict.py` - 303 field name → semantic type mappings
+- 🆕 `lexical_dict.py` - 299 field name → semantic type mappings
 - 🆕 `pattern_classifier.py` - Regex-based suffix/prefix detection
 - 🆕 `context_classifier.py` - Entity-aware name resolution
 - 🆕 `llm_classifier.py` - LLM for classification metadata only
@@ -904,28 +903,19 @@ Add `domain` or `prompt` to enable V2 mode:
 - 🆕 `catalog_factory.py` - L1/L2 caching for value catalogs
 - 🆕 `semantic_router.py` - Semantic type → Faker/catalog routing
 - 🆕 `advanced_generator_v2.py` - Integrated generator with metadata
-- 🆕 Feature flag: `ENABLE_SEMANTIC_ANALYZER` environment variable
-- 🆕 Full observability: metadata with source, confidence, warnings
-- ✅ 50 new Phase 1 tests
-- ✅ 180+ total passing tests
-
-### Version 0.9.0 (Phase 8.6 - December 2025)
-- ✨ Semantic field analysis (initial implementation)
-- ✨ Domain-specific value catalogs
-- ⚠️ Bug: LLM sometimes generated prose as values
-
-### Version 0.8.0 (Phase 8 - December 2025)
 - 🆕 V2 mode with advanced multi-entity generation
 - 🆕 LLM-powered schema design from natural language
-- 🆕 Domain templates for ecommerce and SaaS
-- ✅ 130 passing tests
+- 🆕 Domain templates for ecommerce, SaaS, and IoT devices
+- 🆕 Feature flag: `ENABLE_SEMANTIC_ANALYZER` environment variable
+- 🆕 Full observability: metadata with source, confidence, warnings
+- ✅ 169 total passing tests
 
 ### Version 0.7.0 (Phase 7 - December 2025)
 - ✅ Original Faker-based generation (V1 mode)
 
 ---
 
-**Last Updated:** February 26, 2026  
+**Last Updated:** 2026-05-08  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
 

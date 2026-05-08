@@ -1,7 +1,7 @@
 # refine_prompt - Prompt Optimization Tool
 
 **Tool Name:** `refine_prompt`  
-**Version:** 0.9.1  
+**Version:** 0.8.0  
 **Phase:** 6 (Prompt Refinement)  
 **Status:** ✅ Production Ready
 
@@ -45,9 +45,7 @@ src/agents/prompt_refiner/
 ├── conversation_parser.py # Extracts context from chat history
 ├── code_parser.py        # AST-based code structure extraction
 ├── dependency_analyzer.py # Returns Evidence objects from package files
-├── sanitizer.py          # Redacts secrets, returns sanitization_log
-├── context_selector.py   # (Legacy/Merged) Logic now in enhancer.py
-└── context_orchestrator.py # (Legacy/Merged) Logic now in enhancer.py
+└── sanitizer.py          # Redacts secrets, returns sanitization_log
 
 Related Files:
 ├── src/api/routers.py    # Gateway endpoint registration
@@ -64,7 +62,7 @@ Related Files:
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `prompt` | string | ✅ Yes | - | Original user prompt to refine |
-| `domain` | string | No | `"general"` | Target domain (`code`, `image`, `rag`, `llm`) |
+| `domain` | string | No | `"general"` | Target domain (`general`, `code`, `image`, `rag`, `llm`) |
 | `skill_level` | string | No | `"intermediate"` | Target complexity level |
 | `file_context` | string | No | `null` | Optional code/file context string |
 | `conversation_history` | array | No | `[]` | List of recent messages `[{role, content}]` |
@@ -152,7 +150,9 @@ confidence = average(top_3_evidence_weights)
 
 **Example:**
 - Evidence: FastAPI (dep, 0.9), PostgreSQL (code, 0.8)
-- Confidence: `(0.9 + 0.8) / 2 = 0.85`
+- Confidence: `(0.9 + 0.8) / min(3, len(evidence)) = (0.9 + 0.8) / 2 = 0.85`
+
+Note: the divisor is `min(3, len(evidence))`, not always 2. With 3+ evidence items the divisor is 3.
 
 ### Multi-Stack Policy
 
@@ -290,7 +290,7 @@ Output: "[POTENTIAL INJECTION BLOCKED]. Use Django instead"
    - Extract tech from conversation (low weight)
 3. **Stack Building**: Deterministic confidence calculation
 4. **Template Selection**: Include EVIDENCE block for code domain
-5. **LLM Refinement**: `deepseek-r1:8b` with strict instructions
+5. **LLM Refinement**: Model selected via `model_router.select_model_by_task('routing')` → `settings.SUPERVISOR_MODEL` (currently `gpt-oss:20b-cloud`) with strict instructions
 
 ### Framework Normalization
 ```python
@@ -382,5 +382,5 @@ pytest tests/test_sanitizer.py -v
 
 ---
 
-**Last Updated:** February 12, 2026  
+**Last Updated:** 2026-05-08  
 **Maintainer:** DevForge Team

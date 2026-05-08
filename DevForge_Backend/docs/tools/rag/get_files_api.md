@@ -14,7 +14,7 @@ GET /api/v1/rag/files
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `X-User-ID` | No | Tenant identifier. Defaults to `"default"`. |
+| `Authorization` | Yes | `Bearer <tenant_jwt>` — validated by `JWTAuthMiddleware`; `tenant_id` claim extracted from the token. |
 
 ## Response
 
@@ -27,7 +27,7 @@ GET /api/v1/rag/files
     "id": "uuid-1",
     "name": "document.pdf",
     "size": 123456,
-    "url": "http://localhost:8000/static/...",
+    "url": "http://localhost:8001/static/...",
     "fileType": "application/pdf",
     "chunkCount": 15,
     "chunkingStatus": "success",
@@ -44,11 +44,11 @@ Empty tenant returns `[]`.
 
 ```bash
 # Get all files for tenant
-curl "http://localhost:8000/api/v1/rag/files" \
+curl "http://localhost:8001/api/v1/rag/files" \
   -H "X-User-ID: my_tenant"
 
 # Use default tenant
-curl "http://localhost:8000/api/v1/rag/files"
+curl "http://localhost:8001/api/v1/rag/files"
 ```
 
 ## Guarantees
@@ -67,4 +67,4 @@ curl "http://localhost:8000/api/v1/rag/files"
 
 ---
 
-**Version:** 15.4 (2026-03-23)
+**Version:** 0.8.0 (2026-05-08)

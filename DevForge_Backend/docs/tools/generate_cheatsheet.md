@@ -2,7 +2,7 @@
 
 **Tool Name:** `generate_cheatsheet`  
 **Version:** 0.8.0  
-**Phase:** 13 (Cheat Sheets)  
+**Phase:** 7 (Cheat Sheets)  
 **Status:** ✅ Production Ready (Context-Aware)
 
 ---
@@ -12,16 +12,16 @@
 The `generate_cheatsheet` tool creates **context-aware**, skill-level appropriate programming cheatsheets. It analyzes your code to detect libraries, calculate complexity, and generates highly relevant markdown-formatted quick references with real-world examples.
 
 **Currently Fully Supported:**
-- ✅ **Python** - All skill levels (beginner fully implemented, intermediate/expert in development)
-- ✅ **Library detection** - 15+ libraries (pandas, fastapi, asyncio have dedicated templates)
-- ✅ **Other languages** - Quick reference tables only (no full templates yet)
+- ✅ **Python** - Only language with full templates (beginner fully implemented; intermediate/expert in development)
+- ✅ **Library detection** - 14 libraries (pandas, fastapi, asyncio have dedicated templates)
+- ⚠️ **Other languages** - No per-language templates exist. Requesting a non-Python language returns Python content under a relabelled header (e.g., `# Javascript Cheat Sheet - Beginner` followed by Python code). Quick-reference tables also emit Python syntax regardless of the requested language.
 
 ---
 
 ## Features
 
 - ✅ **Context-aware**: Analyzes code to detect libraries and complexity
-- ✅ **Library detection**: 15+ libraries (pandas, fastapi, asyncio, etc.)
+- ✅ **Library detection**: 14 libraries (pandas, fastapi, asyncio, etc.)
 - ✅ **Complexity scoring**: Auto-suggests skill level based on code features
 - ✅ **Library-specific sections**: Dedicated content for detected libraries
 - ✅ Auto-detect language from code context
@@ -37,25 +37,20 @@ The `generate_cheatsheet` tool creates **context-aware**, skill-level appropriat
 
 ```
 src/agents/cheatsheet/
-├── __init__.py
 ├── agent.py                 # Main CheatsheetAgent class (context-aware pipeline)
 ├── context_parser.py        # Parse multi-block code from frontend
-├── library_detector.py      # Detect 15+ libraries with regex
+├── library_detector.py      # Detect 14 libraries with regex
 ├── complexity_scorer.py     # Score code complexity (10 features)
 ├── section_selector.py      # Smart section selection (library-first)
 ├── quick_reference.py       # Skill-level specific quick ref tables
-├── enhanced_templates.py    # Real code examples (pandas, fastapi, asyncio)
-├── generator.py             # Legacy content generation (fallback)
-├── formatter.py             # Markdown formatting utilities
-└── language_profiles.py     # Language configurations
+└── enhanced_templates.py    # Real code examples (pandas, fastapi, asyncio)
 
 src/tools/cheatsheet/
-├── __init__.py
 └── tools.py                 # Language detection helpers
 
 Related Files:
 ├── src/api/routers.py       # Gateway endpoint registration
-├── tests/test_cheatsheet.py # Unit tests (58 total)
+├── tests/test_cheatsheet.py # Unit tests (4 in this file; 47 across all cheatsheet-related suites)
 └── manifests/devforge.json  # Tool definition (lines 240-267)
 ```
 
@@ -80,13 +75,8 @@ Related Files:
   - Expert: ⚠️ In development
   - Libraries: pandas, fastapi, asyncio
 
-**Basic Support (Quick Reference Only):**
-- `javascript`, `typescript`, `java`, `go`, `rust`
-- `c`, `cpp`, `csharp`, `html`, `css`
-- `react`, `vue`, `ruby`, `php`, `swift`, `kotlin`, `bash`, `sql`
-
-> [!NOTE]
-> Basic support languages will return quick reference tables and detected libraries, but without full cheatsheet sections. Full template support planned for future versions.
+> [!IMPORTANT]
+> Python is the **only** language with implemented templates. Any other language string (e.g., `javascript`, `rust`, `go`) is accepted but the agent silently falls back to Python content — the markdown header is relabelled (e.g., `# Rust Cheat Sheet - Beginner`) and the code-fence language tag echoes the input, but the body and quick-reference rows are Python syntax. Per-language templates and quick-reference variants are planned for future versions.
 
 ### Skill Levels
 
@@ -99,6 +89,9 @@ Related Files:
 ---
 
 ## API Usage
+
+> [!NOTE]
+> The markdown code-fence language tag in the output (e.g., ` ```rust `) echoes the `language` value supplied in the request, but the **code inside the fence is Python** until per-language templates are added.
 
 ### Auto-Detect Language
 
@@ -186,27 +179,36 @@ curl -X POST http://localhost:8001/api/gateway \
 
 ## Language Detection
 
-The tool uses regex patterns to detect programming languages:
+The tool uses regex heuristics to detect the language. Only Python and JavaScript/TypeScript have detection branches — anything unrecognised defaults to `"python"` (no error is raised):
 
 ```python
-LANGUAGE_PATTERNS = {
-    "python": r"(def |import |class |if __name__|print\()",
-    "javascript": r"(function |const |let |var |=>|console\.log)",
-    "typescript": r"(interface |type |: string|: number|<T>)",
-    "java": r"(public class |public static void|import java\.)",
-    "go": r"(package |func |import \(|defer |go )",
-    "rust": r"(fn |let mut|impl |pub |match |use )",
-    # ... more languages
-}
+# src/tools/cheatsheet/tools.py
+def detect_language_from_code(code: str) -> str:
+    code = code.strip()
+
+    # Python
+    if re.search(r'def\s+\w+\s*\(|import\s+\w+|from\s+\w+\s+import|print\(', code):
+        return "python"
+
+    # JavaScript / TypeScript
+    if re.search(r'function\s+\w+\s*\(|const\s+\w+\s*=|let\s+\w+\s*=|console\.log\(', code):
+        if re.search(r':\s*\w+(\[\])?\s*[=,)]|interface\s+\w+', code):
+            return "typescript"
+        return "javascript"
+
+    # Default fallback
+    return "python"
 ```
 
 ---
 
 ## Library Detection (New in v0.8.0)
 
-The tool automatically detects 15+ libraries from your code:
+The tool automatically detects 14 libraries from your code (the full set of keys in `LIBRARY_SIGNATURES`):
 
-**Supported Libraries:**
+**Supported Libraries (14 total):** `pandas`, `numpy`, `matplotlib`, `scikit-learn`, `fastapi`, `flask`, `django`, `pydantic`, `asyncio`, `aiohttp`, `sqlalchemy`, `requests`, `httpx`, `pytest`.
+
+Grouped by domain:
 - **Data Science**: pandas, numpy, matplotlib, scikit-learn
 - **Web Frameworks**: fastapi, flask, django
 - **Data Validation**: pydantic
@@ -378,40 +380,11 @@ for i in range(5):
 
 ---
 
-## Language Profiles
-
-```python
-LANGUAGE_PROFILES = {
-    "python": {
-        "name": "Python",
-        "version": "3.x",
-        "topics": {
-            "beginner": ["syntax", "types", "loops", "functions"],
-            "intermediate": ["oop", "decorators", "comprehensions"],
-            "expert": ["metaclasses", "async", "gil", "optimization"]
-        }
-    },
-    "javascript": {
-        "name": "JavaScript",
-        "version": "ES6+",
-        "topics": {
-            "beginner": ["variables", "functions", "arrays", "objects"],
-            "intermediate": ["promises", "async/await", "closures"],
-            "expert": ["event-loop", "prototypes", "optimization"]
-        }
-    },
-    # ... more languages
-}
-```
-
----
-
 ## Implementation Details
 
 ### Technology Stack
-- **Jinja2** - Templating (if needed)
 - **Regex** - Language detection
-- **Python** - Content generation
+- **Python** - Content generation (string concatenation; no templating engine)
 
 ### Generation Flow
 
@@ -422,10 +395,6 @@ Language Detection (if code_context)
     ↓
 Skill Level Selection
     ↓
-Profile Loading
-    ↓
-Topic Selection
-    ↓
 Content Generation
     ↓
 Markdown Formatting
@@ -435,8 +404,7 @@ Cheat Sheet Output
 
 ### Code Location
 - Agent: `src/agents/cheatsheet/agent.py`
-- Generator: `src/agents/cheatsheet/generator.py`
-- Profiles: `src/agents/cheatsheet/language_profiles.py`
+- Templates: `src/agents/cheatsheet/enhanced_templates.py`
 - Tests: `tests/test_cheatsheet.py`
 
 ---
@@ -519,22 +487,6 @@ curl -X POST http://localhost:8001/api/gateway \
 
 ## Error Handling
 
-### Unsupported Language
-
-```json
-{
-  "language": "cobol"  // Not supported
-}
-```
-
-**Response:**
-```json
-{
-  "success": false,
-  "message": "Language 'cobol' is not supported. Supported: python, javascript, ..."
-}
-```
-
 ### No Language or Context
 
 ```json
@@ -548,22 +500,6 @@ curl -X POST http://localhost:8001/api/gateway \
 {
   "success": false,
   "message": "Either 'language' or 'code_context' must be provided"
-}
-```
-
-### Detection Failed
-
-```json
-{
-  "code_context": "some random text"  // Can't detect
-}
-```
-
-**Response:**
-```json
-{
-  "success": false,
-  "message": "Could not detect language from code context"
 }
 ```
 
@@ -617,37 +553,6 @@ pytest tests/test_cheatsheet.py -v
 
 ---
 
-## Customization
-
-### Adding New Languages
-
-```python
-# In language_profiles.py
-LANGUAGE_PROFILES["kotlin"] = {
-    "name": "Kotlin",
-    "version": "1.9+",
-    "topics": {
-        "beginner": ["syntax", "null-safety", "functions"],
-        "intermediate": ["coroutines", "extensions", "dsl"],
-        "expert": ["inline-functions", "reified", "contracts"]
-    },
-    "file_extensions": [".kt", ".kts"]
-}
-```
-
-### Custom Topics
-
-```python
-# Override default topics
-custom_topics = {
-    "python": {
-        "beginner": ["basics", "my-custom-topic"]
-    }
-}
-```
-
----
-
 ## Integration Examples
 
 ### With Lobe Chat Workflow
@@ -688,6 +593,6 @@ custom_topics = {
 
 ---
 
-**Last Updated:** December 23, 2025  
+**Last Updated:** 2026-05-08  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository

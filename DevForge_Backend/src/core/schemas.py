@@ -281,28 +281,6 @@ class PromptRefineArgs(BaseModel):
     }
 
 
-class CheatsheetArgs(BaseModel):
-    """Arguments for generate_cheatsheet tool."""
-    
-    language: str = Field(..., description="Programming language")
-    skill_level: Literal["beginner", "intermediate", "expert"] = Field(
-        "intermediate",
-        description="Target skill level"
-    )
-    code_context: Optional[str] = Field(None, description="Code snippet for context")
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "language": "python",
-                    "skill_level": "intermediate"
-                }
-            ]
-        }
-    }
-
-
 # --------------------------------------------------------------------------- #
 # MCP PROTOCOL MODELS (for official MCP Inspector compatibility)
 # --------------------------------------------------------------------------- #

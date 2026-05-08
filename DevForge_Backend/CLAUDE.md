@@ -65,7 +65,7 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 
 | Layer | Purpose | Key files |
 |-------|---------|-----------|
-| API | HTTP endpoints (REST gateway, MCP JSON-RPC, RAG, auth, admin) | `src/api/routers.py`, `src/api/routers/{rag,auth,users,admin}.py` |
+| API | HTTP endpoints (REST gateway, MCP JSON-RPC, RAG, auth, admin) | `src/api/routers/__init__.py`, `src/api/routers/{rag,auth,users,admin}.py` |
 | Agents | Business logic & orchestration | `src/agents/*/agent.py`, `src/agents/supervisor.py` |
 | Tools | Reusable functions invoked by agents | `src/tools/*/tools.py` |
 | Storage | Vector store abstraction | `src/storage/base_store.py`, `chroma_store.py`, `pgvector_store.py` |
@@ -84,7 +84,7 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 - `github/` — GitOps automation with fuzzy repo matching & LLM-generated commits
 - `prompt_refiner/` — domain-aware prompt optimization
 - `cheatsheet/` — code documentation generation
-- `reranker.py` — cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`)
+- `rag/reranking/cross_encoder_reranker.py` — cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`), internal stage of `retrieve_docs`
 
 ### Middleware order
 
@@ -189,7 +189,7 @@ Start locally: `./scripts/scale_celery.sh rag start`. Scale up in Docker: `docke
 
 1. Implement in `src/tools/<feature>/tools.py`
 2. Add an agent in `src/agents/<feature>/agent.py` if it needs orchestration
-3. Register in `SUPPORTED_TOOLS` in `src/api/routers.py`
+3. Register in `SUPPORTED_TOOLS` in `src/api/routers/__init__.py`
 4. Update `manifests/devforge.json`
 5. Add `tests/test_<feature>.py`
 

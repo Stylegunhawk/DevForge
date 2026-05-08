@@ -1,9 +1,10 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
-**Version:** 15.4 (Strict Multi-Tenancy & Reliability)  
-**Version:** 3.4 (Sequential Support)  
+**Version:** 0.8.0  
 **Status:** ✅ Implemented & Frozen  
-**Last Updated:** March 23, 2026
+**Last Updated:** 2026-05-08
+
+> **Note:** `retrieve_docs` is **not** registered in `SUPPORTED_TOOLS` and is not callable via `POST /api/gateway`. The canonical retrieval entry point is **`POST /api/v1/rag/chunk/semanticSearchForChat`** (tenant-JWT authenticated).
 
 ---
 
@@ -20,7 +21,7 @@ The `retrieve_docs` tool provides intelligent semantic document search with **Ph
 - ✅ **3-Tier Intent Classification** - Auto-detect code_search, explain, debug, general intents
 - ✅ **Intent-Aware Query Expansion** - Generate 2-3 related queries per intent
 - ✅ **Semantic Caching by Intent** - Cache similar queries for 10-50ms responses
-- 🆕 **Cloud Model Support** - Use gpt-oss:120b-cloud for memory-efficient response generation
+- 🆕 **Cloud Model Support** - Use `gpt-oss:20b-cloud` (`RAG_LOCAL_MODEL`) for memory-efficient response generation
 - 🆕 **Analytics Endpoints** - Track intent distribution, expansion quality, cache hits
 
 **Phase 13 Features (NEW!):**
@@ -39,7 +40,7 @@ The `retrieve_docs` tool provides intelligent semantic document search with **Ph
 - ✅ Code dependency graph with BFS traversal
 - ✅ Graph-based context expansion
 - ✅ Multi-format support (PDF, MD, TXT, DOCX, PY, JS, TS)
-- ✅ Dual vector store (ChromaDB local + Qdrant cloud)
+- ✅ Dual vector store (ChromaDB local + Postgres pgvector). Qdrant is legacy/optional and not selectable via `VECTOR_BACKEND`.
 
 ---
 
@@ -96,7 +97,9 @@ Result: 3 related chunks (expanded context)
 
 ### Async Ingestion
 
-**Endpoint:** `POST /rag/ingest-async`
+**Endpoint:** `POST /api/rag/ingest-async`
+
+> **Auth warning:** This endpoint is mounted under `/api/` (not `/api/v1/rag/`), so the `JWTAuthMiddleware` does **not** apply — it is currently **unauthenticated** and does not enforce tenant isolation (chunks land in the global `devforge_docs` collection). This is a known tenant-isolation hole; treat the endpoint as internal-only until auth is added.
 
 ```bash
 curl -X POST http://localhost:8001/api/rag/ingest-async \
@@ -144,6 +147,16 @@ The RAG system is fully integrated with Lobe Chat's TypeScript data contracts vi
 - **Static File Serving:** Files are served via `/static/uploads` for frontend previews.
 - **Two-Stage Retrieval:** The `semanticSearchForChat` endpoint automatically utilizes the Phase 12A RAGAgent's vector search and reranking capabilities.
 
+### Authentication Model (per endpoint)
+
+| Endpoint scope | Auth | Header |
+|----------------|------|--------|
+| `/api/v1/rag/*` (incl. `chunk/semanticSearchForChat`, `file/*`, `files`, `message/*`) | Tenant JWT (`JWTAuthMiddleware`) | `Authorization: Bearer <tenant_jwt>` |
+| `/api/rag/ingest-async`, `/api/rag/task/{id}` | **None** (no middleware applies — known tenant-isolation hole) | — |
+| `/api/gateway`, `/mcp` | API key | `x-api-key: <key>` |
+
+Canonical analytics endpoints live under **`/api/rag/analytics/*`** (not `/api/v1/rag/analytics/*`).
+
 ---
 
 ## Parameters
@@ -154,53 +167,35 @@ The RAG system is fully integrated with Lobe Chat's TypeScript data contracts vi
 | `file_paths` | array[string] | No | `[]` | Documents to ingest before searching |
 | `top_k` | integer | No | `5` | Number of results to return (1-50) |
 | `embed_model` | string | No | `"nomic-embed-text"` | Embedding model to use |
-| `include_context` | boolean | No | `false` | Enable graph-based context expansion |
 
-### New in Phase 10.1
-
-**`include_context`** - Enable code graph expansion:
-- Finds related functions via calls/imports
-- BFS traversal (default depth: 2)
-- Returns extended context with related code
-
-**Example:**
-```json
-{
-  "query": "authentication logic",
-  "include_context": true,
-  "top_k": 3
-}
-```
+> Graph expansion runs **unconditionally** when `ENABLE_CODE_GRAPH=true`; there is no per-request `include_context` flag in the request schema.
 
 ---
 
 ## API Usage
 
-### Basic Search (Unchanged)
+### Basic Search
 
 ```bash
-curl -X POST http://localhost:8001/api/gateway \
+curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "explain authentication in Express.js"
-    }
+    "query": "explain authentication in Express.js"
   }'
 ```
 
-### Search with Graph Context Expansion (New)
+### Search with Graph Context Expansion
+
+Graph expansion runs automatically when `ENABLE_CODE_GRAPH=true`; there is no per-request flag.
 
 ```bash
-curl -X POST http://localhost:8001/api/gateway \
+curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "JWT token validation",
-      "include_context": true,
-      "top_k": 5
-    }
+    "query": "JWT token validation",
+    "top_k": 5
   }'
 ```
 
@@ -303,7 +298,7 @@ Read Content (async I/O)
     ↓
 Generate Embeddings (nomic-embed-text)
     ↓
-Store in Vector DB (ChromaDB/Qdrant)
+Store in Vector DB (ChromaDB / Postgres pgvector)
     ↓
 [NEW] Build Code Graph (file::entity nodes)
     ↓
@@ -396,7 +391,8 @@ Result: 4 chunks (1 initial + 3 related)
 | Technology | Version | Purpose |
 |------------|---------|---------|
 | ChromaDB | 1.3.5 | Local vector store |
-| Qdrant Client | 1.16.1 | Cloud vector store |
+| pgvector | 0.2.5 | Postgres vector store (production default) |
+| Qdrant Client | 1.16.1 | Legacy/optional (not selectable via `VECTOR_BACKEND`) |
 | LangChain | 1.0.3 | Embeddings and chains |
 | sentence-transformers | 5.1.2 | Reranking |
 | PyPDF | 6.4.0 | PDF parsing |
@@ -415,7 +411,11 @@ RAG_CHUNK_OVERLAP = 50  # Overlap between chunks
 
 # Retrieval
 RAG_TOP_K = 5  # Default results
-RAG_SCORE_THRESHOLD = 0.5  # Minimum similarity score
+RAG_SCORE_THRESHOLD = 0.0  # Minimum similarity score (0.0 = accept all results)
+RERANK_SCORE_THRESHOLD = 0.3  # Minimum cross-encoder rerank score
+
+# Vector backend
+VECTOR_BACKEND = "postgres"  # one of: chroma | postgres
 
 # Embedding
 RAG_EMBED_MODEL = "nomic-embed-text"
@@ -441,7 +441,6 @@ CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 minutes
 {
   "query": "How does authentication middleware work?",
   "file_paths": ["src/middleware.ts"],
-  "include_context": true,
   "top_k": 5
 }
 ```
@@ -463,8 +462,7 @@ CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 minutes
 
 ```json
 {
-  "query": "database connection",
-  "include_context": true
+  "query": "database connection"
 }
 ```
 
@@ -474,7 +472,7 @@ CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 minutes
 
 ```bash
 # Ingest entire codebase asynchronously
-POST /rag/ingest-async
+POST /api/rag/ingest-async
 {
   "file_paths": [
     "src/auth.py", "src/database.py", "src/models.py",
@@ -542,12 +540,12 @@ If Tree-sitter parsing fails, automatically falls back to text chunking:
 
 ## Best Practices (Updated)
 
-1. **Code Files** - Enable `include_context=true` for graph expansion
-2. **Async Ingestion** - Use `/rag/ingest-async` for large codebases
+1. **Code Files** - Set `ENABLE_CODE_GRAPH=true` server-side; graph expansion runs unconditionally
+2. **Async Ingestion** - Use `/api/rag/ingest-async` for large codebases (note: currently unauthenticated)
 3. **Chunk Size** - 500 chars works well for text; code uses AST boundaries
 4. **Top-K Selection** - Start with 5, increase if context is insufficient
 5. **File Formats** - Code files (.py, .js, .ts) get AST parsing, others get text chunking
-6. **Vector Store** - ChromaDB for dev, Qdrant for production
+6. **Vector Store** - ChromaDB for dev, Postgres pgvector for production (Qdrant is legacy/optional)
 
 ---
 
@@ -563,7 +561,7 @@ If Tree-sitter parsing fails, automatically falls back to text chunking:
 **Solution:** Check Celery worker and Redis: `celery -A src.workers.celery_app worker`
 
 **Issue:** Poor search results for code  
-**Solution:** Enable `include_context=true` to get related functions
+**Solution:** Ensure `ENABLE_CODE_GRAPH=true` server-side so graph expansion supplies related functions
 
 ---
 
@@ -586,15 +584,12 @@ If Tree-sitter parsing fails, automatically falls back to text chunking:
 ### Search with Context Expansion
 
 ```bash
-curl -X POST http://localhost:8001/api/gateway \
+curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "retrieve_docs",
-    "arguments": {
-      "query": "user authentication flow",
-      "include_context": true,
-      "top_k": 5
-    }
+    "query": "user authentication flow",
+    "top_k": 5
   }'
 ```
 
@@ -634,7 +629,7 @@ All other endpoints are legacy or internal tools.
 
 
 
-**Last Updated:** March 23, 2026  
-**Version:** 15.4 (Phase 15.4 Complete)  
+**Last Updated:** 2026-05-08  
+**Version:** 0.8.0  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
