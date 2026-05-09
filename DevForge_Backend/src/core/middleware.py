@@ -120,8 +120,13 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     """
     Middleware to protect routes with JWT authentication.
     """
+    PROTECTED_EXACT = {"/api/rag/ingest-async"}
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if request.url.path.startswith("/api/v1/rag/"):
+        if (
+            request.url.path.startswith("/api/v1/rag/")
+            or request.url.path in self.PROTECTED_EXACT
+        ):
             auth_header = request.headers.get("Authorization")
             
             if not auth_header:

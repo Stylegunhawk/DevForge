@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import CopyButton from "@/components/copy-button";
-import { Wand2, Database, FileCode, Github } from "lucide-react";
+import { Wand2, Database, FileCode, Github, FlaskConical } from "lucide-react";
 
 const curlExample = `curl -X POST https://api.devforge.ai/api/gateway \\
   -H "Content-Type: application/json" \\
@@ -30,6 +32,7 @@ const tools = [
   {
     icon: Wand2,
     title: "Prompt Refiner",
+    playgroundTool: "refine_prompt",
     description: "Enhance and optimize prompts for better AI outputs",
     arguments: [
       { name: "prompt", type: "string", required: true },
@@ -39,6 +42,7 @@ const tools = [
   {
     icon: Database,
     title: "Data Generator",
+    playgroundTool: "generate_data",
     description: "Generate realistic mock data in JSON or CSV format",
     arguments: [
       { name: "rows", type: "number", required: true },
@@ -49,6 +53,7 @@ const tools = [
   {
     icon: FileCode,
     title: "Cheatsheet Generator",
+    playgroundTool: null,
     description: "Generate code cheatsheets for any programming language",
     arguments: [
       { name: "language", type: "string", required: true },
@@ -59,6 +64,7 @@ const tools = [
   {
     icon: Github,
     title: "GitHub Operations",
+    playgroundTool: "github_operation",
     description: "Perform GitHub operations like listing repos and generating commit messages",
     arguments: [
       { name: "query", type: "string", required: true },
@@ -73,7 +79,7 @@ export default function DocsPage() {
       {/* Page Header */}
       <div>
         <h1 className="text-3xl font-bold">Documentation</h1>
-        <p className="text-zinc-500">Learn how to integrate with DevForge API</p>
+        <p className="text-muted-foreground">Learn how to integrate with DevForge API</p>
       </div>
 
       {/* Quick Start */}
@@ -83,7 +89,7 @@ export default function DocsPage() {
           <CardContent className="p-6">
             <p className="mb-4">Start making API calls with this simple curl example:</p>
             <div className="relative">
-              <pre className="bg-zinc-950 dark:bg-zinc-900 text-zinc-100 font-mono text-sm rounded-lg p-4 overflow-x-auto">
+              <pre className="bg-[#1A1815] text-[#E8E6DD] font-mono text-sm rounded-lg p-4 overflow-x-auto">
                 <code>{curlExample}</code>
               </pre>
               <CopyButton text={curlExample} />
@@ -98,11 +104,11 @@ export default function DocsPage() {
         <Card>
           <CardContent className="p-6">
             <p className="mb-4">
-              All requests require an <code className="bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded text-sm">x-api-key</code> header.
+              All requests require an <code className="bg-muted px-2 py-1 rounded text-sm">x-api-key</code> header.
               Get your API key from the API Keys page.
             </p>
             <div className="relative">
-              <pre className="bg-zinc-950 dark:bg-zinc-900 text-zinc-100 font-mono text-sm rounded-lg p-4">
+              <pre className="bg-[#1A1815] text-[#E8E6DD] font-mono text-sm rounded-lg p-4">
                 <code>{authHeader}</code>
               </pre>
               <CopyButton text={authHeader} />
@@ -118,22 +124,32 @@ export default function DocsPage() {
           {tools.map((tool, index) => {
             const Icon = tool.icon;
             return (
-              <Card key={index} className="border rounded-lg p-4 hover:border-indigo-500 transition-colors">
+              <Card key={index} className="border rounded-lg p-4 hover:border-primary transition-colors">
                 <CardHeader className="pb-4">
-                  <div className="flex items-center space-x-3">
-                    <Icon className="h-6 w-6 text-indigo-600" />
-                    <CardTitle className="text-lg">{tool.title}</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <Icon className="h-6 w-6 text-primary" />
+                      <CardTitle className="text-lg">{tool.title}</CardTitle>
+                    </div>
+                    {tool.playgroundTool && (
+                      <Link href={`/dashboard/playground?tool=${tool.playgroundTool}`}>
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                          <FlaskConical className="h-3.5 w-3.5" />
+                          Try it
+                        </Button>
+                      </Link>
+                    )}
                   </div>
                   <CardDescription>{tool.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Arguments:</p>
+                    <p className="text-sm font-medium text-foreground">Arguments:</p>
                     <div className="flex flex-wrap gap-2">
                       {tool.arguments.map((arg, argIndex) => (
                         <Badge key={argIndex} variant="outline" className="text-xs">
                           {arg.name}
-                          <span className="ml-1 text-zinc-500">({arg.type})</span>
+                          <span className="ml-1 text-muted-foreground">({arg.type})</span>
                           {arg.required && <span className="ml-1 text-red-500">*</span>}
                         </Badge>
                       ))}
@@ -156,7 +172,7 @@ export default function DocsPage() {
               Add this configuration to your Cursor MCP settings:
             </p>
             <div className="relative">
-              <pre className="bg-zinc-950 dark:bg-zinc-900 text-zinc-100 font-mono text-sm rounded-lg p-4 overflow-x-auto">
+              <pre className="bg-[#1A1815] text-[#E8E6DD] font-mono text-sm rounded-lg p-4 overflow-x-auto">
                 <code>{mcpConfig}</code>
               </pre>
               <CopyButton text={mcpConfig} />
@@ -175,7 +191,7 @@ export default function DocsPage() {
             </CardHeader>
             <CardContent>
               <div className="relative">
-                <pre className="bg-zinc-950 dark:bg-zinc-900 text-zinc-100 font-mono text-sm rounded-lg p-4">
+                <pre className="bg-[#1A1815] text-[#E8E6DD] font-mono text-sm rounded-lg p-4">
                   <code>{successResponse}</code>
                 </pre>
                 <CopyButton text={successResponse} />
@@ -189,7 +205,7 @@ export default function DocsPage() {
             </CardHeader>
             <CardContent>
               <div className="relative">
-                <pre className="bg-zinc-950 dark:bg-zinc-900 text-zinc-100 font-mono text-sm rounded-lg p-4">
+                <pre className="bg-[#1A1815] text-[#E8E6DD] font-mono text-sm rounded-lg p-4">
                   <code>{errorResponse}</code>
                 </pre>
                 <CopyButton text={errorResponse} />

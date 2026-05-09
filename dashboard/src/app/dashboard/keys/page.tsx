@@ -34,10 +34,10 @@ function formatRelativeTime(timestamp: string | null): string {
 
 function getTierColor(tier: string): string {
   switch (tier?.toLowerCase()) {
-    case 'free': return 'bg-zinc-100 text-zinc-800 border-zinc-200';
+    case 'free': return 'bg-secondary text-secondary-foreground border-border';
     case 'pro': return 'bg-indigo-100 text-indigo-800 border-indigo-200';
     case 'enterprise': return 'bg-purple-100 text-purple-800 border-purple-200';
-    default: return 'bg-zinc-100 text-zinc-800 border-zinc-200';
+    default: return 'bg-secondary text-secondary-foreground border-border';
   }
 }
 
@@ -57,7 +57,7 @@ function getExpiryBadge(key: ApiKey): { text: string; className: string } | null
   let className = "";
   
   if (days > 30) {
-    className = "bg-zinc-100 text-zinc-800 border-zinc-200";
+    className = "bg-secondary text-secondary-foreground border-border";
   } else if (days <= 30 && days > 7) {
     className = "bg-yellow-100 text-yellow-800 border-yellow-200";
   } else if (days <= 7 && days > 0) {
@@ -404,7 +404,7 @@ export default function KeysPage() {
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle className="text-lg">{key.name}</CardTitle>
-                    <CardDescription className="text-zinc-500">
+                    <CardDescription className="text-muted-foreground">
                       {key.integration_name}
                     </CardDescription>
                   </div>

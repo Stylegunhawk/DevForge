@@ -137,7 +137,7 @@ export default function SettingsPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Settings</h1>
-          <p className="text-zinc-500">Manage your account preferences</p>
+          <p className="text-muted-foreground">Manage your account preferences</p>
         </div>
         <div className="space-y-6">
           {[1, 2, 3].map((i) => (
@@ -162,7 +162,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Settings</h1>
-        <p className="text-zinc-500">Manage your account preferences</p>
+        <p className="text-muted-foreground">Manage your account preferences</p>
       </div>
 
       {/* Profile Section */}
@@ -188,9 +188,9 @@ export default function SettingsPage() {
               id="email"
               value={session?.user?.email || ""}
               disabled
-              className="bg-zinc-50 dark:bg-zinc-800 text-zinc-400"
+              className="bg-muted text-muted-foreground"
             />
-            <p className="text-xs text-zinc-500">Email cannot be changed</p>
+            <p className="text-xs text-muted-foreground">Email cannot be changed</p>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -247,13 +247,13 @@ export default function SettingsPage() {
               <div className="grid grid-cols-3 gap-6 text-center">
                 <div>
                   <div className="text-2xl font-bold">{apiKeys.length}</div>
-                  <div className="text-sm text-zinc-500">Total Keys</div>
+                  <div className="text-sm text-muted-foreground">Total Keys</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold">
                     {apiKeys.filter(key => key.is_active).length}
                   </div>
-                  <div className="text-sm text-zinc-500">Active Keys</div>
+                  <div className="text-sm text-muted-foreground">Active Keys</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold">
@@ -263,12 +263,12 @@ export default function SettingsPage() {
                         .sort((a, b) => new Date(b.last_used).getTime() - new Date(a.last_used).getTime())[0]?.last_used || null
                     )}
                   </div>
-                  <div className="text-sm text-zinc-500">Last Used</div>
+                  <div className="text-sm text-muted-foreground">Last Used</div>
                 </div>
               </div>
               
               <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-4 text-xs text-zinc-500 uppercase tracking-wide">
+                <div className="grid grid-cols-3 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
                   <div>Name</div>
                   <div>Integration</div>
                   <div>Status</div>
@@ -299,7 +299,7 @@ export default function SettingsPage() {
             </>
           ) : (
             <div className="text-center py-8">
-              <p className="text-zinc-500 mb-4">No API keys yet.</p>
+              <p className="text-muted-foreground mb-4">No API keys yet.</p>
               <Button 
                 variant="outline" 
                 onClick={() => router.push('/dashboard/keys')}
@@ -332,7 +332,7 @@ export default function SettingsPage() {
                   className={`flex items-center space-x-2 ${
                     isActive 
                       ? 'bg-indigo-600 text-white border-indigo-600' 
-                      : 'bg-transparent border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400'
+                      : 'bg-transparent border-border text-muted-foreground'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -396,7 +396,7 @@ export default function SettingsPage() {
               Update password (Coming soon)
             </Button>
             
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-muted-foreground">
               TODO: Backend endpoint not yet implemented
             </p>
           </CardContent>
@@ -412,7 +412,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <h4 className="font-medium">Sign out of all sessions</h4>
-              <p className="text-sm text-zinc-500">Signs you out everywhere</p>
+              <p className="text-sm text-muted-foreground">Signs you out everywhere</p>
             </div>
             <Button 
               variant="outline" 
@@ -434,7 +434,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">User ID</span>
             <div className="flex items-center space-x-2">
-              <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">
+              <code className="text-xs bg-muted px-2 py-1 rounded">
                 {session?.user?.id}
               </code>
               <Button
@@ -449,7 +449,7 @@ export default function SettingsPage() {
           
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Member since</span>
-            <span className="text-sm text-zinc-500">
+            <span className="text-sm text-muted-foreground">
               {currentUser?.created_at ? formatDate(currentUser.created_at) : 'Unknown'}
             </span>
           </div>

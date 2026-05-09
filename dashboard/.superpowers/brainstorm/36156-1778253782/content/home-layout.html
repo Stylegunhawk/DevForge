@@ -1,0 +1,262 @@
+<h2>How should the Overview home page be laid out?</h2>
+<p class="subtitle">All three show the same data — the difference is emphasis and density</p>
+
+<div class="cards">
+
+  <!-- Option A: Metrics + Chart + Tool Cards -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a;padding:14px;min-height:180px;">
+      <!-- Stats row -->
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:8px;">
+          <div style="color:#64748b;font-size:8px;letter-spacing:1px;">REQUESTS</div>
+          <div style="color:#e2e8f0;font-size:15px;font-weight:700;">1,284</div>
+          <div style="color:#4ade80;font-size:8px;">↑ 12% vs last week</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:8px;">
+          <div style="color:#64748b;font-size:8px;letter-spacing:1px;">TOKENS</div>
+          <div style="color:#e2e8f0;font-size:15px;font-weight:700;">4.2M</div>
+          <div style="color:#4ade80;font-size:8px;">↑ 8% vs last week</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:8px;">
+          <div style="color:#64748b;font-size:8px;letter-spacing:1px;">COST</div>
+          <div style="color:#e2e8f0;font-size:15px;font-weight:700;">$0.84</div>
+          <div style="color:#f59e0b;font-size:8px;">→ stable</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:8px;">
+          <div style="color:#64748b;font-size:8px;letter-spacing:1px;">ACTIVE KEYS</div>
+          <div style="color:#e2e8f0;font-size:15px;font-weight:700;">3</div>
+          <div style="color:#64748b;font-size:8px;">1 expiring soon</div>
+        </div>
+      </div>
+      <!-- Full-width chart -->
+      <div style="background:#1e293b;border-radius:5px;padding:10px;margin-bottom:8px;">
+        <div style="color:#64748b;font-size:8px;margin-bottom:6px;">REQUESTS / DAY — Last 7 days</div>
+        <div style="display:flex;align-items:flex-end;gap:4px;height:40px;">
+          <div style="flex:1;background:#6366f1;opacity:0.4;border-radius:2px 2px 0 0;height:35%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.5;border-radius:2px 2px 0 0;height:55%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.6;border-radius:2px 2px 0 0;height:45%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.7;border-radius:2px 2px 0 0;height:65%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.8;border-radius:2px 2px 0 0;height:80%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.9;border-radius:2px 2px 0 0;height:70%;"></div>
+          <div style="flex:1;background:#6366f1;border-radius:2px 2px 0 0;height:100%;"></div>
+        </div>
+      </div>
+      <!-- 4 tool cards -->
+      <div style="display:flex;gap:5px;">
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:6px;">
+          <div style="color:#818cf8;font-size:8px;">generate_data</div>
+          <div style="color:#e2e8f0;font-size:11px;font-weight:600;">412</div>
+          <div style="height:2px;background:#6366f1;border-radius:1px;width:80%;margin-top:3px;"></div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:6px;">
+          <div style="color:#818cf8;font-size:8px;">refine_prompt</div>
+          <div style="color:#e2e8f0;font-size:11px;font-weight:600;">318</div>
+          <div style="height:2px;background:#6366f1;border-radius:1px;width:62%;margin-top:3px;"></div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:6px;">
+          <div style="color:#818cf8;font-size:8px;">github_op</div>
+          <div style="color:#e2e8f0;font-size:11px;font-weight:600;">289</div>
+          <div style="height:2px;background:#6366f1;border-radius:1px;width:56%;margin-top:3px;"></div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:6px;">
+          <div style="color:#818cf8;font-size:8px;">cheatsheet</div>
+          <div style="color:#e2e8f0;font-size:11px;font-weight:600;">265</div>
+          <div style="height:2px;background:#6366f1;border-radius:1px;width:52%;margin-top:3px;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Metrics + Chart + Tool Breakdown</h3>
+      <p>4 stat cards → full-width 7-day bar chart → 4 per-tool mini cards with usage bars. Clean vertical flow, everything at a glance in one scroll.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Split — Chart + Live Feed -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a;padding:14px;min-height:180px;">
+      <!-- Stats row -->
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;">REQUESTS</div>
+          <div style="color:#e2e8f0;font-size:14px;font-weight:700;">1,284</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;">TOKENS</div>
+          <div style="color:#e2e8f0;font-size:14px;font-weight:700;">4.2M</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;">COST</div>
+          <div style="color:#e2e8f0;font-size:14px;font-weight:700;">$0.84</div>
+        </div>
+      </div>
+      <!-- Two-column split -->
+      <div style="display:flex;gap:6px;flex:1;">
+        <!-- Left: chart -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+          <div style="background:#1e293b;border-radius:5px;padding:8px;">
+            <div style="color:#64748b;font-size:8px;margin-bottom:5px;">REQUESTS / DAY</div>
+            <div style="display:flex;align-items:flex-end;gap:3px;height:35px;">
+              <div style="flex:1;background:#6366f1;opacity:0.4;border-radius:2px 2px 0 0;height:35%;"></div>
+              <div style="flex:1;background:#6366f1;opacity:0.5;border-radius:2px 2px 0 0;height:55%;"></div>
+              <div style="flex:1;background:#6366f1;opacity:0.6;border-radius:2px 2px 0 0;height:45%;"></div>
+              <div style="flex:1;background:#6366f1;opacity:0.7;border-radius:2px 2px 0 0;height:65%;"></div>
+              <div style="flex:1;background:#6366f1;opacity:0.8;border-radius:2px 2px 0 0;height:80%;"></div>
+              <div style="flex:1;background:#6366f1;opacity:0.9;border-radius:2px 2px 0 0;height:70%;"></div>
+              <div style="flex:1;background:#6366f1;border-radius:2px 2px 0 0;height:100%;"></div>
+            </div>
+          </div>
+          <!-- Donut placeholder for tool split -->
+          <div style="background:#1e293b;border-radius:5px;padding:8px;flex:1;">
+            <div style="color:#64748b;font-size:8px;margin-bottom:6px;">TOOL SPLIT</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:36px;height:36px;border-radius:50%;background:conic-gradient(#6366f1 0% 32%, #22c55e 32% 57%, #f59e0b 57% 79%, #f87171 79% 100%);"></div>
+              <div style="display:flex;flex-direction:column;gap:3px;">
+                <div style="display:flex;align-items:center;gap:4px;"><div style="width:6px;height:6px;background:#6366f1;border-radius:1px;"></div><div style="color:#94a3b8;font-size:8px;">generate_data 32%</div></div>
+                <div style="display:flex;align-items:center;gap:4px;"><div style="width:6px;height:6px;background:#22c55e;border-radius:1px;"></div><div style="color:#94a3b8;font-size:8px;">refine_prompt 25%</div></div>
+                <div style="display:flex;align-items:center;gap:4px;"><div style="width:6px;height:6px;background:#f59e0b;border-radius:1px;"></div><div style="color:#94a3b8;font-size:8px;">github_op 22%</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Right: activity feed -->
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:8px;">
+          <div style="color:#64748b;font-size:8px;margin-bottom:6px;">RECENT ACTIVITY</div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:5px;height:5px;background:#4ade80;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;"><div style="color:#e2e8f0;font-size:8px;">generate_data</div><div style="color:#64748b;font-size:7px;">243ms · just now</div></div>
+              <div style="color:#4ade80;font-size:7px;">200</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:5px;height:5px;background:#4ade80;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;"><div style="color:#e2e8f0;font-size:8px;">refine_prompt</div><div style="color:#64748b;font-size:7px;">891ms · 1m ago</div></div>
+              <div style="color:#4ade80;font-size:7px;">200</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:5px;height:5px;background:#f87171;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;"><div style="color:#e2e8f0;font-size:8px;">github_operation</div><div style="color:#64748b;font-size:7px;">1.2s · 3m ago</div></div>
+              <div style="color:#f87171;font-size:7px;">500</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:5px;height:5px;background:#4ade80;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;"><div style="color:#e2e8f0;font-size:8px;">generate_data</div><div style="color:#64748b;font-size:7px;">187ms · 4m ago</div></div>
+              <div style="color:#4ade80;font-size:7px;">200</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:5px;height:5px;background:#4ade80;border-radius:50%;flex-shrink:0;"></div>
+              <div style="flex:1;"><div style="color:#e2e8f0;font-size:8px;">cheatsheet</div><div style="color:#64748b;font-size:7px;">312ms · 6m ago</div></div>
+              <div style="color:#4ade80;font-size:7px;">200</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Chart + Donut + Live Feed</h3>
+      <p>Left column: bar chart + tool-split donut. Right column: scrollable live request log showing tool name, latency, status code, and timestamp. See what's happening right now.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Full grid -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a;padding:14px;min-height:180px;">
+      <!-- Stats row -->
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;">REQUESTS</div>
+          <div style="color:#e2e8f0;font-size:14px;font-weight:700;">1,284</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;">TOKENS</div>
+          <div style="color:#e2e8f0;font-size:14px;font-weight:700;">4.2M</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;">COST</div>
+          <div style="color:#e2e8f0;font-size:14px;font-weight:700;">$0.84</div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:5px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;">SUCCESS RATE</div>
+          <div style="color:#4ade80;font-size:14px;font-weight:700;">98.2%</div>
+        </div>
+      </div>
+      <!-- Wide chart -->
+      <div style="background:#1e293b;border-radius:5px;padding:8px;margin-bottom:8px;">
+        <div style="color:#64748b;font-size:8px;margin-bottom:5px;">API REQUESTS — Last 14 days</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:35px;">
+          <div style="flex:1;background:#6366f1;opacity:0.3;border-radius:2px 2px 0 0;height:20%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.35;border-radius:2px 2px 0 0;height:30%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.4;border-radius:2px 2px 0 0;height:35%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.45;border-radius:2px 2px 0 0;height:28%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.5;border-radius:2px 2px 0 0;height:45%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.55;border-radius:2px 2px 0 0;height:55%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.6;border-radius:2px 2px 0 0;height:40%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.65;border-radius:2px 2px 0 0;height:60%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.7;border-radius:2px 2px 0 0;height:70%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.75;border-radius:2px 2px 0 0;height:65%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.8;border-radius:2px 2px 0 0;height:80%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.85;border-radius:2px 2px 0 0;height:75%;"></div>
+          <div style="flex:1;background:#6366f1;opacity:0.9;border-radius:2px 2px 0 0;height:85%;"></div>
+          <div style="flex:1;background:#6366f1;border-radius:2px 2px 0 0;height:100%;"></div>
+        </div>
+      </div>
+      <!-- Bottom 3-column grid -->
+      <div style="display:flex;gap:6px;">
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;margin-bottom:5px;">TOP TOOLS</div>
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="color:#94a3b8;font-size:8px;">generate_data</div>
+              <div style="color:#e2e8f0;font-size:8px;font-weight:600;">412</div>
+            </div>
+            <div style="height:2px;background:#6366f1;border-radius:1px;width:80%;"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="color:#94a3b8;font-size:8px;">refine_prompt</div>
+              <div style="color:#e2e8f0;font-size:8px;font-weight:600;">318</div>
+            </div>
+            <div style="height:2px;background:#6366f1;border-radius:1px;width:62%;"></div>
+          </div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;margin-bottom:5px;">RECENT ACTIVITY</div>
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            <div style="display:flex;align-items:center;gap:4px;">
+              <div style="width:4px;height:4px;background:#4ade80;border-radius:50%;"></div>
+              <div style="color:#94a3b8;font-size:7px;">generate_data · 243ms</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <div style="width:4px;height:4px;background:#4ade80;border-radius:50%;"></div>
+              <div style="color:#94a3b8;font-size:7px;">refine_prompt · 891ms</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <div style="width:4px;height:4px;background:#f87171;border-radius:50%;"></div>
+              <div style="color:#94a3b8;font-size:7px;">github_op · error</div>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1;background:#1e293b;border-radius:4px;padding:7px;">
+          <div style="color:#64748b;font-size:8px;margin-bottom:5px;">API KEYS</div>
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            <div style="display:flex;justify-content:space-between;">
+              <div style="color:#94a3b8;font-size:7px;">cursor-ide</div>
+              <div style="color:#4ade80;font-size:7px;">active</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+              <div style="color:#94a3b8;font-size:7px;">vscode-ext</div>
+              <div style="color:#f59e0b;font-size:7px;">expiring</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+              <div style="color:#94a3b8;font-size:7px;">ci-pipeline</div>
+              <div style="color:#4ade80;font-size:7px;">active</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Full Grid (14-day chart + 3 panels)</h3>
+      <p>4 stat cards → 14-day bar chart → 3-column grid: top tools, recent activity, and API key status. More information density, broader time window.</p>
+    </div>
+  </div>
+
+</div>

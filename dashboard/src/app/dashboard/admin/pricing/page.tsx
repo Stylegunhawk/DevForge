@@ -21,10 +21,10 @@ interface TierState {
 
 function getTierColor(tier: string): string {
   switch (tier?.toLowerCase()) {
-    case 'free': return 'bg-zinc-100 text-zinc-800 border-zinc-200';
+    case 'free': return 'bg-secondary text-secondary-foreground border-border';
     case 'pro': return 'bg-indigo-100 text-indigo-800 border-indigo-200';
     case 'enterprise': return 'bg-purple-100 text-purple-800 border-purple-200';
-    default: return 'bg-zinc-100 text-zinc-800 border-zinc-200';
+    default: return 'bg-secondary text-secondary-foreground border-border';
   }
 }
 
@@ -357,7 +357,7 @@ export default function PricingPage() {
                           onChange={(e) => 
                             updateTierField(tierName, 'monthly_limit', e.target.checked ? null : 1000)
                           }
-                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                          className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-indigo-500"
                         />
                         <Label htmlFor={`${tierName}-unlimited`} className="text-sm">Unlimited</Label>
                       </div>

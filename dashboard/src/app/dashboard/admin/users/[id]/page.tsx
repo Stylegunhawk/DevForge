@@ -398,7 +398,7 @@ export default function UserDetailPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold">{userUsage.user.name}</h1>
-                <p className="text-zinc-500">{userUsage.user.email}</p>
+                <p className="text-muted-foreground">{userUsage.user.email}</p>
                 <p className="text-sm text-muted-foreground">
                   Member since {new Date(userUsage.user.member_since).toLocaleDateString()}
                 </p>
@@ -483,7 +483,7 @@ export default function UserDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="grid grid-cols-5 gap-4 items-center text-xs text-zinc-500 uppercase tracking-wide py-2 border-b">
+              <div className="grid grid-cols-5 gap-4 items-center text-xs text-muted-foreground uppercase tracking-wide py-2 border-b">
                 <div>Key Name</div>
                 <div>Integration</div>
                 <div>Tier</div>
@@ -505,7 +505,7 @@ export default function UserDetailPage() {
                           {key.tier}
                         </Badge>
                       </div>
-                      <div className={hasKeyOverride ? 'text-indigo-600 font-medium' : 'text-muted-foreground'}>
+                      <div className={hasKeyOverride ? 'text-primary font-medium' : 'text-muted-foreground'}>
                         {formatLimits(effectiveLimits.hourly, effectiveLimits.monthly)}
                       </div>
                       <div>
@@ -514,7 +514,7 @@ export default function UserDetailPage() {
                             Custom Limits
                           </Badge>
                         ) : (
-                          <Badge className="bg-zinc-100 text-zinc-800 border-zinc-200">
+                          <Badge className="bg-secondary text-secondary-foreground border-border">
                             Tier Default
                           </Badge>
                         )}
@@ -547,7 +547,7 @@ export default function UserDetailPage() {
           <div className="space-y-4">
             {userRequests?.length > 0 ? (
               <>
-                <div className="grid grid-cols-6 gap-4 items-center text-xs text-zinc-500 uppercase tracking-wide py-2 border-b">
+                <div className="grid grid-cols-6 gap-4 items-center text-xs text-muted-foreground uppercase tracking-wide py-2 border-b">
                   <div>Time</div>
                   <div>Tool</div>
                   <div>Tenant ID</div>

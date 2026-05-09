@@ -219,7 +219,7 @@ export default function AdminRequests() {
                       </div>
                       <div className="text-muted-foreground">
                         {log.user_email === "Anonymous" ? (
-                          <span className="italic text-zinc-400">Anonymous</span>
+                          <span className="italic text-muted-foreground">Anonymous</span>
                         ) : (
                           <span 
                             className="truncate max-w-[120px]" 

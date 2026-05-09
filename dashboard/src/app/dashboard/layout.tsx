@@ -17,11 +17,15 @@ import {
   Shield,
   LogOut,
   User,
+  LayoutDashboard,
+  FlaskConical,
 } from "lucide-react";
 
 const navigation = [
+  { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { name: "API Keys", href: "/dashboard/keys", icon: KeyRound },
   { name: "Usage", href: "/dashboard/usage", icon: BarChart3 },
+  { name: "Playground", href: "/dashboard/playground", icon: FlaskConical },
   { name: "Docs", href: "/dashboard/docs", icon: BookOpen },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];

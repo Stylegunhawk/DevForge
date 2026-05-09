@@ -7,8 +7,43 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Activity, Zap, DollarSign, ArrowRight } from "lucide-react";
-import { getUserUsage, getUserKeys } from "@/lib/api";
+import { getUserUsage, getUserKeys, type ApiKey } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts";
+
+const TOOL_COLORS = ["#D97757", "#C8B286", "#8EA898", "#B291AD", "#D4B88E"];
+
+function buildDailyData(
+  tokenUsage: TokenUsage[]
+): { name: string; requests: number }[] {
+  const grouped: Record<string, number> = {};
+  tokenUsage.forEach((u) => {
+    const day = (u.date || "").substring(0, 10);
+    grouped[day] = (grouped[day] || 0) + (u.request_count || 0);
+  });
+  const result = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().substring(0, 10);
+    result.push({
+      name: i % 7 === 0 ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "",
+      requests: grouped[key] || 0,
+    });
+  }
+  return result;
+}
 
 interface TokenUsage {
   model_name: string;
@@ -28,15 +63,6 @@ interface ToolUsage {
   success_count: number;
   error_count: number;
   success_rate: number;
-}
-
-interface ApiKey {
-  id: string;
-  name: string;
-  integration_name: string;
-  tier: string;
-  last_used: string;
-  is_active: boolean;
 }
 
 function formatCurrency(amount: number): string {
@@ -115,7 +141,7 @@ export default function UsagePage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Usage</h1>
-          <p className="text-zinc-500">Last 30 days</p>
+          <p className="text-muted-foreground">Last 30 days</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -195,7 +221,7 @@ export default function UsagePage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Usage</h1>
-          <p className="text-zinc-500">Last 30 days</p>
+          <p className="text-muted-foreground">Last 30 days</p>
         </div>
 
         <Card>
@@ -214,7 +240,7 @@ export default function UsagePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Usage</h1>
-        <p className="text-zinc-500">Last 30 days</p>
+        <p className="text-muted-foreground">Last 30 days</p>
       </div>
 
       {/* Stats Row */}
@@ -250,15 +276,91 @@ export default function UsagePage() {
         </Card>
       </div>
 
+      {/* Charts */}
+      {usageData && (
+        <div className="grid grid-cols-2 gap-6">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Daily Requests (30 days)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart
+                  data={buildDailyData(usageData.token_usage || [])}
+                  margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
+                >
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    formatter={(v) => [v, "requests"]}
+                    cursor={{ fill: "rgba(217,119,87,0.10)" }}
+                  />
+                  <Bar dataKey="requests" fill="#D97757" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Tool Split</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {usageData.tool_usage?.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={usageData.tool_usage.map((t: ToolUsage) => ({
+                        name: t.tool_name,
+                        value: t.call_count,
+                      }))}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={75}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {usageData.tool_usage.map((_: ToolUsage, i: number) => (
+                        <Cell
+                          key={i}
+                          fill={TOOL_COLORS[i % TOOL_COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Legend iconType="circle" iconSize={8} />
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-center text-muted-foreground py-14 text-sm">
+                  No tool usage yet
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Token Usage by Model */}
       <Card>
         <CardHeader>
           <CardTitle>Token Breakdown</CardTitle>
         </CardHeader>
         <CardContent>
-          {usageData?.token_usage?.length > 0 ? (
+          {usageData?.token_usage && usageData.token_usage.length > 0 ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-7 gap-4 text-xs text-zinc-500 uppercase tracking-wide">
+              <div className="grid grid-cols-7 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
                 <div>Date</div>
                 <div>Model</div>
                 <div>Task</div>
@@ -293,9 +395,9 @@ export default function UsagePage() {
           <CardTitle>Tool Activity</CardTitle>
         </CardHeader>
         <CardContent>
-          {usageData?.tool_usage?.length > 0 ? (
+          {usageData?.tool_usage && usageData.tool_usage.length > 0 ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-4 gap-4 text-xs text-zinc-500 uppercase tracking-wide">
+              <div className="grid grid-cols-4 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
                 <div>Tool</div>
                 <div>Calls</div>
                 <div>Avg Duration</div>
@@ -328,7 +430,7 @@ export default function UsagePage() {
         <CardContent>
           {apiKeys?.length > 0 ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-5 gap-4 text-xs text-zinc-500 uppercase tracking-wide">
+              <div className="grid grid-cols-5 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
                 <div>Name</div>
                 <div>Integration</div>
                 <div>Tier</div>
@@ -340,7 +442,7 @@ export default function UsagePage() {
                   <div className="font-medium">{key.name}</div>
                   <div>{key.integration_name}</div>
                   <div>{key.tier}</div>
-                  <div>{key.last_used ? formatDate(key.last_used) : 'Never'}</div>
+                  <div>{key.last_used_at ? formatDate(key.last_used_at) : 'Never'}</div>
                   <div>
                     <Badge variant={key.is_active ? 'default' : 'secondary'}>
                       {key.is_active ? 'Active' : 'Inactive'}

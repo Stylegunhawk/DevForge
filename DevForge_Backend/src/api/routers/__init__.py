@@ -119,30 +119,30 @@ async def get_job_status(job_id: str):
 
 
 @router.post("/rag/ingest-async")
-async def ingest_documents_async(request: IngestAsyncRequest) -> IngestAsyncResponse:
+async def ingest_documents_async(http_req: Request, body: IngestAsyncRequest) -> IngestAsyncResponse:
     """
     Queue documents for async ingestion via Celery.
 
+    Requires JWT auth (tenant_id extracted by JWTAuthMiddleware). The target
+    collection is always derived from the authenticated tenant — the caller's
+    collection_name field is ignored to prevent cross-tenant writes.
+
     ARCHITECTURE: Calls async_ingest_documents Celery task → RAGAgent.
-
-    Args:
-        request: IngestAsyncRequest with file_paths and collection_name
-
-    Returns:
-        IngestAsyncResponse with task_id for tracking
     """
     from src.workers.tasks.rag_tasks import async_ingest_documents
 
+    tenant_id = http_req.state.tenant_id
+    collection_name = f"user_{tenant_id}"
+
     logging.info(
-        f"Queueing async ingestion: {len(request.file_paths)} files",
-        extra={"collection": request.collection_name, "files": len(request.file_paths)},
+        f"Queueing async ingestion: {len(body.file_paths)} files",
+        extra={"tenant": tenant_id, "collection": collection_name, "files": len(body.file_paths)},
     )
 
-    # Queue Celery task
     task = async_ingest_documents.delay(
-        file_paths=request.file_paths,
-        collection_name=request.collection_name,
-        embed_model=request.embed_model,
+        file_paths=body.file_paths,
+        collection_name=collection_name,
+        embed_model=body.embed_model,
     )
 
     logging.info(f"Task queued: {task.id}")
@@ -150,8 +150,8 @@ async def ingest_documents_async(request: IngestAsyncRequest) -> IngestAsyncResp
     return IngestAsyncResponse(
         task_id=task.id,
         status="queued",
-        collection=request.collection_name,
-        total_files=len(request.file_paths),
+        collection=collection_name,
+        total_files=len(body.file_paths),
     )
 
 

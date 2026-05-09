@@ -20,13 +20,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="dark">
       <body className={`${inter.variable} font-sans antialiased bg-background text-foreground`}>
         <SessionProvider>
           <ThemeProvider
             attribute="class"
-            defaultTheme="system"
-            enableSystem
+            defaultTheme="dark"
+            enableSystem={false}
+            storageKey="devforge-theme-v2"
             disableTransitionOnChange
           >
             {children}

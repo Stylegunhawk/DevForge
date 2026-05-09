@@ -7,6 +7,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Users, Activity, Zap, DollarSign } from "lucide-react";
 import { getAdminSummary, getToolStats, getAdminKeys, DashboardSummary, ToolStat, ApiKey } from "@/lib/api";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
+
+const TOOL_COLORS = ["#D97757", "#C8B286", "#8EA898", "#B291AD", "#D4B88E"];
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -189,12 +200,51 @@ export default function AdminOverview() {
         </Card>
       </div>
 
-      {/* Override Info Row */}
-      <div className="flex items-center justify-center">
-        <p className="text-sm text-muted-foreground">
-          {getKeysWithOverrides()} keys with custom limits
-        </p>
-      </div>
+      {/* Tool call volume chart */}
+      {toolStats.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Tool Call Volume</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart
+                data={toolStats.map((t) => ({
+                  name: t.tool_name,
+                  calls: t.total_calls,
+                }))}
+                layout="vertical"
+                margin={{ top: 4, right: 16, bottom: 4, left: 80 }}
+              >
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  allowDecimals={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={76}
+                />
+                <Tooltip
+                  formatter={(v) => [v, "calls"]}
+                  cursor={{ fill: "rgba(217,119,87,0.10)" }}
+                />
+                <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
+                  {toolStats.map((_t, i) => (
+                    <Cell key={i} fill={TOOL_COLORS[i % TOOL_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tool Stats Table */}
       <Card>
