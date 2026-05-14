@@ -76,7 +76,7 @@ def add(a, b):
 ### Code Dependency Graph
 
 **Graph Structure:**
-- **Nodes:** Qualified IDs (`file::entity` format)
+- **Nodes:** Qualified IDs (`tenant::file::entity` format)
 - **Edges:** Function calls and imports
 - **Traversal:** BFS with configurable depth
 
@@ -319,12 +319,12 @@ Return Results with Extended Context
 
 ### Qualified ID (QID) Format
 
-**Structure:** `file::entity`
+**Structure:** `tenant::file::entity` (3 segments, enforced by `CodeGraph.add_node` — `src/agents/rag/graph/code_graph.py:44-47`)
 
 **Examples:**
-- `auth.py::authenticate`
-- `utils.py::User.login`
-- `middleware.ts::validateRequest`
+- `dev_user_1::auth.py::authenticate`
+- `dev_user_1::utils.py::User.login`
+- `dev_user_1::middleware.ts::validateRequest`
 
 **Why Double Colon?**
 - Handles Windows paths (`C:\src\file.py`)
