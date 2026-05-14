@@ -84,9 +84,29 @@ TOOL_DESCRIPTIONS = {
         "ENVIRONMENT: GITOPS_ENV=production blocks irreversible operations entirely."
     ),
     "refine_prompt": (
-        "AI prompt optimization tool for non-empty prompts. "
-        "Analyzes and refines prompts for better AI responses, sanitizes secrets, "
-        "and uses evidence-based code context when available."
+        "Refines a user prompt into a detailed, production-ready specification, "
+        "with optional tech-stack grounding from project files, conversation "
+        "history, or attached code. "
+
+        "ITERATIVE USE (recommended for agents): Call once with the user's raw "
+        "prompt. The response's `quality.prompt_grounding` field returns 'low', "
+        "'medium', or 'high'. If 'low' or 'medium', re-call with the inputs "
+        "named in `quality.suggested_inputs` (e.g. project_files, "
+        "attached_files, conversation_history). Each enrichment cycle improves "
+        "the refined prompt's grounding. "
+
+        "OUTPUT: data.refined_prompt is the refined prompt text. "
+        "data.chosen_stack splits detected tech into languages, frameworks, "
+        "libraries, services, and databases — use these typed lists, not the "
+        "legacy denormalized `frameworks` field. "
+        "data.sanitization_log lists redacted secrets and blocked prompt "
+        "injection attempts (metadata only — actual secrets are never logged). "
+
+        "SUPPORTED MANIFEST FILES for project_files: requirements.txt, "
+        "package.json, go.mod, Cargo.toml, pom.xml, build.gradle, "
+        "build.gradle.kts, Gemfile, composer.json, *.csproj. "
+
+        "DOMAINS: code, image, rag, llm, general (default)."
     ),
     "generate_cheatsheet": (
         "Context-aware dynamic cheat sheet generator. "
@@ -985,7 +1005,7 @@ async def mcp_endpoint(request: Request):
                         "protocolVersion": "2024-11-05",
                         "serverInfo": {
                             "name": "DevForge",
-                            "version": "0.8.0",
+                            "version": "0.9.0",
                         },
                         "capabilities": {
                             "tools": {},
@@ -1432,21 +1452,37 @@ def _get_tool_schema(tool_name: str) -> dict:
                 "prompt": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Original non-empty user prompt to refine and optimize",
+                    "description": (
+                        "The user's original prompt to refine. Required, non-empty. "
+                        "Pass the raw prompt verbatim — do not pre-summarize."
+                    ),
                 },
                 "domain": {
                     "type": "string",
                     "enum": ["general", "image", "code", "rag", "llm"],
-                    "description": "Target domain for refinement (default: general)",
+                    "description": (
+                        "Refinement domain. 'code' triggers tech-stack detection and "
+                        "evidence-based templates. 'image' produces Midjourney / Stable "
+                        "Diffusion style prompts. 'rag' produces vector-search-friendly "
+                        "queries. 'llm' and 'general' produce general-purpose refined "
+                        "prompts. Default: general."
+                    ),
                 },
                 "skill_level": {
                     "type": "string",
                     "enum": ["beginner", "intermediate", "expert"],
-                    "description": "User skill level (default: intermediate)",
+                    "description": (
+                        "Adjusts depth and assumed prior knowledge in the refined "
+                        "prompt. Default: intermediate."
+                    ),
                 },
                 "file_context": {
                     "type": "string",
-                    "description": "Optional context from files",
+                    "description": (
+                        "Free-form text context. Prefer attached_files (array of code) "
+                        "and project_files (manifests) for stronger evidence. "
+                        "Sanitized before use."
+                    ),
                 },
                 "conversation_history": {
                     "type": "array",
@@ -1457,16 +1493,34 @@ def _get_tool_schema(tool_name: str) -> dict:
                             "content": {"type": "string"},
                         },
                     },
-                    "description": "Recent conversation messages for context",
+                    "description": (
+                        "Recent chat messages providing context (last 5 considered). "
+                        "Weak evidence by default (weight 0.4) — useful when "
+                        "project_files and attached_files are unavailable."
+                    ),
                 },
                 "attached_files": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Code file contents for context-aware refinement",
+                    "description": (
+                        "Source code file contents (as strings, one per array element). "
+                        "Used to detect imported frameworks and existing class / "
+                        "function names that the refined prompt should integrate with. "
+                        "Pair with project_files when both are available."
+                    ),
                 },
                 "project_files": {
                     "type": "object",
-                    "description": "Project configuration files (requirements.txt, package.json, etc.)",
+                    "description": (
+                        "Dependency manifest files keyed by filename. Strongly "
+                        "recommended for the 'code' domain — without these the "
+                        "response's quality.prompt_grounding will be 'low' and the "
+                        "refined prompt will ask clarifying questions instead of "
+                        "producing a specification. Supported filenames: "
+                        "requirements.txt, package.json, go.mod, Cargo.toml, pom.xml, "
+                        "build.gradle, build.gradle.kts, Gemfile, composer.json, "
+                        "*.csproj. Pass the file content as a string value."
+                    ),
                     "additionalProperties": {"type": "string"},
                 },
             },

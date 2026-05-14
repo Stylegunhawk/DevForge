@@ -88,10 +88,27 @@ async def test_gateway_invoke_wrapper(mock_model_router):
 
 
 def test_refine_prompt_mcp_schema_matches_runtime_contract():
-    """MCP discovery should advertise refine_prompt runtime constraints."""
+    """MCP discovery should advertise refine_prompt runtime constraints and
+    teach calling agents the iterative-enrichment pattern (v0.10)."""
     schema = _get_tool_schema("refine_prompt")
+    desc = TOOL_DESCRIPTIONS["refine_prompt"]
 
+    # Prompt is required + non-empty (server-side guard is also in place)
     assert schema["properties"]["prompt"]["minLength"] == 1
     assert "non-empty" in schema["properties"]["prompt"]["description"]
-    assert "sanitizes secrets" in TOOL_DESCRIPTIONS["refine_prompt"]
-    assert "evidence-based code context" in TOOL_DESCRIPTIONS["refine_prompt"]
+
+    # Description must teach the iterative pattern and surface the new
+    # typed lists so agent callers know to consume them.
+    assert "quality.prompt_grounding" in desc
+    assert "quality.suggested_inputs" in desc
+    assert "languages, frameworks, libraries, services, and databases" in desc
+
+    # New manifests must be discoverable via the description.
+    for filename in ("go.mod", "Cargo.toml", "pom.xml", "Gemfile", "composer.json", "csproj"):
+        assert filename in desc, f"description must mention {filename}"
+
+    # project_files description should explicitly call out the
+    # low-grounding consequence of omitting it.
+    project_files_desc = schema["properties"]["project_files"]["description"]
+    assert "low" in project_files_desc.lower()
+    assert "clarifying questions" in project_files_desc.lower()

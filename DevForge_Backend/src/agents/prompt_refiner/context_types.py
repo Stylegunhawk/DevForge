@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional
 @dataclass
 class Evidence:
     """Evidence for a detected technology or framework.
-    
+
     Attributes:
         source: Where the evidence came from (file, conversation, code)
         file: Optional filename
@@ -19,6 +19,10 @@ class Evidence:
         match: What was matched (e.g., "fastapi", "React")
         weight: Confidence weight (0.0-1.0)
         confidence_hint: Optional descriptor (e.g., "strong", "weak")
+        category: One of language|framework|library|service|database. Drives
+            routing into the typed lists on ChosenStack. Defaults to
+            "framework" for backward compatibility with hand-constructed
+            Evidence instances.
     """
     source: str
     match: str
@@ -27,19 +31,28 @@ class Evidence:
     line: Optional[int] = None
     excerpt: Optional[str] = None
     confidence_hint: Optional[str] = None
+    category: str = "framework"
 
 
 @dataclass
 class ChosenStack:
     """The definitively selected tech stack with provenance.
-    
+
     Attributes:
-        language: Detected language (e.g., "python", "javascript")
-        frameworks: List of detected frameworks
-        database: Detected database (if any)
-        source: Primary source of detection (dependency_analysis, code_analysis, conversation, none)
-        confidence: Deterministic confidence score (0.0-1.0)
-        evidence: List of Evidence objects supporting the selection
+        language: Primary detected language (e.g., "python", "javascript")
+        frameworks: Web/app frameworks only — denormalized view of
+            ``[e.match for e in evidence if category == "framework"]``.
+            Retained for backward compatibility.
+        database: Primary detected database (kept for back-compat;
+            prefer the ``databases`` list).
+        source: Primary source of detection (dependency_analysis,
+            code_analysis, conversation, none).
+        confidence: Deterministic confidence score (0.0-1.0).
+        evidence: List of Evidence objects supporting the selection.
+        languages: All detected languages (typed list, sorted).
+        libraries: Non-framework libraries (e.g., SQLAlchemy, tokio).
+        services: Cloud / infra services (e.g., AWS, Redis as a service).
+        databases: All detected databases (typed list, sorted).
     """
     language: str = "unknown"
     frameworks: List[str] = field(default_factory=list)
@@ -47,7 +60,11 @@ class ChosenStack:
     source: str = "none"
     confidence: float = 0.0
     evidence: List[Evidence] = field(default_factory=list)
-    
+    languages: List[str] = field(default_factory=list)
+    libraries: List[str] = field(default_factory=list)
+    services: List[str] = field(default_factory=list)
+    databases: List[str] = field(default_factory=list)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API responses."""
         return {
@@ -56,6 +73,10 @@ class ChosenStack:
             "database": self.database,
             "source": self.source,
             "confidence": round(self.confidence, 2),
+            "languages": self.languages,
+            "libraries": self.libraries,
+            "services": self.services,
+            "databases": self.databases,
             "evidence": [
                 {
                     "source": e.source,
@@ -64,7 +85,8 @@ class ChosenStack:
                     "file": e.file,
                     "line": e.line,
                     "excerpt": e.excerpt,
-                    "confidence_hint": e.confidence_hint
+                    "confidence_hint": e.confidence_hint,
+                    "category": e.category,
                 }
                 for e in self.evidence
             ]

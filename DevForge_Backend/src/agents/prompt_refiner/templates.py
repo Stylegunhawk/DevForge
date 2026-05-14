@@ -100,11 +100,35 @@ Output format:
 
 Refined Specification:"""
 
+CODE_TEMPLATE_LOW_GROUNDING = """You are a senior software architect refining a vague code request.
+
+ORIGINAL REQUEST: {prompt}
+
+CONTEXT: The user did not provide enough information to determine their tech
+stack. Do NOT commit to an arbitrary stack (do not assume Python/FastAPI,
+JavaScript/React, or any other technology by default). Instead, your refined
+prompt must:
+
+1. Identify the 2-3 most important missing pieces of context. Prioritize:
+   target programming language, primary framework, deployment environment
+   (cloud / on-prem / CLI / library), and data store (if relevant).
+2. Phrase those missing pieces as clear clarifying questions addressed to
+   the user.
+3. Optionally provide a short, generic outline of next steps that does NOT
+   assume a stack — phrased as "once the language and framework are known,
+   the typical steps would be ...".
+
+Output ONLY the refined prompt (which should consist primarily of those
+clarifying questions and the optional generic outline).
+
+Refined Prompt:"""
+
 TEMPLATES = {
     "general": GENERAL_TEMPLATE,
     "llm": GENERAL_TEMPLATE,
     "image": IMAGE_TEMPLATE,
     "code": CODE_TEMPLATE,
     "code_context": CODE_TEMPLATE_WITH_CONTEXT,
+    "code_low_grounding": CODE_TEMPLATE_LOW_GROUNDING,
     "rag": RAG_TEMPLATE,
 }

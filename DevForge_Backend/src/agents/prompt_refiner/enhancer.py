@@ -6,6 +6,7 @@ from src.agents.prompt_refiner.templates import TEMPLATES
 from src.core.model_router import model_router
 from src.agents.prompt_refiner.dependency_analyzer import DependencyAnalyzer
 from src.agents.prompt_refiner.sanitizer import Sanitizer
+from src.agents.prompt_refiner.conversation_parser import ConversationParser
 from src.agents.prompt_refiner.context_types import CodeContext, ChosenStack, Evidence
 
 logger = logging.getLogger(__name__)
@@ -89,16 +90,23 @@ class PromptEnhancer:
             # 3. Build ChosenStack with deterministic confidence
             chosen_stack = self._build_chosen_stack(all_evidence)
 
-            # 4. Format context summary and evidence block
+            # 4. Compute deterministic quality block (no LLM call)
+            quality = self._compute_quality(prompt, code_context, chosen_stack)
+
+            # 5. Format context summary and evidence block
             context_summary = self._format_context_summary(code_context, chosen_stack)
             evidence_block = self._format_evidence_block(all_evidence)
 
-            # Select appropriate template. Strict-rule template requires
-            # confidence >= 0.6 — conversation-only evidence (weight 0.4)
-            # is too weak to force the LLM to commit to a stack.
+            # Select appropriate template.
+            #   - confidence >= 0.6     → strict EVIDENCE-bound template
+            #   - low grounding + code  → soft clarifying-questions template
+            #   - otherwise             → default per-domain template
             template_key = domain
-            if domain == "code" and chosen_stack.confidence >= 0.6:
-                template_key = "code_context"
+            if domain == "code":
+                if chosen_stack.confidence >= 0.6:
+                    template_key = "code_context"
+                elif quality["prompt_grounding"] == "low":
+                    template_key = "code_low_grounding"
             
             template = TEMPLATES.get(template_key, TEMPLATES["general"])
 
@@ -154,7 +162,8 @@ class PromptEnhancer:
                 "refined_prompt": refined_prompt,
                 "context_summary": context_summary,
                 "chosen_stack": chosen_stack.to_dict(),
-                "sanitization_log": sanitization_log
+                "sanitization_log": sanitization_log,
+                "quality": quality,
             }
 
         except Exception as e:
@@ -165,7 +174,12 @@ class PromptEnhancer:
                 "context_summary": "Error during enhancement",
                 "chosen_stack": ChosenStack().to_dict(),
                 "sanitization_log": [],
-                "error": str(e)
+                "quality": {
+                    "prompt_grounding": "low",
+                    "missing_signals": ["language", "framework", "database", "specificity"],
+                    "suggested_inputs": ["attached_files", "conversation_history", "project_files"],
+                },
+                "error": str(e),
             }
 
     # Frameworks detectable from code imports. Kept aligned with
@@ -188,6 +202,11 @@ class PromptEnhancer:
         evidence = []
         imports_text = " ".join(context.code_structure.imports).lower()
 
+        # SQLAlchemy is the only library in this list; everything else is a
+        # web/app framework. Map by name rather than maintaining a parallel
+        # list, to keep this in sync if more libs get added later.
+        library_names = {"SQLAlchemy"}
+
         for keyword, framework, weight in self._CODE_FRAMEWORK_CHECKS:
             if keyword in imports_text:
                 # Find the import line
@@ -200,25 +219,144 @@ class PromptEnhancer:
                             excerpt=imp[:50],
                             match=framework,
                             weight=weight,
-                            confidence_hint="strong"
+                            confidence_hint="strong",
+                            category="library" if framework in library_names else "framework",
                         ))
                         break
 
         return evidence
 
+    # Maps normalized display names to their primary language. Built once
+    # from PACKAGE_MAP so adding a new ecosystem in dependency_analyzer.py
+    # automatically extends language detection here too. Conversation-only
+    # tech names (AWS, PostgreSQL, etc.) are layered on after.
+    @staticmethod
+    def _build_name_to_language_map() -> Dict[str, str]:
+        from src.agents.prompt_refiner.dependency_analyzer import PACKAGE_MAP
+        m: Dict[str, str] = {}
+        for info in PACKAGE_MAP.values():
+            m[str(info["name"])] = str(info["language"])
+        # Code-evidence framework names that aren't in PACKAGE_MAP
+        # (covered by _CODE_FRAMEWORK_CHECKS only).
+        m.setdefault("FastAPI", "python")
+        m.setdefault("Django", "python")
+        m.setdefault("Flask", "python")
+        m.setdefault("SQLAlchemy", "python")
+        m.setdefault("React", "javascript")
+        m.setdefault("Vue.js", "javascript")
+        m.setdefault("Next.js", "javascript")
+        m.setdefault("Express.js", "javascript")
+        m.setdefault("Angular", "javascript")
+        m.setdefault("TypeScript", "typescript")
+        return m
+
+    _NAME_TO_LANGUAGE: Dict[str, str] = {}  # populated lazily
+
+    @classmethod
+    def _name_to_language(cls) -> Dict[str, str]:
+        if not cls._NAME_TO_LANGUAGE:
+            cls._NAME_TO_LANGUAGE = cls._build_name_to_language_map()
+        return cls._NAME_TO_LANGUAGE
+
+    def _pick_primary_language(self, all_evidence: List[Evidence]) -> str:
+        """Pick the language carrying the highest-weighted evidence.
+
+        Ties resolve alphabetically for stable output. Languages explicitly
+        present as `category == "language"` evidence (e.g. TypeScript)
+        also count toward the score.
+        """
+        name_to_lang = self._name_to_language()
+        scores: Dict[str, float] = {}
+        for ev in all_evidence:
+            lang = name_to_lang.get(ev.match)
+            if not lang or lang == "unknown":
+                continue
+            scores[lang] = max(scores.get(lang, 0.0), ev.weight)
+        if not scores:
+            return "unknown"
+        # Sort by (-weight, name) so highest weight wins; alphabetical tie-break.
+        return sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+
+    def _compute_quality(
+        self,
+        prompt: str,
+        code_context: Optional[CodeContext],
+        chosen_stack: ChosenStack,
+    ) -> Dict[str, Any]:
+        """Compute a deterministic quality block for the response.
+
+        Pure function — no LLM call, no randomness, no I/O. Tells the
+        calling agent how well-grounded the refined prompt is and which
+        input fields would most improve a follow-up call.
+
+        Returns a dict with three keys:
+            prompt_grounding: "low" | "medium" | "high"
+            missing_signals:  subset of [language, framework, database, specificity]
+            suggested_inputs: subset of [project_files, attached_files,
+                                         conversation_history, file_context]
+        """
+        tokens = len((prompt or "").split())
+        confidence = chosen_stack.confidence
+
+        if tokens >= 8 and confidence >= 0.7:
+            grounding = "high"
+        elif tokens >= 5 or confidence >= 0.4:
+            grounding = "medium"
+        else:
+            grounding = "low"
+
+        missing: List[str] = []
+        if not chosen_stack.languages:
+            missing.append("language")
+        if not chosen_stack.frameworks:
+            missing.append("framework")
+        if not chosen_stack.databases:
+            missing.append("database")
+        if tokens < 5:
+            missing.append("specificity")
+
+        suggested: set = set()
+        if "framework" in missing or "language" in missing:
+            suggested.add("project_files")
+        has_code = bool(
+            code_context
+            and code_context.code_structure
+            and code_context.code_structure.imports
+        )
+        if not has_code:
+            suggested.add("attached_files")
+        if grounding == "low":
+            suggested.add("conversation_history")
+
+        return {
+            "prompt_grounding": grounding,
+            "missing_signals": missing,
+            "suggested_inputs": sorted(suggested),
+        }
+
     def _extract_conversation_evidence(self, context: CodeContext) -> List[Evidence]:
-        """Extract evidence from conversation."""
+        """Extract evidence from conversation.
+
+        Categorizes each detected technology via ConversationParser.CATEGORY_MAP:
+        databases like PostgreSQL go to "database", cloud / infra like AWS go to
+        "service", language names like TypeScript go to "language", and anything
+        not explicitly mapped falls back to "framework" (matching v0.9 behavior
+        for unmapped names).
+        """
         evidence = []
-        
+        category_map = ConversationParser.CATEGORY_MAP
+
         for tech in context.conversation.technologies:
             normalized = FRAMEWORK_NORMALIZED_MAP.get(tech.lower(), tech)
+            category = category_map.get(normalized, "framework")
             evidence.append(Evidence(
                 source="conversation",
                 match=normalized,
                 weight=0.4,  # Low weight for conversation
-                confidence_hint="weak"
+                confidence_hint="weak",
+                category=category,
             ))
-        
+
         return evidence
 
     def _build_chosen_stack(self, all_evidence: List[Evidence]) -> ChosenStack:
@@ -272,34 +410,46 @@ class PromptEnhancer:
         confidence = sum(top_weights) / len(top_weights) if top_weights else 0.0
         confidence = min(confidence, 1.0)  # Cap at 1.0
         
-        # Determine language from evidence. Both Python and JS frameworks may
-        # coexist in a full-stack project, so pick the language tied to the
-        # highest-weighted matching evidence rather than first-wins.
-        python_frameworks = {"FastAPI", "Django", "Flask", "SQLAlchemy"}
-        js_frameworks = {"React", "Vue.js", "Angular", "Next.js", "Express.js", "TypeScript"}
-
-        best_python_weight = 0.0
-        best_js_weight = 0.0
-        for ev in all_evidence:
-            if ev.match in python_frameworks:
-                best_python_weight = max(best_python_weight, ev.weight)
-            elif ev.match in js_frameworks:
-                best_js_weight = max(best_js_weight, ev.weight)
-
-        if best_python_weight == 0.0 and best_js_weight == 0.0:
-            language = "unknown"
-        elif best_js_weight > best_python_weight:
-            language = "javascript"
-        else:
-            language = "python"
+        # Determine primary language from evidence. Multiple language
+        # ecosystems may coexist (e.g. Python backend + JS frontend, or a
+        # polyglot monorepo). Pick the language carrying the
+        # highest-weighted evidence; ties resolve via deterministic
+        # alphabetical order so the result is stable across calls.
+        language = self._pick_primary_language(all_evidence)
         
+        # Route evidence into category-typed lists. Each list is a sorted,
+        # deduplicated set of normalized names.
+        def _by_category(cat: str) -> List[str]:
+            return sorted({
+                FRAMEWORK_NORMALIZED_MAP.get(e.match.lower(), e.match)
+                for e in all_evidence
+                if e.category == cat
+            })
+
+        languages = _by_category("language")
+        frameworks_list = _by_category("framework")
+        libraries = _by_category("library")
+        services = _by_category("service")
+        databases = _by_category("database")
+
+        # `frameworks` is now the framework-only filtered view (denormalized
+        # so v0.9 callers reading chosen_stack.frameworks keep working — but
+        # without services like AWS/Redis polluting it).
+        # Primary `database` field: pick the first database for back-compat;
+        # full list lives in `databases`.
+        primary_db = databases[0] if databases else "unknown"
+
         return ChosenStack(
             language=language,
-            frameworks=sorted(list(framework_scores.keys())),
-            database="unknown",
+            frameworks=frameworks_list,
+            database=primary_db,
             source=primary_source,
             confidence=confidence,
-            evidence=all_evidence
+            evidence=all_evidence,
+            languages=languages,
+            libraries=libraries,
+            services=services,
+            databases=databases,
         )
 
     def _format_context_summary(self, context: Optional[CodeContext], stack: ChosenStack) -> str:

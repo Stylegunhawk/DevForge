@@ -1,9 +1,9 @@
 # refine_prompt - Prompt Optimization Tool
 
-**Tool Name:** `refine_prompt`  
-**Version:** 0.8.0  
-**Phase:** 6 (Prompt Refinement)  
-**Status:** ✅ Production Ready
+**Tool Name:** `refine_prompt`
+**Version:** 0.10.0
+**Phase:** 6 (Prompt Refinement)
+**Status:** Beta
 
 ---
 
@@ -11,7 +11,14 @@
 
 The `refine_prompt` tool optimizes and enhances user prompts for specific domains using LLM-powered analysis with **evidence-based, deterministic tech stack selection**. It transforms simple prompts into detailed, production-ready specifications.
 
-**New in v0.9.0:** 
+**New in v0.10.0 (Robustness pass — see [spec](../../../docs/superpowers/specs/2026-05-14-refine-prompt-robustness-design.md)):**
+- **Polyglot manifest coverage**: 8 ecosystems supported (Python, JS/Node, Go, Rust, Java, Kotlin, Ruby, PHP, C#)
+- **Typed `chosen_stack` lists**: `languages`, `frameworks`, `libraries`, `services`, `databases` — services no longer pollute `frameworks`
+- **`quality` block**: deterministic grounding signal (`low`/`medium`/`high`) plus `suggested_inputs` for iterative agent enrichment
+- **Anti-hallucination guard**: vague code prompts now produce clarifying questions, not stack-bound specs
+- **Agent-friendly tool description**: MCP `tools/list` description teaches the iterative call pattern
+
+**New in v0.9.0:**
 - **Evidence Tracking**: Full provenance for all tech stack decisions (file, line, weight)
 - **Deterministic Confidence**: Mathematical confidence scores (no LLM guessing)
 - **Framework Normalization**: Canonical naming prevents duplicates
@@ -129,6 +136,116 @@ curl -X POST http://localhost:8001/api/gateway \
 
 > The top-level `tool`, `execution_time` and `error` fields are added by the
 > gateway wrapper in `src/agents/prompt_refiner/agent.py:refine_prompt_invoke`.
+
+---
+
+## Response shape (v0.10)
+
+```jsonc
+{
+  "success": true,
+  "tool": "refine_prompt",
+  "data": {
+    "refined_prompt": "...",
+    "context_summary": "...",
+    "chosen_stack": {
+      // Typed lists, each sorted alphabetically. Prefer these over the
+      // legacy denormalized `frameworks` field below.
+      "languages": ["python"],
+      "frameworks": ["FastAPI"],      // legacy view: framework-category only
+      "libraries":  ["SQLAlchemy"],
+      "services":   ["Redis"],
+      "databases":  ["PostgreSQL"],
+
+      // Unchanged from v0.9
+      "language":   "python",          // primary language (back-compat)
+      "database":   "PostgreSQL",      // primary database (back-compat)
+      "source":     "dependency_analysis",
+      "confidence": 0.85,
+      "evidence":   [
+        {
+          "source": "dependency_analysis",
+          "match": "FastAPI",
+          "weight": 0.9,
+          "file": "requirements.txt",
+          "line": 1,
+          "excerpt": "fastapi==0.110.0",
+          "confidence_hint": "strong",
+          "category": "framework"      // NEW in v0.10
+        }
+      ]
+    },
+    "quality": {                       // NEW BLOCK in v0.10
+      "prompt_grounding": "low",       // low | medium | high
+      "missing_signals":  ["language", "framework"],
+      "suggested_inputs": ["project_files", "attached_files"]
+    },
+    "sanitization_log": [...],
+    "domain": "code"
+  },
+  "execution_time": 11.49,
+  "error": null
+}
+```
+
+### Denormalization rule for `frameworks`
+
+`chosen_stack.frameworks` is retained as a denormalized view for v0.9
+callers, but it is now restricted to evidence items whose category is
+`framework`. Services like AWS / Redis and databases like PostgreSQL —
+which v0.9 could leak into this list when sourced from conversation —
+now appear in `chosen_stack.services` and `chosen_stack.databases`
+respectively. This is the only observable backward-incompatible
+behavior change in v0.10.
+
+### Quality block — worked examples
+
+| Input | tokens | confidence | grounding | missing_signals | suggested_inputs |
+|-------|--------|-----------|-----------|-----------------|-----------------|
+| `"refactor"` | 1 | 0.0 | low | language, framework, database, specificity | attached_files, conversation_history, project_files |
+| `"fix the login bug"` | 4 | 0.0 | low | language, framework, database, specificity | attached_files, conversation_history, project_files |
+| `"add OAuth2 with PKCE"` (no context) | 4 | 0.0 | low | language, framework, database, specificity | attached_files, conversation_history, project_files |
+| `"add OAuth2 with PKCE"` + requirements.txt(fastapi) | 4 | 0.9 | medium | language, database | (none if attached_files also present) |
+| `"add OAuth2 with PKCE for our FastAPI service"` + full project_files | 8 | 0.9 | high | (none) | (none) |
+
+### Agent integration pattern
+
+```text
+# Pseudocode for an LLM acting as MCP client
+response = call("refine_prompt", {prompt: user_input})
+
+if response.data.quality.prompt_grounding == "low":
+    # Ask the human (or auto-gather) for each item in suggested_inputs
+    enriched_args = {prompt: user_input}
+    for field in response.data.quality.suggested_inputs:
+        enriched_args[field] = gather(field)
+    response = call("refine_prompt", enriched_args)
+
+use(response.data.refined_prompt)
+```
+
+---
+
+## Supported manifest files (v0.10)
+
+The `project_files` argument accepts these manifest filenames. Each is
+parsed by a dedicated parser in `DependencyAnalyzer.PARSERS`:
+
+| Filename | Ecosystem | Recognized frameworks/libraries |
+|----------|-----------|----------------------------------|
+| `requirements.txt` | Python | fastapi, flask, django, sqlalchemy, pandas, pytest |
+| `package.json` | JS / Node | react, vue, next, express, typescript |
+| `go.mod` | Go | gin, echo, fiber, cobra, gorm |
+| `Cargo.toml` | Rust | actix-web, axum, rocket, tokio, clap, serde, diesel |
+| `pom.xml` | Java | spring-boot, spring-core, spring-web, hibernate-core, junit |
+| `build.gradle` / `build.gradle.kts` | Java / Kotlin | spring-boot, junit, ktor, hibernate-core |
+| `Gemfile` | Ruby | rails, sinatra, rspec, sidekiq |
+| `composer.json` | PHP | laravel/framework, symfony/symfony, phpunit/phpunit |
+| `*.csproj` | C# / .NET | Microsoft.AspNetCore.App, Microsoft.EntityFrameworkCore, xunit, NUnit |
+
+Unrecognized packages inside a recognized manifest are silently skipped
+(not surfaced as unknown frameworks). Malformed manifests log a warning
+and return no evidence — they never raise.
 
 ---
 

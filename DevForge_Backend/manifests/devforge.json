@@ -3,7 +3,7 @@
   "name": "DevForge",
   "meta": {
     "author": "You",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "description": "Local developer tools with intelligent GitHub automation (data generation, RAG, GitOps, CI/CD, and Cheat Sheets)"
   },
   "api": [
@@ -109,13 +109,14 @@
     },
     {
       "name": "refine_prompt",
-      "description": "Refine and optimize a prompt for specific domains (image, code, rag, llm)",
+      "description": "Refines a user prompt into a detailed specification with optional tech-stack grounding. Iterative use: response.quality.prompt_grounding signals 'low'/'medium'/'high'; re-call with the fields listed in quality.suggested_inputs to improve grounding. Output data.chosen_stack splits detected tech into typed lists (languages, frameworks, libraries, services, databases). Supports manifest files: requirements.txt, package.json, go.mod, Cargo.toml, pom.xml, build.gradle(.kts), Gemfile, composer.json, *.csproj. Domains: code, image, rag, llm, general.",
       "parameters": {
         "type": "object",
         "properties": {
           "prompt": {
             "type": "string",
-            "description": "Original user prompt to refine"
+            "minLength": 1,
+            "description": "The user's original prompt to refine. Required, non-empty. Pass the raw prompt verbatim."
           },
           "domain": {
             "type": "string",
@@ -127,7 +128,7 @@
               "llm"
             ],
             "default": "general",
-            "description": "Target domain for the prompt"
+            "description": "Refinement domain. 'code' triggers tech-stack detection. 'image' produces Midjourney/SD prompts. 'rag' produces vector-search queries."
           },
           "skill_level": {
             "type": "string",
@@ -137,11 +138,11 @@
               "expert"
             ],
             "default": "intermediate",
-            "description": "Target skill level/complexity"
+            "description": "Adjusts depth and assumed prior knowledge in the refined prompt."
           },
           "file_context": {
             "type": "string",
-            "description": "Optional context from attached files (code, markdown, etc.)"
+            "description": "Free-form text context. Prefer attached_files and project_files for stronger evidence. Sanitized before use."
           },
           "conversation_history": {
             "type": "array",
@@ -161,21 +162,21 @@
                 }
               }
             },
-            "description": "Last 5 conversation messages for project context (e.g., tech stack, previous work)"
+            "description": "Recent chat messages (last 5 considered). Weak evidence by default (weight 0.4)."
           },
           "attached_files": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Code file contents to analyze for context (e.g., existing classes, functions, conventions)"
+            "description": "Source code file contents (one per array element). Used to detect imported frameworks and existing classes/functions."
           },
           "project_files": {
             "type": "object",
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Dictionary of project files (e.g., {'requirements.txt': '...'}) for dependency analysis"
+            "description": "Dependency manifest files keyed by filename. Strongly recommended for 'code' domain. Supported: requirements.txt, package.json, go.mod, Cargo.toml, pom.xml, build.gradle, build.gradle.kts, Gemfile, composer.json, *.csproj."
           }
         },
         "required": [

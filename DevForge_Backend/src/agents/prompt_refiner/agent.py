@@ -113,12 +113,13 @@ class PromptRefinerAgent:
                 "context_summary": enhancement_result.get("context_summary"),
                 "chosen_stack": enhancement_result.get("chosen_stack"),
                 "sanitization_log": enhancement_result.get("sanitization_log", []),
+                "quality": enhancement_result.get("quality"),
                 "domain": domain,
                 "skill_level": skill_level,
                 "execution_time": execution_time,
                 "success": True,
             }
-            
+
             return result
 
         except Exception as e:
@@ -217,6 +218,7 @@ async def refine_prompt_invoke(
             "context_summary": result.get("context_summary"),
             "chosen_stack": result.get("chosen_stack"),
             "sanitization_log": result.get("sanitization_log", []),
+            "quality": result.get("quality"),
             "domain": result["domain"],
         },
         "execution_time": round(result.get("execution_time", 0), 4),
