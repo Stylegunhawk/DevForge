@@ -119,12 +119,16 @@ class AdvancedGeneratorV2:
         
         try:
             # Step 1: Semantic analysis
+            # NOTE: user_id is intentionally NOT forwarded here. `generate()`
+            # does not accept user_id in its signature; threading it from the
+            # outer wrapper is the responsibility of the wrapper. Forwarding
+            # an undefined name here caused a NameError that silently failed
+            # every V2 call.
             semantic_info = await self._analyze_schema_semantically(
-                schema, 
+                schema,
                 user_prompt,
                 tenant_id=tenant_id,
                 integration_name=integration_name,
-                user_id=user_id  # NEW: Pass user_id to _analyze_schema_semantically
             )
             analysis_end_time = time.time()
             self._report("semantic_analysis", 40, "Schema semantic analysis complete")
@@ -236,11 +240,10 @@ class AdvancedGeneratorV2:
         try:
             logger.info("Running semantic analysis...")
             result = await self.semantic_analyzer.analyze_schema(
-                schema, 
+                schema,
                 user_prompt,
                 tenant_id=tenant_id,
                 integration_name=integration_name,
-                user_id=user_id  # NEW: Pass user_id to semantic_analyzer
             )
             
             # Log analysis results
@@ -272,13 +275,14 @@ class AdvancedGeneratorV2:
                 """Return a generator function for a field."""
                 entity_semantic = self.semantic_info.get(entity_name, [])
                 semantic_map = {info.field_name: info for info in entity_semantic}
-                
+
                 if field_name in semantic_map:
                     sem_info = semantic_map[field_name]
                     return lambda: self.router.generate_value(
                         semantic_type=sem_info.semantic_type,
                         entity_name=entity_name,
-                        constraints=sem_info.constraints
+                        constraints=sem_info.constraints,
+                        field_name=field_name,
                     )
                 else:
                     return lambda: self.faker.word()
@@ -323,7 +327,8 @@ class AdvancedGeneratorV2:
                         row[field_name] = self.semantic_router.generate_value(
                             semantic_type=sem_info.semantic_type,
                             entity_name=entity_name,
-                            constraints=sem_info.constraints
+                            constraints=sem_info.constraints,
+                            field_name=field_name,
                         )
                     else:
                         # Fallback to simple generation
@@ -861,12 +866,24 @@ async def generate_advanced_data_v2(
         # Step 4: Format output (JSON returns native arrays, CSV returns strings)
         formatted_data = generator.format_output(result["data"], output_format)
         
-        # Step 5: Determine success based on metadata and violations
-        success = (
-            len(result.get("constraint_violations", [])) == 0 and
-            result.get("fk_integrity", {}).get("valid", True) and
-            result["metadata"].get("constraint_enforcement", {}).get("enforced", True)
+        # Step 5: Determine success based on metadata and violations.
+        # Fail-closed on any upstream pipeline error: the inner generate()
+        # returns {success: False, metadata: {error: True}} on exceptions, and
+        # earlier the success calc here ignored both signals and reported
+        # success=True with empty data. Check the upstream failure flags
+        # first, then fall through to the constraint/FK checks.
+        upstream_failed = (
+            result.get("success") is False
+            or result.get("metadata", {}).get("error") is True
         )
+        if upstream_failed:
+            success = False
+        else:
+            success = (
+                len(result.get("constraint_violations", [])) == 0
+                and result.get("fk_integrity", {}).get("valid", True)
+                and result["metadata"].get("constraint_enforcement", {}).get("enforced", True)
+            )
         
         return {
             "entities": list(result["data"].keys()),

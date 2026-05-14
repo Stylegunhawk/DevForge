@@ -109,8 +109,11 @@ async def datagen_agent(
             )
             
             # Invariant 8: Deterministic Success Semantics
-            # Trust the generator's internal success flag
-            success = result.get("_internal_success", True)
+            # Trust the generator's internal success flag. Default to False
+            # (fail-closed) so that any future code path that forgets to set
+            # _internal_success surfaces as a visible failure rather than a
+            # silent empty-data success.
+            success = result.get("_internal_success", False)
             
             return {
                 "success": success,
