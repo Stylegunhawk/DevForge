@@ -93,9 +93,11 @@ class PromptEnhancer:
             context_summary = self._format_context_summary(code_context, chosen_stack)
             evidence_block = self._format_evidence_block(all_evidence)
 
-            # Select appropriate template
+            # Select appropriate template. Strict-rule template requires
+            # confidence >= 0.6 — conversation-only evidence (weight 0.4)
+            # is too weak to force the LLM to commit to a stack.
             template_key = domain
-            if domain == "code" and chosen_stack.confidence > 0.0:
+            if domain == "code" and chosen_stack.confidence >= 0.6:
                 template_key = "code_context"
             
             template = TEMPLATES.get(template_key, TEMPLATES["general"])
@@ -166,20 +168,27 @@ class PromptEnhancer:
                 "error": str(e)
             }
 
+    # Frameworks detectable from code imports. Kept aligned with
+    # DependencyAnalyzer.PACKAGE_MAP so coverage is symmetric between
+    # dependency files and attached source code.
+    _CODE_FRAMEWORK_CHECKS = [
+        ("fastapi", "FastAPI", 0.8),
+        ("flask", "Flask", 0.8),
+        ("django", "Django", 0.8),
+        ("sqlalchemy", "SQLAlchemy", 0.6),
+        ("react", "React", 0.8),
+        ("vue", "Vue.js", 0.8),
+        ("next", "Next.js", 0.8),
+        ("express", "Express.js", 0.8),
+        ("angular", "Angular", 0.8),
+    ]
+
     def _extract_code_evidence(self, context: CodeContext) -> List[Evidence]:
         """Extract evidence from code structure."""
         evidence = []
         imports_text = " ".join(context.code_structure.imports).lower()
-        
-        # Check for framework mentions in imports
-        framework_checks = [
-            ("fastapi", "FastAPI", 0.8),
-            ("flask", "Flask", 0.8),
-            ("django", "Django", 0.8),
-            ("react", "React", 0.8),
-        ]
-        
-        for keyword, framework, weight in framework_checks:
+
+        for keyword, framework, weight in self._CODE_FRAMEWORK_CHECKS:
             if keyword in imports_text:
                 # Find the import line
                 for idx, imp in enumerate(context.code_structure.imports):
@@ -194,7 +203,7 @@ class PromptEnhancer:
                             confidence_hint="strong"
                         ))
                         break
-        
+
         return evidence
 
     def _extract_conversation_evidence(self, context: CodeContext) -> List[Evidence]:
@@ -263,14 +272,26 @@ class PromptEnhancer:
         confidence = sum(top_weights) / len(top_weights) if top_weights else 0.0
         confidence = min(confidence, 1.0)  # Cap at 1.0
         
-        # Determine language from evidence
-        language = "unknown"
+        # Determine language from evidence. Both Python and JS frameworks may
+        # coexist in a full-stack project, so pick the language tied to the
+        # highest-weighted matching evidence rather than first-wins.
+        python_frameworks = {"FastAPI", "Django", "Flask", "SQLAlchemy"}
+        js_frameworks = {"React", "Vue.js", "Angular", "Next.js", "Express.js", "TypeScript"}
+
+        best_python_weight = 0.0
+        best_js_weight = 0.0
         for ev in all_evidence:
-            if ev.source == "dependency_analysis" and "Python" in ev.match or "FastAPI" in ev.match or "Django" in ev.match or "Flask" in ev.match:
-                language = "python"
-                break
-            if "React" in ev.match or "Vue" in ev.match or "Angular" in ev.match:
-                language = "javascript" if language == "unknown" else language
+            if ev.match in python_frameworks:
+                best_python_weight = max(best_python_weight, ev.weight)
+            elif ev.match in js_frameworks:
+                best_js_weight = max(best_js_weight, ev.weight)
+
+        if best_python_weight == 0.0 and best_js_weight == 0.0:
+            language = "unknown"
+        elif best_js_weight > best_python_weight:
+            language = "javascript"
+        else:
+            language = "python"
         
         return ChosenStack(
             language=language,

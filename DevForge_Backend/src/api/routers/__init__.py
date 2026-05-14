@@ -84,9 +84,9 @@ TOOL_DESCRIPTIONS = {
         "ENVIRONMENT: GITOPS_ENV=production blocks irreversible operations entirely."
     ),
     "refine_prompt": (
-        "AI prompt optimization tool. "
-        "Analyzes and refines prompts for better AI responses "
-        "with context-aware improvements."
+        "AI prompt optimization tool for non-empty prompts. "
+        "Analyzes and refines prompts for better AI responses, sanitizes secrets, "
+        "and uses evidence-based code context when available."
     ),
     "generate_cheatsheet": (
         "Context-aware dynamic cheat sheet generator. "
@@ -1431,7 +1431,8 @@ def _get_tool_schema(tool_name: str) -> dict:
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "Original user prompt to refine and optimize",
+                    "minLength": 1,
+                    "description": "Original non-empty user prompt to refine and optimize",
                 },
                 "domain": {
                     "type": "string",

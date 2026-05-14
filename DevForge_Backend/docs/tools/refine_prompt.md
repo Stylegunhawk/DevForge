@@ -28,7 +28,7 @@ The `refine_prompt` tool optimizes and enhances user prompts for specific domain
 - ✅ **Context-Aware Refinement** (analyzes chat, files, dependencies)
 - ✅ **Domain-specific optimization** (5 domains: general, image, code, rag, llm)
 - ✅ **Skill-level adaptation** (beginner/intermediate/expert)
-- ✅ **Fast execution** (< 2s typical)
+- ⚠ **LLM-bound latency** (see Performance below)
 
 ---
 
@@ -93,10 +93,11 @@ curl -X POST http://localhost:8001/api/gateway \
   }'
 ```
 
-**Response (v0.9.0):**
+**Response (actual envelope returned by `/api/gateway` and MCP):**
 ```json
 {
   "success": true,
+  "tool": "refine_prompt",
   "data": {
     "refined_prompt": "Implement JWT authentication...",
     "context_summary": "- Language: python\n- Frameworks: FastAPI\n- Existing Classes: UserModel",
@@ -105,7 +106,7 @@ curl -X POST http://localhost:8001/api/gateway \
       "frameworks": ["FastAPI"],
       "database": "unknown",
       "source": "dependency_analysis",
-      "confidence": 0.9,
+      "confidence": 0.85,
       "evidence": [
         {
           "source": "dependency_analysis",
@@ -121,9 +122,37 @@ curl -X POST http://localhost:8001/api/gateway \
     "sanitization_log": [],
     "domain": "code"
   },
-  "message": "refine_prompt executed successfully"
+  "execution_time": 11.49,
+  "error": null
 }
 ```
+
+> The top-level `tool`, `execution_time` and `error` fields are added by the
+> gateway wrapper in `src/agents/prompt_refiner/agent.py:refine_prompt_invoke`.
+
+---
+
+## Performance
+
+This tool is LLM-bound — the bulk of every call is one synchronous chat
+completion against the model selected by `model_router.select_model_by_task("routing")`
+(currently `gpt-oss:20b-cloud` via a free Ollama-compatible endpoint).
+
+| Scenario | Observed latency |
+|----------|------------------|
+| `general` / `image` / `rag` domain, no context | 2 – 4 s |
+| `code` domain, no evidence | 4 – 7 s |
+| `code` domain with full evidence (strict template) | 9 – 16 s |
+| Sanitization-only path (injection blocked, no LLM call needed for output) | 1 – 2 s |
+
+**Why it is slow:** the project runs against a **free, shared LLM service**
+with no dedicated capacity and no streaming on this endpoint. Queue time and
+cold-start variance dominate. Self-hosting Ollama on local GPU, or pointing
+`OLLAMA_HOST` at a paid provider, will bring `code`-domain calls back under
+3 s without any code change.
+
+There is no caching of refined prompts today — identical inputs incur the
+full LLM round-trip every time. Caching is on the roadmap.
 
 ---
 
@@ -185,7 +214,9 @@ If your project has:
 
 ## EVIDENCE Block in Prompts
 
-When `chosen_stack.confidence > 0.0`, the LLM receives an **EVIDENCE** block:
+When `chosen_stack.confidence >= 0.6` (i.e. at least one strong evidence
+item, not just a passing conversation mention), the LLM receives an
+**EVIDENCE** block via the `code_context` template:
 
 ```
 ORIGINAL REQUEST: add authentication
@@ -231,7 +262,7 @@ sanitized_text, log = sanitizer.sanitize(input_text)
 | Bearer Tokens | `Bearer eyJhbGc...` | `[REDACTED]` |
 | URL Query Tokens | `?token=secret123` | `?[REDACTED]` |
 | Generic Secrets | `api_key=secret`, `password=abc` | `[REDACTED]` |
-| PostgreSQL URLs | `postgresql://user:pass@host` | `[REDACTED]` |
+| DB connection strings | `postgresql://`, `mysql://`, `mongodb://`, `mongodb+srv://`, `redis://`, `amqp://` (with embedded user:pass) | `[REDACTED]` |
 
 **Example:**
 ```

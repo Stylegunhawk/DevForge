@@ -50,7 +50,18 @@ class PromptRefinerAgent:
             Dictionary containing the refined prompt and metadata.
         """
         start_time = time.time()
-        
+
+        # Validate prompt
+        if not prompt or not prompt.strip():
+            logger.warning("refine_prompt called with empty prompt")
+            return {
+                "original_prompt": prompt or "",
+                "refined_prompt": prompt or "",
+                "domain": domain,
+                "error": "Prompt is empty. Provide a non-empty prompt to refine.",
+                "success": False,
+            }
+
         # Validate domain
         if domain not in DOMAIN_CONFIGS and domain != "general":
             logger.warning(f"Unknown domain '{domain}', defaulting to 'general'")

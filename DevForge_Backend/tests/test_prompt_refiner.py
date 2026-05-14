@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.agents.prompt_refiner.agent import PromptRefinerAgent, refine_prompt_invoke
 from src.agents.prompt_refiner.domain_handlers import DOMAIN_CONFIGS
+from src.api.routers import TOOL_DESCRIPTIONS, _get_tool_schema
+from src.core.model_router import UsageMetadata, UsageResult
 
 
 @pytest.fixture
@@ -14,6 +16,13 @@ def mock_model_router():
         mock_chat.ainvoke.return_value = MagicMock(content="Refined Prompt Content")
         mock.get_chat_model.return_value = mock_chat
         mock.select_model_by_task.return_value = "test-model"
+        mock.invoke_with_usage = AsyncMock(
+            return_value=UsageResult(
+                content="Refined Prompt Content",
+                model_name="test-model",
+                usage=UsageMetadata(),
+            )
+        )
         yield mock
 
 
@@ -76,3 +85,13 @@ async def test_gateway_invoke_wrapper(mock_model_router):
     assert result["success"] is True
     assert result["tool"] == "refine_prompt"
     assert result["data"]["refined_prompt"] == "Refined Prompt Content"
+
+
+def test_refine_prompt_mcp_schema_matches_runtime_contract():
+    """MCP discovery should advertise refine_prompt runtime constraints."""
+    schema = _get_tool_schema("refine_prompt")
+
+    assert schema["properties"]["prompt"]["minLength"] == 1
+    assert "non-empty" in schema["properties"]["prompt"]["description"]
+    assert "sanitizes secrets" in TOOL_DESCRIPTIONS["refine_prompt"]
+    assert "evidence-based code context" in TOOL_DESCRIPTIONS["refine_prompt"]
