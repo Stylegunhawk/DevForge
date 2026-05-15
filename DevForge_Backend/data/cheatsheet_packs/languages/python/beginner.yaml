@@ -1,0 +1,115 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  last_reviewed: 2026-05-15
+  reviewer: sid
+
+entries:
+  - id: py.beginner.variables
+    title: "Variables & Types"
+    explanation: "Python uses dynamic typing — variables don't declare types up front."
+    tags: [syntax, fundamentals]
+    when_to_use: "Always — the foundation of any Python program."
+    examples:
+      - title: "Basic assignment"
+        language: python
+        code: |
+          name = "Alice"
+          age = 25
+          price = 19.99
+          is_active = True
+      - title: "Type hints (optional, modern style)"
+        language: python
+        code: |
+          name: str = "Alice"
+          age: int = 25
+    pitfalls:
+      - "Reassigning to a different type is legal but error-prone — use type hints to make intent explicit."
+      - "`is` checks identity, not equality. Use `==` for value comparison."
+
+  - id: py.beginner.control_flow
+    title: "Control Flow"
+    explanation: "Branching and looping over collections."
+    tags: [syntax, fundamentals]
+    when_to_use: "Conditional logic, iteration over lists/dicts."
+    examples:
+      - title: "If/elif/else"
+        language: python
+        code: |
+          if age >= 18:
+              print("Adult")
+          elif age >= 13:
+              print("Teen")
+          else:
+              print("Child")
+      - title: "For loop"
+        language: python
+        code: |
+          for i in range(5):
+              print(i)
+    pitfalls:
+      - "Python uses indentation for blocks — mixing tabs and spaces breaks code."
+      - "`for ... else:` runs when the loop exits without break."
+
+  - id: py.beginner.functions
+    title: "Functions"
+    explanation: "Reusable named blocks of code."
+    tags: [syntax, fundamentals]
+    when_to_use: "Any logic used more than once, or worth naming."
+    examples:
+      - title: "Basic function"
+        language: python
+        code: |
+          def greet(name: str) -> str:
+              return f"Hello, {name}!"
+      - title: "Default arguments"
+        language: python
+        code: |
+          def power(base, exponent=2):
+              return base ** exponent
+    pitfalls:
+      - "Default arguments evaluate once at definition time — never use a mutable default like `[]` or `{}`."
+      - "Functions without `return` implicitly return `None`."
+
+  - id: py.beginner.collections
+    title: "Lists, Dicts, Tuples, Sets"
+    explanation: "Python's four built-in collection types."
+    tags: [data-structures, fundamentals]
+    when_to_use: "Lists for ordered, dicts for keyed lookup, tuples for fixed records, sets for uniqueness."
+    examples:
+      - title: "List operations"
+        language: python
+        code: |
+          nums = [1, 2, 3]
+          nums.append(4)
+          first = nums[0]
+      - title: "Dict operations"
+        language: python
+        code: |
+          person = {"name": "Alice", "age": 25}
+          age = person.get("age", 0)
+          person["email"] = "alice@example.com"
+    pitfalls:
+      - "Dicts preserve insertion order since Python 3.7 — but don't rely on this for keyed access semantics."
+      - "Tuples are immutable; lists are mutable. Use tuples for fixed records and dict keys."
+
+  - id: py.beginner.io
+    title: "Basic I/O"
+    explanation: "Reading from stdin, writing to stdout, and file handling."
+    tags: [io, fundamentals]
+    when_to_use: "Interacting with the user or persisting data."
+    examples:
+      - title: "Print and input"
+        language: python
+        code: |
+          name = input("Your name: ")
+          print(f"Hello, {name}!")
+      - title: "Read a file"
+        language: python
+        code: |
+          with open("data.txt", "r") as f:
+              contents = f.read()
+    pitfalls:
+      - "Always use `with` for file handles — it closes the file even if an exception is raised."
+      - "`input()` returns a string. Convert with `int(...)` or `float(...)` if you need a number."

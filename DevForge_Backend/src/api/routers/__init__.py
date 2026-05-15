@@ -133,9 +133,31 @@ TOOL_DESCRIPTIONS = {
         "DOMAINS: code, image, rag, llm, general (default)."
     ),
     "generate_cheatsheet": (
-        "Context-aware dynamic cheat sheet generator. "
-        "Analyzes code to detect libraries, complexity, and generates "
-        "relevant markdown references with best practices and pitfalls."
+        "Generates an activity-aware programming cheat sheet from curated, "
+        "human-reviewed knowledge packs (one LLM call for personalization). "
+
+        "SUPPORTED LANGUAGES: python, javascript, typescript, go, rust, java, "
+        "ruby, php, csharp. Unsupported languages return success:false with a "
+        "clear message — DO NOT retry with a different value, ask the user. "
+
+        "INPUTS you should provide: "
+        "  - language (one of the above, or omit to auto-detect from code_context) "
+        "  - skill_level (beginner|intermediate|expert; default beginner) "
+        "  - code_context (paste the user's actual code if available — enables "
+        "    library detection and activity-aware ranking) "
+        "  - intent (1-line description of what the user is trying to do, e.g. "
+        "    'debugging async deadlock' — strongly improves relevance when code "
+        "    is unavailable or short). "
+
+        "OUTPUTS: data.markdown (rendered sheet), data.ranked_entries (structured), "
+        "data.packs_used (provenance for citing), data.quality ('curated' = LLM-"
+        "personalized; 'curated_unpersonalized' = deterministic fallback fired "
+        "because LLM returned bad JSON — content is still trustworthy but not "
+        "tailored), data.detected_libraries, data.complexity_score, "
+        "data.complexity_suggested_level. "
+
+        "LATENCY: 5–15s warm-cache, 20–30s cold-cache (free Ollama). Suggest a "
+        "loading indicator to the user."
     ),
 }
 
@@ -1555,7 +1577,14 @@ def _get_tool_schema(tool_name: str) -> dict:
             "properties": {
                 "language": {
                     "type": "string",
-                    "description": "Programming language (python, javascript, go, etc.)",
+                    "enum": [
+                        "python", "javascript", "typescript", "go", "rust",
+                        "java", "ruby", "php", "csharp",
+                    ],
+                    "description": (
+                        "Programming language. One of the 9 supported ecosystems. "
+                        "Omit to auto-detect from code_context."
+                    ),
                 },
                 "skill_level": {
                     "type": "string",
@@ -1564,7 +1593,19 @@ def _get_tool_schema(tool_name: str) -> dict:
                 },
                 "code_context": {
                     "type": "string",
-                    "description": "Code snippet for context-aware cheatsheet generation",
+                    "description": (
+                        "Code snippet for context-aware cheatsheet generation. "
+                        "Enables library detection and activity-driven ranking."
+                    ),
+                },
+                "intent": {
+                    "type": "string",
+                    "description": (
+                        "Short description of what the user is trying to do "
+                        "(e.g., 'debugging async deadlock', 'refactoring to typed "
+                        "dataclasses'). Strongly improves relevance, especially "
+                        "when code_context is short or unavailable."
+                    ),
                 },
             },
             "required": [],

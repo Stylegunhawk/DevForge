@@ -1,191 +1,164 @@
-"""Enhanced cheatsheet agent with context awareness"""
+"""Cheatsheet agent v0.11 — Curated Packs + LLM Personalization.
+
+Three-layer pipeline:
+  1. Pack loader (deterministic ground truth from data/cheatsheet_packs/)
+  2. Personalizer (single LLM call: ranks + writes relevance notes)
+  3. Markdown renderer (pure-function assembly)
+"""
 
 import logging
-from typing import Dict, Any, Optional
+from pathlib import Path
+from typing import Optional
 
-from src.agents.cheatsheet.context_parser import parse_code_context
-from src.agents.cheatsheet.library_detector import detect_libraries
+from pydantic import ValidationError
+
 from src.agents.cheatsheet.complexity_scorer import calculate_complexity
-from src.agents.cheatsheet.section_selector import select_sections
-from src.agents.cheatsheet.quick_reference import generate_quick_reference
-from src.tools.cheatsheet.tools import detect_language_from_code
+from src.agents.cheatsheet.context_parser import parse_code_context
+from src.agents.cheatsheet.language_detector import detect_language
+from src.agents.cheatsheet.library_detector import detect_libraries
+from src.agents.cheatsheet.markdown_renderer import render_markdown
+from src.agents.cheatsheet.pack_loader import (
+    PackLoader,
+    PackNotFoundError,
+    SUPPORTED_LANGUAGES,
+)
+from src.agents.cheatsheet.personalizer import Personalizer
+from src.agents.cheatsheet.request_model import CheatsheetRequest
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-class CheatsheetAgent:
-    """Generate context-aware programming cheatsheets"""
-    
-    def generate(self, arguments: dict) -> dict:
-        """
-        Main generation logic with context awareness.
-        
-        Args:
-            arguments: {
-                'language': Optional[str],
-                'skill_level': str,
-                'code_context': Optional[str]
-            }
-            
-        Returns:
-            {
-                'success': bool,
-                'language': str,
-                'skill_level': str,
-                'markdown': str,
-                'data': {...}
-            }
-        """
-        # Extract parameters
-        explicit_language = arguments.get('language')
-        skill_level = str(arguments.get('skill_level', 'beginner')).lower()
-        code_context = arguments.get('code_context')
-        
-        logger.info(f"Request: language={explicit_language}, "
-                   f"skill_level={skill_level}, "
-                   f"has_context={bool(code_context)}")
-        
-        # 1. Parse code context
-        parsed = None
-        if code_context:
-            parsed = parse_code_context(code_context)
-            logger.info(f"Parsed: {len(parsed['blocks'])} blocks, "
-                       f"{parsed['total_lines']} lines")
-        
-        # 2. Detect libraries
-        detected_libraries = []
-        if parsed and parsed['blocks']:
-            detected_libraries = detect_libraries(parsed['blocks'])
-            logger.info(f"Detected libraries: {detected_libraries}")
-        
-        # 3. Calculate complexity
-        complexity = {'score': 0, 'suggested_level': 'beginner', 'features': {}}
-        if parsed and parsed['blocks']:
-            complexity = calculate_complexity(parsed['blocks'])
-            logger.info(f"Complexity: score={complexity['score']}, "
-                       f"suggested={complexity['suggested_level']}")
-        
-        # 4. Determine language (explicit param wins)
-        language = None
-        if explicit_language:
-            language = explicit_language
-            logger.info(f"Using explicit language: {language}")
-        elif parsed and parsed['blocks']:
-            language = detect_language_from_code(parsed['blocks'][0])
-            logger.info(f"Auto-detected language: {language}")
-        else:
-            return {
-                'success': False,
-                'message': 'Must provide language or code_context',
-                'hint': 'Add "language": "python" to your request'
-            }
-        
-        # Validate language
-        if not language:
-            return {
-                'success': False,
-                'message': 'Could not detect language from code context',
-                'hint': 'Provide explicit "language" parameter'
-            }
-        
-        language_key = language.lower()
-        
-        # 5. Select sections
-        sections = select_sections(
-            language=language_key,
-            skill_level=skill_level,
-            detected_libraries=detected_libraries,
-            complexity_score=complexity['score']
-        )
-        
-        logger.info(f"Selected {len(sections)} sections")
-        
-        # 6. Assemble markdown
-        markdown = self._assemble_markdown(
-            language=language_key,
-            skill_level=skill_level,
-            sections=sections
-        )
-        
-        # 7. Generate quick reference
-        quick_ref = generate_quick_reference(
-            language=language_key,
-            skill_level=skill_level,
-            detected_libraries=detected_libraries
-        )
-        
-        # Combine markdown and quick reference
-        full_markdown = markdown + '\n' + quick_ref
-        
-        # 8. Return enhanced response
-        # Determine which detected libraries have template support
-        supported_libs = [lib for lib in detected_libraries if lib in['pandas', 'fastapi', 'asyncio']]
-        
-        logger.info(f"Delivering skill: {skill_level} (Requested: {arguments.get('skill_level', 'beginner')})")
-        
-        return {
-            'success': True,
-            'language': language_key,
-            'skill_level': skill_level,
-            'markdown': full_markdown,
-            'data': {
-                'language': language_key.title(),
-                'skill_level': skill_level,
-                'detected_libraries': detected_libraries,
-                'supported_libraries': supported_libs,
-                'complexity_score': complexity['score'],
-                'sections': [{'title': s['title']} for s in sections]
-            }
-        }
-    
-    def _assemble_markdown(
-        self,
-        language: str,
-        skill_level: str,
-        sections: list
-    ) -> str:
-        """Combine sections into final markdown"""
-        lines = [f"# {language.title()} Cheat Sheet - {skill_level.title()}\n"]
-        
-        for i, section in enumerate(sections, 1):
-            # Section header
-            lines.append(f"\n## {i}. {section['title']}")
-            lines.append(section['explanation'] + '\n')
-            
-            # Examples
-            for example in section.get('examples', []):
-                lines.append(f"### {example['title']}")
-                lines.append(f"```{language}")
-                lines.append(example['code'])
-                lines.append("```\n")
-            
-            # Pitfalls
-            if section.get('pitfalls'):
-                lines.append("### Common Pitfalls")
-                for pitfall in section['pitfalls']:
-                    lines.append(f"- {pitfall}")
-                lines.append("")
-        
-        return '\n'.join(lines)
+_PACK_ROOT = Path(__file__).resolve().parents[3] / "data" / "cheatsheet_packs"
+_loader = PackLoader(root=_PACK_ROOT)
+_personalizer = Personalizer()
 
 
-# Global instance
-cheatsheet_agent = CheatsheetAgent()
+def _failure(message: str) -> dict:
+    return {"success": False, "data": {"message": message}, "format": "markdown"}
 
 
 async def generate_cheatsheet_invoke(
-    args: dict, 
+    args: dict,
     tenant_id: str = "unknown",
     integration_name: str = "unknown",
-    user_id: str = None  # NEW: Phase 4 analytics support
+    user_id: Optional[str] = None,
 ) -> dict:
-    """Wrapper for MCP Gateway invocation (async wrapper for sync logic)"""
-    result = cheatsheet_agent.generate(args)
-    
+    """MCP gateway entry point for the cheatsheet tool."""
+    # 1. Validate request
+    try:
+        req = CheatsheetRequest(**args)
+    except ValidationError as e:
+        first = e.errors()[0]
+        return _failure(first.get("msg", "Invalid request."))
+
+    # 2. Parse code context + run deterministic analysis
+    parsed = parse_code_context(req.code_context or "")
+    blocks = parsed.get("blocks", [])
+    detected_libraries = detect_libraries(blocks) if blocks else []
+    complexity = (
+        calculate_complexity(blocks)
+        if blocks
+        else {"score": 0, "suggested_level": "beginner", "features": {}}
+    )
+
+    # 3. Resolve language (explicit wins, else auto-detect from code)
+    language = req.language
+    if not language and blocks:
+        language = detect_language(blocks[0])
+    if not language:
+        return _failure(
+            "Could not detect language from code_context. "
+            "Pass an explicit 'language' or 'intent'."
+        )
+    if language not in SUPPORTED_LANGUAGES:
+        return _failure(
+            f"Language {language!r} is not supported. "
+            f"Supported: {', '.join(SUPPORTED_LANGUAGES)}."
+        )
+
+    # 4. Load packs
+    try:
+        lang_pack = _loader.load_language_pack(language, req.skill_level)
+    except PackNotFoundError as e:
+        logger.error(f"Pack data missing: {e}")
+        return _failure(
+            f"Internal: pack data missing for {language}/{req.skill_level}."
+        )
+
+    packs = [lang_pack]
+    packs_used = [{
+        "kind": "language",
+        "id": f"{language}/{req.skill_level}",
+        "version": lang_pack.pack.version,
+        "last_reviewed": lang_pack.pack.last_reviewed.isoformat(),
+    }]
+    for lib in detected_libraries:
+        lib_pack = _loader.load_library_pack(lib, req.skill_level)
+        if lib_pack is not None:
+            packs.append(lib_pack)
+            packs_used.append({
+                "kind": "library",
+                "id": f"{lib}/{req.skill_level}",
+                "version": lib_pack.pack.version,
+                "last_reviewed": lib_pack.pack.last_reviewed.isoformat(),
+            })
+
+    # 5. Personalize (single LLM call — analytics flow via model_router.task_type)
+    personalization = await _personalizer.personalize(
+        packs=packs,
+        code_context_blocks=blocks,
+        detected_libraries=detected_libraries,
+        complexity_score=complexity["score"],
+        complexity_suggested_level=complexity["suggested_level"],
+        requested_language=language,
+        requested_skill=req.skill_level,
+        intent=req.intent or "",
+        tenant_id=tenant_id,
+        integration_name=integration_name,
+        user_id=user_id,
+    )
+
+    # 6. Render markdown
+    markdown = render_markdown(language, req.skill_level, packs, personalization)
+
+    # 7. Build response (additive new fields, keeps legacy keys)
+    ranked_entries = []
+    for ranked in personalization.ranked:
+        entry = None
+        source_pack = None
+        for pack in packs:
+            for e in pack.entries:
+                if e.id == ranked.id:
+                    entry = e
+                    source_pack = (
+                        f"libraries/{pack.pack.library}/{pack.pack.skill_level}"
+                        if pack.pack.library
+                        else f"languages/{pack.pack.language}/{pack.pack.skill_level}"
+                    )
+                    break
+            if entry:
+                break
+        if entry is None:
+            continue
+        ranked_entries.append({
+            "id": ranked.id,
+            "title": entry.title,
+            "relevance_note": ranked.relevance_note,
+            "source_pack": source_pack,
+        })
+
     return {
-        "success": result.get("success", False),
-        "data": result,
-        "format": "markdown"
+        "success": True,
+        "data": {
+            "language": language,
+            "skill_level": req.skill_level,
+            "complexity_score": complexity["score"],
+            "complexity_suggested_level": complexity["suggested_level"],
+            "detected_libraries": detected_libraries,
+            "packs_used": packs_used,
+            "ranked_entries": ranked_entries,
+            "intro": personalization.intro,
+            "quality": personalization.quality,
+            "markdown": markdown,
+        },
+        "format": "markdown",
     }

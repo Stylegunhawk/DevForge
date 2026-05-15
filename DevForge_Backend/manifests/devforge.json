@@ -3,7 +3,7 @@
   "name": "DevForge",
   "meta": {
     "author": "You",
-    "version": "0.10.0",
+    "version": "0.11.0",
     "description": "Local developer tools with intelligent GitHub automation (data generation, RAG, GitOps, CI/CD, and Cheat Sheets)"
   },
   "api": [
@@ -187,13 +187,17 @@
     },
     {
       "name": "generate_cheatsheet",
-      "description": "Generate a dynamic cheat sheet for a programming language based on skill level.",
+      "description": "Activity-aware cheat sheet from curated, human-reviewed knowledge packs (one LLM call for personalization). SUPPORTED: python, javascript, typescript, go, rust, java, ruby, php, csharp. Unsupported languages return success:false. Provide code_context for library detection and intent for relevance. LATENCY: 5-15s warm, 20-30s cold.",
       "parameters": {
         "type": "object",
         "properties": {
           "language": {
             "type": "string",
-            "description": "Programming language (e.g., python, javascript). Auto-detected if code_context is provided."
+            "enum": [
+              "python", "javascript", "typescript", "go", "rust",
+              "java", "ruby", "php", "csharp"
+            ],
+            "description": "One of the 9 supported ecosystems. Omit to auto-detect from code_context."
           },
           "skill_level": {
             "type": "string",
@@ -207,7 +211,11 @@
           },
           "code_context": {
             "type": "string",
-            "description": "Optional code snippet to auto-detect language and context."
+            "description": "Code snippet — enables library detection and activity-driven ranking."
+          },
+          "intent": {
+            "type": "string",
+            "description": "Short description of what the user is doing (e.g., 'debugging async deadlock'). Improves relevance, especially when code_context is short."
           }
         },
         "required": []

@@ -83,17 +83,17 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 - `rag/` — document retrieval with hybrid search, reranking, query cache, intent-aware expansion
 - `github/` — GitOps automation with fuzzy repo matching & LLM-generated commits
 - `prompt_refiner/` — domain-aware prompt optimization. **v0.10 (2026-05-14)** adds polyglot manifest coverage (8 ecosystems), typed `chosen_stack` lists, deterministic `quality` block, and anti-hallucination guard for vague code prompts. See [docs/tools/refine_prompt.md](docs/tools/refine_prompt.md) and [v0.10 spec](../docs/superpowers/specs/2026-05-14-refine-prompt-robustness-design.md).
-- `cheatsheet/` — code documentation generation
+- `cheatsheet/` — code cheat sheet generation. **v0.11 (2026-05-15)** rewrites the tool around curated YAML knowledge packs (`data/cheatsheet_packs/`) + a single LLM personalization call. 9 supported languages (python, javascript, typescript, go, rust, java, ruby, php, csharp), tree-sitter-validated syntax in CI, no LLM-invented code, new optional `intent` parameter for activity-driven ranking. **Verified through 16-scenario MCP stress test** including prompt-injection resistance (hallucinated-id drop guard), length-limit Pydantic gate, concurrency, unicode, and explicit-input precedence. **Pack status:** only `languages/python/beginner.yaml` (hand-written seed) ships in this commit — run `scripts/bootstrap_cheatsheet_packs.py --all` to LLM-bootstrap the remaining 68 packs. See [docs/tools/generate_cheatsheet.md](docs/tools/generate_cheatsheet.md) and [v0.11 spec](../docs/superpowers/specs/2026-05-15-generate-cheatsheet-production-grade-design.md).
 - `rag/reranking/cross_encoder_reranker.py` — cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`), internal stage of `retrieve_docs`
 
 ### Current tool versions
 
 | Tool | Version | Manifest version | Highlights |
 |------|---------|------------------|------------|
-| `generate_data` | 0.9.0 | 0.10.0 | Catalog-sandbox + realism consolidation |
-| `refine_prompt` | 0.10.0 | (rolled into manifest) | Polyglot + quality block + anti-hallucination |
-| `github_operation` | 0.8.0 | (rolled into manifest) | Risk-tiered ops + per-user PAT |
-| `generate_cheatsheet` | (unchanged) | (rolled into manifest) | — |
+| `generate_data` | 0.9.0 | 0.11.0 | Catalog-sandbox + realism consolidation |
+| `refine_prompt` | 0.10.0 | 0.11.0 | Polyglot + quality block + anti-hallucination |
+| `github_operation` | 0.8.0 | 0.11.0 | Risk-tiered ops + per-user PAT |
+| `generate_cheatsheet` | 0.11.0 | 0.11.0 | Curated YAML packs + LLM personalization (9 languages) |
 
 The MCP `tools/list` description for `generate_data` and `refine_prompt` now teaches calling agents the iterative call pattern + cold/warm cache latency expectations. When adding new tools or updating an existing one, follow the same agent-instructive style — see `src/api/routers/__init__.py:TOOL_DESCRIPTIONS`.
 
