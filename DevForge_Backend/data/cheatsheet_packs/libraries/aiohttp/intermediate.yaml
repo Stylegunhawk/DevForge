@@ -1,0 +1,118 @@
+pack:
+  language: Python
+  skill_level: intermediate
+  version: 1
+  library: aiohttp
+  library_version_floor: 3.10.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: client-session
+  title: Async ClientSession
+  explanation: Demonstrates how to create and use aiohttp.ClientSession as an async
+    context manager for clean resource handling.
+  tags:
+  - client
+  - session
+  when_to_use: Use when you need a short-lived HTTP client within an async function.
+  examples:
+  - title: Simple GET with session
+    language: Python
+    code: "import aiohttp, asyncio\n\nasync def fetch(url):\n    async with aiohttp.ClientSession()\
+      \ as session:\n        async with session.get(url) as resp:\n            return\
+      \ await resp.text()\n\nasyncio.run(fetch('https://example.com'))\n"
+  pitfalls:
+  - Forgetting to await resp.text() or resp.json() leading to coroutine objects.
+  - Using the session outside of its async context manager, causing unclosed connections.
+- id: make-get-request
+  title: GET request with JSON decode
+  explanation: Shows how to perform a GET request and automatically decode a JSON
+    response.
+  tags:
+  - client
+  - get
+  - json
+  when_to_use: Use when the API returns JSON and you want to handle it directly.
+  examples:
+  - title: GET JSON
+    language: Python
+    code: "async def get_json(url):\n    async with aiohttp.ClientSession() as session:\n\
+      \        async with session.get(url) as resp:\n            resp.raise_for_status()\n\
+      \            return await resp.json()\n"
+  pitfalls:
+  - Not checking resp.status before calling resp.json() which may raise an error.
+  - Assuming resp.json() returns a dict; it may return list or other types.
+- id: make-post-request
+  title: POST request with JSON payload
+  explanation: Demonstrates sending JSON data via POST and handling the response.
+  tags:
+  - client
+  - post
+  - json
+  when_to_use: Use when submitting form data or JSON to a REST API.
+  examples:
+  - title: POST JSON
+    language: Python
+    code: "async def post_json(url, payload):\n    async with aiohttp.ClientSession()\
+      \ as session:\n        async with session.post(url, json=payload) as resp:\n\
+      \            resp.raise_for_status()\n            return await resp.json()\n"
+  pitfalls:
+  - Forgetting to set json=payload; using data=payload sends form-encoded data.
+  - Not handling non-200 status codes leading to silent failures.
+- id: server-setup
+  title: Basic aiohttp.web server
+  explanation: Creates a minimal aiohttp.web application with a single route.
+  tags:
+  - server
+  - web
+  - route
+  when_to_use: Use when you need a lightweight async HTTP server.
+  examples:
+  - title: Hello World server
+    language: Python
+    code: "from aiohttp import web\n\nasync def hello(request):\n    return web.Response(text=\"\
+      Hello, world!\")\n\napp = web.Application()\napp.router.add_get('/', hello)\n\
+      \nif __name__ == '__main__':\n    web.run_app(app, host='127.0.0.1', port=8080)\n"
+  pitfalls:
+  - Forgetting to add routes before running the app.
+  - Using synchronous handlers which block the event loop.
+- id: websocket-echo
+  title: WebSocket echo server
+  explanation: Implements a simple echo WebSocket handler that mirrors received messages.
+  tags:
+  - websocket
+  - server
+  - echo
+  when_to_use: Use when you need real-time bidirectional communication.
+  examples:
+  - title: Echo handler
+    language: Python
+    code: "from aiohttp import web\n\nasync def websocket_handler(request):\n    ws\
+      \ = web.WebSocketResponse()\n    await ws.prepare(request)\n\n    async for\
+      \ msg in ws:\n        if msg.type == web.WSMsgType.TEXT:\n            await\
+      \ ws.send_str(msg.data)\n        elif msg.type == web.WSMsgType.BINARY:\n  \
+      \          await ws.send_bytes(msg.data)\n        elif msg.type == web.WSMsgType.CLOSE:\n\
+      \            await ws.close()\n\n    return ws\n\napp = web.Application()\n\
+      app.router.add_get('/ws', websocket_handler)\nweb.run_app(app)\n"
+  pitfalls:
+  - Not awaiting ws.prepare(request) which keeps the connection uninitialized.
+  - Forgetting to handle other message types and close events, leading to leaks.
+- id: timeout-context
+  title: Client timeouts
+  explanation: Shows how to set per-request timeouts using aiohttp.ClientTimeout.
+  tags:
+  - client
+  - timeout
+  - request
+  when_to_use: Use when you want to guard against slow or hanging requests.
+  examples:
+  - title: GET with timeout
+    language: Python
+    code: "timeout = aiohttp.ClientTimeout(total=5, sock_connect=2, sock_read=3)\n\
+      \nasync def fetch_with_timeout(url):\n    async with aiohttp.ClientSession(timeout=timeout)\
+      \ as session:\n        async with session.get(url) as resp:\n            return\
+      \ await resp.text()\n"
+  pitfalls:
+  - Using timeout=5 on the session which applies to all requests; may need per-request
+    override.
+  - Ignoring aiohttp.ClientError exceptions leading to uncaught errors.

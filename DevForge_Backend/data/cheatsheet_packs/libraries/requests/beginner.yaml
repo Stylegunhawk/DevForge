@@ -1,0 +1,130 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: requests
+  library_version_floor: 2.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-get-request
+  title: Basic GET Request
+  explanation: Retrieve a web page or API endpoint with a simple GET call.
+  tags:
+  - http
+  - get
+  - basic
+  when_to_use: When you need to fetch read‑only data from a public endpoint.
+  examples:
+  - title: Simple GET
+    language: python
+    code: 'import requests
+
+      response = requests.get(''https://api.example.com/data'')
+
+      print(response.json())
+
+      '
+  pitfalls:
+  - Forgetting to check response.status_code before using the data.
+  - Using requests.get without handling network errors.
+- id: post-json-request
+  title: POST JSON Request
+  explanation: Send JSON payload to an API using POST, automatically setting headers.
+  tags:
+  - http
+  - post
+  - json
+  when_to_use: When submitting form data or creating resources via an API.
+  examples:
+  - title: POST with JSON
+    language: python
+    code: 'import requests
+
+      payload = {''name'': ''Alice'', ''age'': 30}
+
+      response = requests.post(''https://api.example.com/users'', json=payload)
+
+      print(response.status_code)
+
+      '
+  pitfalls:
+  - Passing a dict to data instead of json, causing wrong Content-Type.
+  - Not handling authentication headers when required.
+- id: handle-404-error
+  title: Handle 404 Errors
+  explanation: Gracefully process missing resources by checking status codes.
+  tags:
+  - error
+  - status-code
+  - handling
+  when_to_use: When the endpoint may not exist and you want a fallback.
+  examples:
+  - title: 404 Check
+    language: python
+    code: "import requests\nresponse = requests.get('https://api.example.com/missing')\n\
+      if response.status_code == 404:\n    print('Resource not found.')\nelse:\n \
+      \   data = response.json()\n"
+  pitfalls:
+  - Relying on response.raise_for_status() for all cases without exception handling.
+  - Ignoring the possibility of redirects altering the status code.
+- id: use-session
+  title: Persistent Session
+  explanation: Maintain cookies and connection pooling across requests with a Session.
+  tags:
+  - session
+  - cookies
+  - performance
+  when_to_use: When making multiple requests to the same host or needing authentication
+    persistence.
+  examples:
+  - title: Session Example
+    language: python
+    code: 'import requests
+
+      session = requests.Session()
+
+      session.headers.update({''User-Agent'': ''my-app''})
+
+      response = session.get(''https://api.example.com/data'')
+
+      print(response.json())
+
+      '
+  pitfalls:
+  - Forgetting to close the session, leading to resource leaks.
+  - Using a session for cross‑domain requests without clearing cookies.
+- id: set-timeout
+  title: Set Request Timeout
+  explanation: Prevent requests from hanging indefinitely by specifying a timeout.
+  tags:
+  - timeout
+  - network
+  - reliability
+  when_to_use: When calling external services that may be slow or unreliable.
+  examples:
+  - title: Timeout Example
+    language: python
+    code: "import requests\ntry:\n    response = requests.get('https://api.example.com/slow',\
+      \ timeout=5)\n    print(response.text)\nexcept requests.Timeout:\n    print('Request\
+      \ timed out.')\n"
+  pitfalls:
+  - Setting timeout to None, disabling the safeguard.
+  - Using a short timeout on unstable networks, causing frequent failures.
+- id: stream-download
+  title: Stream Large File Download
+  explanation: Download big files without loading them entirely into memory.
+  tags:
+  - streaming
+  - download
+  - memory
+  when_to_use: When retrieving large resources like media or datasets.
+  examples:
+  - title: Streaming Download
+    language: python
+    code: "import requests\nwith requests.get('https://example.com/large.zip', stream=True)\
+      \ as r:\n    r.raise_for_status()\n    with open('large.zip', 'wb') as f:\n\
+      \        for chunk in r.iter_content(chunk_size=8192):\n            f.write(chunk)\n"
+  pitfalls:
+  - Not using stream=True, causing high memory usage.
+  - Forgetting to close the file or response context.

@@ -1,0 +1,122 @@
+pack:
+  language: Python
+  skill_level: intermediate
+  version: 1
+  library: django
+  library_version_floor: 4.2.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: django-model-definition
+  title: Model Definition
+  explanation: Define database tables using Django's ORM by subclassing models.Model.
+    Fields map to columns and provide validation.
+  tags:
+  - models
+  - orm
+  when_to_use: When creating a new table or extending an existing one with Django.
+  examples:
+  - title: Simple BlogPost Model
+    language: Python
+    code: "from django.db import models\n\nclass BlogPost(models.Model):\n    title\
+      \ = models.CharField(max_length=200)\n    content = models.TextField()\n   \
+      \ published_at = models.DateTimeField(auto_now_add=True)\n\n    def __str__(self):\n\
+      \        return self.title\n"
+  pitfalls:
+  - Forgetting to run `makemigrations` after adding a model.
+  - Using mutable defaults like `default=[]` which lead to shared state across instances.
+- id: django-admin-registration
+  title: Admin Registration
+  explanation: Register models with Django's admin site to enable CRUD operations
+    via the web interface. Use ModelAdmin for customization.
+  tags:
+  - admin
+  - ui
+  when_to_use: When you need an out‑of‑the‑box admin UI for data management.
+  examples:
+  - title: Register BlogPost with Admin
+    language: Python
+    code: "from django.contrib import admin\nfrom .models import BlogPost\n\n@admin.register(BlogPost)\n\
+      class BlogPostAdmin(admin.ModelAdmin):\n    list_display = ('title', 'published_at')\n\
+      \    search_fields = ('title',)\n"
+  pitfalls:
+  - Registering a model without importing it, causing a NameError.
+  - Forgetting `list_display` to show fields, leading to a blank list view.
+- id: django-migrations
+  title: Migrations
+  explanation: Migrations capture schema changes and allow versioned database evolution.
+    `makemigrations` creates, `migrate` applies them.
+  tags:
+  - migrations
+  - db
+  when_to_use: When modifying models or adding new ones.
+  examples:
+  - title: Add Author Field
+    language: Python
+    code: "# models.py\nclass BlogPost(models.Model):\n    title = models.CharField(max_length=200)\n\
+      \    content = models.TextField()\n    author = models.ForeignKey('auth.User',\
+      \ on_delete=models.CASCADE)\n    published_at = models.DateTimeField(auto_now_add=True)\n\
+      \n# Terminal\n$ python manage.py makemigrations\n$ python manage.py migrate\n"
+  pitfalls:
+  - Skipping `makemigrations` after a field change, leaving the DB schema out of sync.
+  - Running `migrate` without a database backup, risking data loss on destructive
+    changes.
+- id: django-querysets
+  title: QuerySets
+  explanation: Retrieve and manipulate data using Django's lazy QuerySet API, supporting
+    filtering, ordering, and aggregation.
+  tags:
+  - querysets
+  - orm
+  when_to_use: When fetching data for views or APIs.
+  examples:
+  - title: Get Recent Posts
+    language: Python
+    code: "from .models import BlogPost\n\nrecent_posts = BlogPost.objects.filter(\n\
+      \    published_at__gte='2026-01-01'\n).order_by('-published_at')[:10]\n"
+  pitfalls:
+  - Iterating over a large QuerySet without `values()` or pagination, causing memory
+    exhaustion.
+  - Forgetting that QuerySets are lazy; accessing them before evaluation will trigger
+    an extra DB hit.
+- id: django-urls-and-views
+  title: URLs & Views
+  explanation: Map URLs to view functions or class-based views to handle HTTP requests.
+    Use path() for simple routing.
+  tags:
+  - urls
+  - views
+  when_to_use: When exposing data or forms through HTTP endpoints.
+  examples:
+  - title: Simple Detail View
+    language: Python
+    code: "from django.urls import path\nfrom . import views\n\nurlpatterns = [\n\
+      \    path('post/<int:pk>/', views.post_detail, name='post_detail'),\n]\n\n#\
+      \ views.py\nfrom django.shortcuts import get_object_or_404, render\nfrom .models\
+      \ import BlogPost\n\ndef post_detail(request, pk):\n    post = get_object_or_404(BlogPost,\
+      \ pk=pk)\n    return render(request, 'post_detail.html', {'post': post})\n"
+  pitfalls:
+  - Using string formatting in URLs that bypasses URL reversing, breaking SEO.
+  - Forgetting to import the view, resulting in a 404 error.
+- id: django-forms
+  title: Forms
+  explanation: Handle user input with Django Form or ModelForm classes, providing
+    validation and rendering helpers.
+  tags:
+  - forms
+  - ui
+  when_to_use: When collecting or editing data via HTML forms.
+  examples:
+  - title: Create BlogPost Form
+    language: Python
+    code: "from django import forms\nfrom .models import BlogPost\n\nclass BlogPostForm(forms.ModelForm):\n\
+      \    class Meta:\n        model = BlogPost\n        fields = ['title', 'content']\n\
+      \n# views.py\ndef create_post(request):\n    if request.method == 'POST':\n\
+      \        form = BlogPostForm(request.POST)\n        if form.is_valid():\n  \
+      \          form.save()\n            return redirect('post_list')\n    else:\n\
+      \        form = BlogPostForm()\n    return render(request, 'create_post.html',\
+      \ {'form': form})\n"
+  pitfalls:
+  - Forgetting `{{ form.as_p }}` in the template, leading to unrendered form fields.
+  - Using `request.POST` without `request.FILES` for file uploads, causing missing
+    data.

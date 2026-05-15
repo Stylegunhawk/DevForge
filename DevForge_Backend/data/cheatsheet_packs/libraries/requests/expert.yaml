@@ -1,0 +1,163 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: requests
+  library_version_floor: 2.31.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: get-request
+  title: Simple GET
+  explanation: Demonstrates a basic GET request with optional query parameters.
+  tags:
+  - http
+  - get
+  - requests
+  when_to_use: Use when retrieving data from a REST endpoint.
+  examples:
+  - title: Basic GET
+    language: python
+    code: 'import requests
+
+
+      response = requests.get(''https://api.example.com/items'', params={''page'':
+      2, ''limit'': 10})
+
+      response.raise_for_status()
+
+      data = response.json()
+
+      '
+  pitfalls:
+  - Ignoring response.raise_for_status() can hide HTTP errors.
+  - Assuming response.json() always returns dict; it may raise ValueError if body
+    not JSON.
+- id: post-json
+  title: POST JSON payload
+  explanation: Shows how to send a JSON body using requests.post with proper headers.
+  tags:
+  - http
+  - post
+  - json
+  - requests
+  when_to_use: Use when creating resources via a REST API.
+  examples:
+  - title: Create resource
+    language: python
+    code: 'import requests
+
+
+      payload = {''name'': ''Widget'', ''price'': 19.99}
+
+      response = requests.post(''https://api.example.com/items'', json=payload)
+
+      response.raise_for_status()
+
+      created = response.json()
+
+      '
+  pitfalls:
+  - Forgetting to set the Content-Type header when not using json=.
+  - Sending data as a dict to data= instead of json=, causing form-encoded body.
+- id: timeout
+  title: Request timeouts
+  explanation: Illustrates setting a timeout to prevent hanging requests.
+  tags:
+  - http
+  - timeout
+  - requests
+  when_to_use: Use when network latency may cause delays.
+  examples:
+  - title: GET with timeout
+    language: python
+    code: "import requests\n\ntry:\n    response = requests.get('https://api.example.com/slow',\
+      \ timeout=5)\n    response.raise_for_status()\nexcept requests.exceptions.Timeout:\n\
+      \    print('Request timed out')\n"
+  pitfalls:
+  - Using a single timeout value for both connect and read; may not suit all cases.
+  - Not catching Timeout exceptions, causing unhandled crashes.
+- id: session-reuse
+  title: Reusing Session for connection pooling
+  explanation: Demonstrates using requests.Session to persist parameters and reuse
+    TCP connections.
+  tags:
+  - http
+  - session
+  - requests
+  when_to_use: Use when making multiple requests to the same host.
+  examples:
+  - title: Session with auth
+    language: python
+    code: "import requests\n\nsession = requests.Session()\nsession.auth = ('user',\
+      \ 'pass')\nsession.headers.update({'User-Agent': 'MyApp/1.0'})\n\nfor endpoint\
+      \ in ['/items', '/items/1']:\n    resp = session.get(f'https://api.example.com{endpoint}')\n\
+      \    resp.raise_for_status()\n"
+  pitfalls:
+  - Forgetting to close the session; can leave sockets open.
+  - Storing session in global scope without thread safety; may cause race conditions.
+- id: streaming-download
+  title: Streaming large downloads
+  explanation: Shows how to stream a large file to avoid loading it entirely into
+    memory.
+  tags:
+  - http
+  - stream
+  - requests
+  when_to_use: Use when downloading large files or media.
+  examples:
+  - title: Stream CSV
+    language: python
+    code: "import requests\n\nwith requests.get('https://example.com/large.csv', stream=True)\
+      \ as r:\n    r.raise_for_status()\n    with open('large.csv', 'wb') as f:\n\
+      \        for chunk in r.iter_content(chunk_size=8192):\n            if chunk:\n\
+      \                f.write(chunk)\n"
+  pitfalls:
+  - Not iterating over r.iter_content, leading to memory bloat.
+  - Forgetting to close the response context; can leak sockets.
+- id: auth-basic
+  title: HTTP Basic Authentication
+  explanation: Demonstrates using requests.auth.HTTPBasicAuth to send credentials.
+  tags:
+  - http
+  - auth
+  - basic
+  - requests
+  when_to_use: Use when the API requires Basic Auth.
+  examples:
+  - title: GET with Basic Auth
+    language: python
+    code: "import requests\nfrom requests.auth import HTTPBasicAuth\n\nresponse =\
+      \ requests.get(\n    'https://api.example.com/protected',\n    auth=HTTPBasicAuth('username',\
+      \ 'password')\n)\nresponse.raise_for_status()\n"
+  pitfalls:
+  - Exposing credentials in code; use environment variables instead.
+  - Assuming the server supports Basic Auth; may need token or OAuth.
+- id: token-header
+  title: Bearer token authentication
+  explanation: Shows how to send a JWT or OAuth bearer token via the Authorization
+    header.
+  tags:
+  - http
+  - auth
+  - bearer
+  - requests
+  when_to_use: Use when the API expects a bearer token.
+  examples:
+  - title: GET with Bearer token
+    language: python
+    code: 'import requests
+
+
+      token = ''eyJhbGciOi...''
+
+      headers = {''Authorization'': f''Bearer {token}''}
+
+      response = requests.get(''https://api.example.com/secure'', headers=headers)
+
+      response.raise_for_status()
+
+      '
+  pitfalls:
+  - Hardcoding tokens; rotate them regularly.
+  - Forgetting the space after 'Bearer' in the header.

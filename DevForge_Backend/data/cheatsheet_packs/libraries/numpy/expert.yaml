@@ -1,0 +1,157 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: numpy
+  library_version_floor: 2.3.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: broadcasting
+  title: Broadcasting Rules
+  explanation: Allows arrays of different shapes to participate in arithmetic by implicitly
+    expanding dimensions.
+  tags:
+  - broadcasting
+  - arithmetic
+  - array
+  when_to_use: Use when you need to apply element-wise operations without copying
+    data.
+  examples:
+  - title: Simple Addition
+    language: python
+    code: 'import numpy as np
+
+      a = np.arange(3)            # shape (3,)
+
+      b = np.arange(2)[:, None]   # shape (2,1)
+
+      result = a + b              # shape (2,3) via broadcasting
+
+      '
+  pitfalls:
+  - Assuming broadcasting works with non-compatible shapes; it will raise ValueError.
+  - Forgetting that broadcasting can create unexpectedly large intermediate arrays.
+- id: ufuncs
+  title: Universal Functions
+  explanation: Vectorized functions that operate element-wise on arrays, with support
+    for dtype promotion and broadcasting.
+  tags:
+  - ufunc
+  - vectorized
+  - arithmetic
+  when_to_use: Use to replace explicit loops and leverage underlying C optimizations.
+  examples:
+  - title: Compute sine and exponential
+    language: python
+    code: 'import numpy as np
+
+      x = np.linspace(0, np.pi, 5)
+
+      y = np.sin(x)
+
+      z = np.exp(x)
+
+      '
+  pitfalls:
+  - Using ufuncs on incompatible dtypes can silently cast and lead to precision loss.
+  - Relying on ufuncs for non-vectorized custom logic; they require pure elementwise
+    operations.
+- id: structured-arrays
+  title: Structured Arrays
+  explanation: Arrays with heterogeneous fields, enabling SQL-like row storage within
+    a single NumPy array.
+  tags:
+  - structured
+  - dtype
+  - database
+  when_to_use: Use when you need to store mixed-type records with fixed schema.
+  examples:
+  - title: Create and query structured array
+    language: python
+    code: "import numpy as np\ndt = np.dtype([('name', 'U10'), ('age', np.int32),\
+      \ ('score', np.float64)])\ndata = np.array([('Alice', 23, 88.5),\n         \
+      \        ('Bob', 30, 92.0)], dtype=dt)\nalice = data[data['name'] == 'Alice']\n"
+  pitfalls:
+  - Forgetting to align field names when constructing arrays; mismatched keys raise
+    KeyError.
+  - Using structured arrays for large data can be inefficient compared to pandas DataFrame.
+- id: masked-arrays
+  title: Masked Arrays
+  explanation: Arrays that can hide invalid or missing entries, supporting masked
+    operations.
+  tags:
+  - masked
+  - missing
+  - data
+  when_to_use: Use when handling datasets with NaNs or sentinel values that should
+    be ignored.
+  examples:
+  - title: Mask NaN values
+    language: python
+    code: 'import numpy as np
+
+      a = np.array([1, 2, np.nan, 4])
+
+      m = np.ma.masked_invalid(a)
+
+      mean = m.mean()  # ignores masked NaN
+
+      '
+  pitfalls:
+  - Assuming masked arrays silently ignore all NaNs; only masked_invalid hides NaNs.
+  - Forgetting that masked arrays can degrade performance if not needed.
+- id: random
+  title: Random Generator API
+  explanation: A new, thread-safe random number generator with a stateful API, replacing
+    legacy np.random.
+  tags:
+  - random
+  - generator
+  - reproducibility
+  when_to_use: Use for reproducible random streams and advanced distributions.
+  examples:
+  - title: Generate reproducible samples
+    language: python
+    code: 'import numpy as np
+
+      rng = np.random.default_rng(seed=123)
+
+      samples = rng.standard_normal(5)
+
+      # Subsequent calls produce same sequence
+
+      '
+  pitfalls:
+  - Using legacy np.random functions, which are not thread-safe.
+  - Forgetting to seed the generator when reproducibility is required.
+- id: memmap
+  title: Memory-Mapped Files
+  explanation: Allows arrays to be stored on disk as if they were in memory, enabling
+    out-of-core processing.
+  tags:
+  - memmap
+  - disk
+  - performance
+  when_to_use: Use when working with arrays larger than available RAM.
+  examples:
+  - title: Create and access memmap
+    language: python
+    code: 'import numpy as np
+
+      filename = ''large.npy''
+
+      mm = np.memmap(filename, dtype=''float64'', mode=''w+'', shape=(3,3))
+
+      mm[:] = np.arange(9).reshape(3,3)
+
+      mm.flush()
+
+      mm = np.memmap(filename, dtype=''float64'', mode=''r'')
+
+      print(mm)
+
+      '
+  pitfalls:
+  - Assuming memmap immediately loads data into RAM; it accesses disk on demand.
+  - Forgetting to close the memmap, leading to data not flushed to disk.

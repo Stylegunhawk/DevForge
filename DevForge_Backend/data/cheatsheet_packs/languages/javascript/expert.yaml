@@ -1,0 +1,134 @@
+pack:
+  language: javascript
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: async-await-pattern
+  title: Async/Await Pattern
+  explanation: Provides a clear, linear flow for asynchronous code, avoiding callback
+    hell.
+  tags:
+  - async
+  - await
+  - promises
+  when_to_use: When you need to orchestrate multiple async operations in order.
+  examples:
+  - title: Fetch with async/await
+    language: javascript
+    code: "const fetchData = async (url) => {\n  const response = await fetch(url);\n\
+      \  if (!response.ok) throw new Error('Network error');\n  return await response.json();\n\
+      };\n\n(async () => {\n  try {\n    const data = await fetchData('https://api.example.com/items');\n\
+      \    console.log(data);\n  } catch (err) {\n    console.error(err);\n  }\n})();\n"
+  pitfalls:
+  - Forgetting to await a Promise, leading to unresolved values.
+  - Not handling rejection, causing unhandled promise rejections.
+- id: destructuring-rest
+  title: Destructuring with Rest
+  explanation: Extracts specific properties while gathering the rest into an object.
+  tags:
+  - destructuring
+  - rest
+  - object
+  when_to_use: When you need to isolate a few keys and keep the remainder.
+  examples:
+  - title: Separate known keys
+    language: javascript
+    code: 'const { name, age, ...rest } = { name: ''Alice'', age: 30, city: ''NY'',
+      country: ''USA'' };
+
+      console.log(name); // Alice
+
+      console.log(rest); // { city: ''NY'', country: ''USA'' }
+
+      '
+  pitfalls:
+  - Mistaking the rest operator for array spread, causing syntax errors.
+  - Overwriting the target variable with an unintended rest object.
+- id: proxy-trap
+  title: Proxy Trap
+  explanation: Intercepts fundamental operations on objects for custom behavior.
+  tags:
+  - proxy
+  - interception
+  when_to_use: When you need to monitor or modify property access, assignment, or
+    enumeration.
+  examples:
+  - title: Logging property access
+    language: javascript
+    code: "const target = { a: 1, b: 2 };\nconst handler = {\n  get: (obj, prop) =>\
+      \ {\n    console.log(`Accessing ${prop}`);\n    return obj[prop];\n  }\n};\n\
+      const proxy = new Proxy(target, handler);\nconsole.log(proxy.a); // logs Accessing\
+      \ a and 1\n"
+  pitfalls:
+  - Forgetting to return the original value, breaking the object's contract.
+  - Using recursive traps without termination, leading to stack overflows.
+- id: promise-allsettled
+  title: Promise.allSettled
+  explanation: Waits for all promises to settle, providing status and value or reason.
+  tags:
+  - promises
+  - allSettled
+  when_to_use: When you need to know the outcome of each Promise regardless of success
+    or failure.
+  examples:
+  - title: Handle mixed promise outcomes
+    language: javascript
+    code: "const promises = [\n  Promise.resolve(1),\n  Promise.reject(new Error('fail')),\n\
+      \  fetch('https://api.example.com/data')\n];\nPromise.allSettled(promises).then(results\
+      \ => {\n  results.forEach((r, i) => {\n    console.log(`Promise ${i}: ${r.status}`,\
+      \ r.value ?? r.reason);\n  });\n});\n"
+  pitfalls:
+  - Misinterpreting `value` for rejected promises, causing undefined.
+  - Ignoring the `status` field and assuming all promises succeeded.
+- id: map-vs-object
+  title: Map vs Object
+  explanation: Map preserves insertion order and accepts any keys, while plain objects
+    have string keys and prototype chain.
+  tags:
+  - map
+  - object
+  - data-structures
+  when_to_use: When key uniqueness, order, or non-string keys are required.
+  examples:
+  - title: Compare key handling
+    language: javascript
+    code: 'const obj = { key1: ''value1'', key2: ''value2'' };
+
+      const map = new Map();
+
+      map.set(''key1'', ''value1'');
+
+      map.set(''key2'', ''value2'');
+
+      console.log(Object.keys(obj)); // [''key1'', ''key2'']
+
+      console.log([...map.keys()]); // [''key1'', ''key2'']
+
+      '
+  pitfalls:
+  - Assuming Map behaves like a plain object in JSON serialization.
+  - Forgetting to iterate over Map entries with `for...of` or spread.
+- id: weakref-finalization
+  title: WeakRef & FinalizationRegistry
+  explanation: Enables soft references and cleanup callbacks for memory-sensitive
+    resources.
+  tags:
+  - weakref
+  - memory
+  - finalization
+  when_to_use: When you need to hold references that should not prevent garbage collection.
+  examples:
+  - title: Cleanup after object collection
+    language: javascript
+    code: "const registry = new FinalizationRegistry((heldValue) => {\n  console.log(`Cleaning\
+      \ up: ${heldValue}`);\n});\nlet obj = { data: 'important' };\nconst weakRef\
+      \ = new WeakRef(obj);\nregistry.register(obj, 'obj1');\nobj = null; // GC can\
+      \ collect\nsetTimeout(() => {\n  const deref = weakRef.deref();\n  console.log(deref\
+      \ ? 'still alive' : 'collected');\n}, 1000);\n"
+  pitfalls:
+  - Relying on WeakRef to guarantee timely cleanup; GC timing is nondeterministic.
+  - Forgetting to register the object, leading to missed finalization callbacks.

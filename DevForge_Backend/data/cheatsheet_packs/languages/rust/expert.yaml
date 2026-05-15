@@ -1,0 +1,125 @@
+pack:
+  language: rust
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: async-await-tokio
+  title: Async/Await with Tokio
+  explanation: Use async/await syntax with Tokio runtime for high-performance asynchronous
+    I/O.
+  tags:
+  - async
+  - tokio
+  when_to_use: Use when you need non-blocking I/O, network servers, or parallel tasks.
+  examples:
+  - title: Start a Tokio runtime and spawn tasks
+    language: rust
+    code: "#[tokio::main]\nasync fn main() {\n    let handle = tokio::spawn(async\
+      \ {\n        println!(\"Hello from async task\");\n    });\n    handle.await.unwrap();\n\
+      }\n"
+  pitfalls:
+  - Forgetting to annotate the entry function with
+  - Using .await on a Future that blocks the executor, causing deadlocks.
+- id: lifetimes-borrowing
+  title: Explicit Lifetimes for Structs
+  explanation: Manage borrow rules and explicit lifetimes for complex structs that
+    hold references.
+  tags:
+  - lifetimes
+  - borrowing
+  when_to_use: Use when a struct contains references that must outlive the struct
+    itself.
+  examples:
+  - title: Struct with lifetime parameters
+    language: rust
+    code: "struct RefHolder<'a> {\n    data: &'a i32,\n}\n\nfn main() {\n    let value\
+      \ = 42;\n    let holder = RefHolder { data: &value };\n    println!(\"{}\",\
+      \ holder.data);\n}\n"
+  pitfalls:
+  - Incorrect lifetime elision leading to borrowed data outliving the owner.
+  - Using `'static` for lifetimes when a shorter lifetime suffices, causing unnecessary
+    allocation.
+- id: unsafe-ffi
+  title: Interfacing with C via FFI
+  explanation: Call external C functions safely using unsafe blocks, ensuring proper
+    ownership and lifetime guarantees.
+  tags:
+  - unsafe
+  - ffi
+  when_to_use: Use when calling external C libraries or performing low-level memory
+    operations.
+  examples:
+  - title: Call a C function via extern
+    language: rust
+    code: "extern \"C\" {\n    fn puts(s: *const i8) -> i32;\n}\n\nfn main() {\n \
+      \   let greeting = std::ffi::CString::new(\"Hello from C\").unwrap();\n    unsafe\
+      \ { puts(greeting.as_ptr()); }\n}\n"
+  pitfalls:
+  - Dereferencing null pointers or uninitialized memory in unsafe blocks.
+  - Forgetting to free memory allocated by C, leading to leaks.
+- id: macros-proc
+  title: Custom Derive Macro
+  explanation: Define procedural macros for compile-time code generation, such as
+    custom derives.
+  tags:
+  - macros
+  - procedural
+  when_to_use: Use when you need compile-time code generation or custom derive behavior.
+  examples:
+  - title: Simple derive macro that implements Display
+    language: rust
+    code: "// In a separate crate: derive_display_proc_macro\nuse proc_macro::TokenStream;\n\
+      use quote::quote;\nuse syn::{parse_macro_input, DeriveInput};\n\n#[proc_macro_derive(Display)]\n\
+      pub fn derive_display(input: TokenStream) -> TokenStream {\n    let ast = parse_macro_input!(input\
+      \ as DeriveInput);\n    let name = &ast.ident;\n    let gen = quote! {\n   \
+      \     impl std::fmt::Display for #name {\n            fn fmt(&self, f: &mut\
+      \ std::fmt::Formatter<'_>) -> std::fmt::Result {\n                write!(f,\
+      \ stringify!(#name))\n            }\n        }\n    };\n    gen.into()\n}\n\n\
+      // In consumer crate\n#[derive(Display)]\nstruct Point { x: i32, y: i32 }\n\n\
+      fn main() {\n    let p = Point { x: 1, y: 2 };\n    println!(\"{}\", p);\n}\n"
+  pitfalls:
+  - Infinite recursion in macro expansion if the macro expands to itself.
+  - Name collisions due to missing hygiene, causing compile errors.
+- id: trait-object-dynamic
+  title: Trait Objects for Dynamic Dispatch
+  explanation: Use trait objects to achieve runtime polymorphism and dynamic dispatch
+    in Rust.
+  tags:
+  - trait-object
+  - dynamic-dispatch
+  when_to_use: Use when types are determined at runtime and you need a unify interface.
+  examples:
+  - title: Box<dyn Fn(i32) -> i32>
+    language: rust
+    code: "fn apply<F>(f: F, x: i32) -> i32\nwhere\n    F: Fn(i32) -> i32,\n{\n  \
+      \  f(x)\n}\n\nfn main() {\n    let add_one = |n| n + 1;\n    let result = apply(add_one,\
+      \ 5);\n    println!(\"{}\", result); // 6\n\n    let boxed: Box<dyn Fn(i32)\
+      \ -> i32> = Box::new(|n| n * 2);\n    println!(\"{}\", boxed(4)); // 8\n}\n"
+  pitfalls:
+  - Unnecessary heap allocation if a sized type would suffice.
+  - Failing to handle unsized types correctly, leading to compile errors.
+- id: serde-serialization
+  title: JSON Serialization with Serde
+  explanation: Serialize and deserialize Rust structs to/from JSON using the serde
+    library.
+  tags:
+  - serde
+  - serialization
+  when_to_use: Use when persisting data or communicating over a network in JSON format.
+  examples:
+  - title: Serialize struct to JSON
+    language: rust
+    code: "use serde::{Serialize, Deserialize};\nuse serde_json;\n\n#[derive(Serialize,\
+      \ Deserialize, Debug)]\nstruct User {\n    id: u32,\n    name: String,\n   \
+      \ email: String,\n}\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n\
+      \    let user = User {\n        id: 1,\n        name: \"Alice\".into(),\n  \
+      \      email: \"alice@example.com\".into(),\n    };\n\n    let json = serde_json::to_string(&user)?;\n\
+      \    println!(\"Serialized: {}\", json);\n\n    let deserialized: User = serde_json::from_str(&json)?;\n\
+      \    println!(\"Deserialized: {:?}\", deserialized);\n    Ok(())\n}\n"
+  pitfalls:
+  - Forgetting to add
+  - Using default values incorrectly, leading to missing fields during deserialization.

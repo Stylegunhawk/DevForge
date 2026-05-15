@@ -1,0 +1,140 @@
+pack:
+  language: php
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: namespaces-psr4
+  title: Namespaces & PSR-4 Autoloading
+  explanation: Organize code with namespaces and load classes automatically via Composer's
+    PSR‑4 autoloading.
+  tags:
+  - namespaces
+  - autoloading
+  when_to_use: When structuring large libraries or applications to avoid class name
+    collisions.
+  examples:
+  - title: BasicClass
+    language: php
+    code: "<?php\n// src/Models/User.php\nnamespace App\\Models;\nclass User {\n \
+      \   public function __construct(public string $name) {}\n}\n\n// public/index.php\n\
+      require 'vendor/autoload.php';\nuse App\\Models\\User;\n$u = new User('Alice');\n\
+      echo $u->name;\n"
+  pitfalls:
+  - Forgetting to declare the namespace in the consuming file.
+  - Incorrectly mapping the namespace to the filesystem path in composer.json.
+- id: typed-properties
+  title: Typed Properties & Union Types
+  explanation: Strongly typed class properties and union types introduced in PHP 8.0
+    for safer code.
+  tags:
+  - types
+  - properties
+  when_to_use: When you want compile‑time type enforcement for class members.
+  examples:
+  - title: BoxWithUnion
+    language: php
+    code: "<?php\nclass Box {\n    public string|int $value;\n    public function\
+      \ __construct(string|int $value) {\n        $this->value = $value;\n    }\n\
+      }\n$b = new Box('foo');\necho $b->value;\n"
+  pitfalls:
+  - Assigning a value that does not match any of the union types.
+  - Forgetting that null is not automatically allowed; add |null if needed.
+- id: generators
+  title: Generators & Yield
+  explanation: Lazy iteration over data streams without loading everything into memory.
+  tags:
+  - generators
+  - iterators
+  when_to_use: When processing large datasets or streams.
+  examples:
+  - title: RangeGenerator
+    language: php
+    code: "<?php\nfunction rangeGen(int $start, int $end): \\Generator {\n    for\
+      \ ($i = $start; $i <= $end; $i++) {\n        yield $i;\n    }\n}\nforeach (rangeGen(1,\
+      \ 5) as $i) {\n    echo $i . PHP_EOL;\n}\n"
+  pitfalls:
+  - Forgetting to iterate over the generator; it remains lazy.
+  - Using generators in tight loops without understanding that each yield allocates
+    a frame.
+- id: attributes
+  title: PHP Attributes (Annotations)
+  explanation: Native metadata for classes, methods, and properties using
+  tags:
+  - attributes
+  - annotations
+  when_to_use: When you need runtime metadata for frameworks or dependency injection.
+  examples:
+  - title: RouteAttribute
+    language: php
+    code: "<?php\n#[Attribute]\nclass Route {\n    public function __construct(public\
+      \ string $path, public string $method) {}\n}\n\n#[Route('/home', 'GET')]\nclass\
+      \ HomeController {\n    public function index(): void {}\n}\n\n$ref = new ReflectionClass(HomeController::class);\n\
+      foreach ($ref->getAttributes(Route::class) as $attr) {\n    $route = $attr->newInstance();\n\
+      \    echo $route->path . ' ' . $route->method . PHP_EOL;\n}\n"
+  pitfalls:
+  - Applying attributes to methods in PHP 7; attributes require PHP 8.0+.
+  - Forgetting to use Reflection to read attributes at runtime.
+- id: exception-chaining
+  title: Exception Chaining & Throwable
+  explanation: Propagate error context by linking previous exceptions for full stack
+    trace.
+  tags:
+  - exceptions
+  - error-handling
+  when_to_use: When you need to preserve the original exception context during error
+    handling.
+  examples:
+  - title: ChainExceptions
+    language: php
+    code: "<?php\ntry {\n    throw new RuntimeException('Low-level error');\n} catch\
+      \ (RuntimeException $e) {\n    throw new RuntimeException('High-level error',\
+      \ 0, $e);\n} catch (Throwable $t) {\n    echo $t->getMessage() . PHP_EOL; //\
+      \ High-level error\n    echo $t->getPrevious()->getMessage() . PHP_EOL; // Low-level\
+      \ error\n}\n"
+  pitfalls:
+  - Overwriting the previous exception by using a non‑Throwable.
+  - Forgetting to include the previous exception when rethrowing.
+- id: dependency-injection
+  title: Symfony DependencyInjection Container
+  explanation: Declarative service definitions, autowiring, and scopes for modular
+    application design.
+  tags:
+  - dependency-injection
+  - symfony
+  when_to_use: When building modular applications that benefit from service containers.
+  examples:
+  - title: BasicContainer
+    language: php
+    code: "<?php\nuse Symfony\\Component\\DependencyInjection\\ContainerBuilder;\n\
+      \nclass Greeting {\n    private string $message;\n    public function __construct(string\
+      \ $message) {\n        $this->message = $message;\n    }\n    public function\
+      \ greet(): void {\n        echo $this->message . PHP_EOL;\n    }\n}\n\n$container\
+      \ = new ContainerBuilder();\n\n$container->register('greeting', Greeting::class)\n\
+      \          ->addArgument('Hello, world!');\n\n$container->compile();\n\n$greeting\
+      \ = $container->get('greeting');\n$greeting->greet();\n"
+  pitfalls:
+  - Forgetting to compile the container before fetching services.
+  - Not enabling autowiring when service dependencies are simple.
+- id: spl-structures
+  title: SPL Data Structures
+  explanation: Built‑in containers like SplObjectStorage for efficient object collections.
+  tags:
+  - SPL
+  - data-structures
+  when_to_use: When you need high‑performance collections that handle objects as keys.
+  examples:
+  - title: ObjectStorageDemo
+    language: php
+    code: "<?php\n$storage = new SplObjectStorage();\n\n$obj1 = new stdClass();\n\
+      $obj2 = new stdClass();\n\n$storage->attach($obj1, 'first');\n$storage->attach($obj2,\
+      \ 'second');\n\nforeach ($storage as $obj) {\n    echo $storage[$obj] . PHP_EOL;\n\
+      }\n"
+  pitfalls:
+  - Using SplObjectStorage with objects that lack __clone; cloned objects will be
+    treated as distinct.
+  - Forgetting to detach objects when they are no longer needed, leading to memory
+    leaks.

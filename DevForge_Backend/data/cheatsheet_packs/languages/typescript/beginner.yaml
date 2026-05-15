@@ -1,0 +1,117 @@
+pack:
+  language: typescript
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-types
+  title: Basic Types
+  explanation: TypeScript provides primitive types like number, string, boolean that
+    help catch errors at compile time.
+  tags:
+  - types
+  - basics
+  when_to_use: Use when declaring simple values that need type safety.
+  examples:
+  - title: Declare primitive values
+    language: typescript
+    code: 'let num: number = 42;
+
+      let str: string = "Hello, world!";
+
+      let flag: boolean = true;
+
+      '
+  pitfalls:
+  - Using the `any` type instead of a specific primitive type.
+  - Declaring a variable without initializing it causes it to be `undefined`.
+- id: variable-declarations
+  title: Variable Declarations
+  explanation: Prefer `const` for immutable values and `let` for mutable ones to avoid
+    accidental reassignment.
+  tags:
+  - variables
+  - best-practices
+  when_to_use: Use when defining variables that may change or stay constant.
+  examples:
+  - title: const vs let
+    language: typescript
+    code: 'const PI = 3.14159; // immutable
+
+      let counter = 0;   // mutable
+
+      counter++;         // allowed
+
+      '
+  pitfalls:
+  - Using `var` which has function scope and can lead to hoisting issues.
+  - Assigning a new value to a `const` variable.
+- id: function-typing
+  title: Function Typing
+  explanation: Annotating function parameters and return types ensures callers use
+    functions correctly.
+  tags:
+  - functions
+  - types
+  when_to_use: Use when defining reusable functions with predictable inputs and outputs.
+  examples:
+  - title: Typed add function
+    language: typescript
+    code: "function add(a: number, b: number): number {\n  return a + b;\n}\nconst\
+      \ result = add(5, 10); // result is number\n"
+  pitfalls:
+  - Omitting parameter types leads to implicit `any`, reducing type safety.
+  - Forgetting the return type can cause unexpected `any` results.
+- id: interfaces
+  title: Interfaces
+  explanation: Interfaces define the shape of objects, providing clear contracts for
+    function arguments and class implementations.
+  tags:
+  - interfaces
+  - objects
+  when_to_use: Use when you need to describe the structure of an object that will
+    be passed around.
+  examples:
+  - title: Person interface
+    language: typescript
+    code: "interface Person {\n  name: string;\n  age: number;\n}\nconst person: Person\
+      \ = { name: \"Alice\", age: 30 };\n"
+  pitfalls:
+  - Using `any` for interface properties defeats the purpose of type checking.
+  - Forgetting required properties causes compile-time errors.
+- id: enums
+  title: Enums
+  explanation: Enums provide named constants that improve code readability and maintainability.
+  tags:
+  - enums
+  - constants
+  when_to_use: Use when you have a fixed set of related values.
+  examples:
+  - title: Color enum
+    language: typescript
+    code: "enum Color {\n  Red,\n  Green,\n  Blue\n}\nlet favorite: Color = Color.Green;\n"
+  pitfalls:
+  - Mixing numeric and string enum values without understanding the implications.
+  - Accessing enum members by incorrect casing (e.g., `color.red` instead of `Color.Red`).
+- id: arrays
+  title: Typed Arrays
+  explanation: Specifying element types for arrays prevents runtime type errors and
+    improves IntelliSense support.
+  tags:
+  - arrays
+  - generics
+  when_to_use: Use when storing collections of homogeneous items.
+  examples:
+  - title: Typed number array
+    language: typescript
+    code: 'const numbers: number[] = [1, 2, 3];
+
+      const words: Array<string> = ["hello", "world"];
+
+      '
+  pitfalls:
+  - Declaring an array with `any[]` instead of a specific type.
+  - Mixing different types in a single array without using a union type.

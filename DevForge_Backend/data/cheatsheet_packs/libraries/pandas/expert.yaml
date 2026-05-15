@@ -1,0 +1,143 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: pandas
+  library_version_floor: 2.2.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: multiindex-selection
+  title: MultiIndex Selection
+  explanation: Create and select data with a MultiIndex using tuples and .loc.
+  tags:
+  - indexing
+  - multidimensional
+  when_to_use: Use when working with hierarchical data that requires fast row/column
+    selection.
+  examples:
+  - title: Create and select MultiIndex
+    language: python
+    code: 'import pandas as pd
+
+
+      arrays = [[''A'', ''A'', ''B'', ''B''], [1, 2, 1, 2]]
+
+      index = pd.MultiIndex.from_arrays(arrays, names=(''letter'', ''number''))
+
+      df = pd.DataFrame({''value'': [10, 20, 30, 40]}, index=index)
+
+
+      # Select all rows where letter == ''A''
+
+      print(df.loc[(''A'',)] )
+
+
+      # Select row with letter ''B'' and number 2
+
+      print(df.loc[(''B'', 2)])
+
+      '
+  pitfalls:
+  - Forgetting that .loc with a single level tuple selects all sublevels.
+  - Using .iloc with a tuple, which is not supported for MultiIndex.
+- id: advanced-groupby
+  title: Advanced GroupBy
+  explanation: Perform multi-level groupby with multiple aggregations, including custom
+    lambdas.
+  tags:
+  - groupby
+  - aggregation
+  when_to_use: Use when summarizing data across multiple dimensions.
+  examples:
+  - title: Groupby with multiple aggfuncs
+    language: python
+    code: "import pandas as pd\n\ndf = pd.DataFrame({\n    'A': ['foo', 'foo', 'bar',\
+      \ 'bar'],\n    'B': ['one', 'two', 'one', 'two'],\n    'C': [1, 2, 3, 4]\n})\n\
+      \nresult = df.groupby(['A', 'B']).agg(\n    count=('C', 'size'),\n    mean_c=('C',\
+      \ 'mean'),\n    max_c=('C', lambda x: x.max())\n).reset_index()\nprint(result)\n"
+  pitfalls:
+  - Mixing positional and keyword arguments in .agg leading to confusion.
+  - Forgetting to reset_index when a flat DataFrame is required.
+- id: query-with-numexpr
+  title: Query with numexpr
+  explanation: Use .query with the numexpr engine for faster evaluation of complex
+    boolean expressions.
+  tags:
+  - query
+  - performance
+  when_to_use: Use when filtering large DataFrames with multiple conditions.
+  examples:
+  - title: Query using numexpr
+    language: python
+    code: 'import pandas as pd
+
+
+      df = pd.DataFrame({''A'': [1, 6, 8], ''B'': [''foo'', ''bar'', ''foo'']})
+
+      filtered = df.query(''A > 5 and B == "foo"'', engine=''numexpr'')
+
+      print(filtered)
+
+      '
+  pitfalls:
+  - Using unsupported Python functions inside the query string.
+  - Assuming numexpr will always be faster; it may not for very small DataFrames.
+- id: pivot-table-advanced
+  title: Pivot Table with Custom Aggfunc
+  explanation: Create a pivot table with custom aggregation and fill missing values.
+  tags:
+  - pivot
+  - aggregation
+  when_to_use: Use when summarizing tabular data across two axes.
+  examples:
+  - title: Pivot table with sum and fill_value
+    language: python
+    code: "import pandas as pd\n\ndf = pd.DataFrame({\n    'A': ['foo', 'foo', 'bar',\
+      \ 'bar'],\n    'B': ['one', 'two', 'one', 'two'],\n    'C': [5, 10, 15, 20]\n\
+      })\npivot = df.pivot_table(values='C', index='A', columns='B',\n           \
+      \            aggfunc='sum', fill_value=0)\nprint(pivot)\n"
+  pitfalls:
+  - Forgetting to specify fill_value, resulting in NaNs.
+  - Using a non-aggregatable column as the index.
+- id: vectorized-string-operations
+  title: Vectorized String Operations
+  explanation: Apply regex and string methods efficiently with the .str accessor.
+  tags:
+  - string
+  - vectorized
+  when_to_use: Use when performing text processing on large Series.
+  examples:
+  - title: Filter names starting with 'J'
+    language: python
+    code: 'import pandas as pd
+
+
+      df = pd.DataFrame({''name'': [''John'', ''Alice'', ''James'', ''Bob'']})
+
+      filtered = df[df[''name''].str.contains(r''^J'', case=False, regex=True)]
+
+      print(filtered)
+
+      '
+  pitfalls:
+  - Forgetting to set regex=True when using regex patterns.
+  - Using .str.contains without handling NaNs, causing errors.
+- id: memory-optimization-categorical
+  title: Memory Optimization with Categorical
+  explanation: Convert high-cardinality object columns to categorical and downcast
+    numeric columns.
+  tags:
+  - memory
+  - optimization
+  when_to_use: Use when DataFrame has many repeated string values or large numeric
+    columns.
+  examples:
+  - title: Convert columns to categorical and downcast
+    language: python
+    code: "import pandas as pd\n\ndf = pd.DataFrame({\n    'category': ['cat'] * 1000\
+      \ + ['dog'] * 1000,\n    'value': range(2000)\n})\ndf['category'] = df['category'].astype('category')\n\
+      df['value'] = pd.to_numeric(df['value'], downcast='float')\nprint(df.info())\n"
+  pitfalls:
+  - Converting a column with many unique values to category, increasing memory.
+  - Forgetting to handle missing values before casting to category.

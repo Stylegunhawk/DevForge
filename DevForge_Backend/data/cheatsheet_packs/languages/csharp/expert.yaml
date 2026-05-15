@@ -1,0 +1,130 @@
+pack:
+  language: csharp
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: async-await
+  title: Async/Await
+  explanation: Enables non-blocking I/O by suspending method execution until awaited
+    tasks complete, simplifying asynchronous code flow.
+  tags:
+  - async
+  - concurrency
+  - tasks
+  when_to_use: When performing I/O-bound operations that benefit from non-blocking
+    execution.
+  examples:
+  - title: Basic async method
+    language: csharp
+    code: "async Task<int> GetDataAsync()\n{\n    using var client = new HttpClient();\n\
+      \    var response = await client.GetAsync(\"https://api.example.com/data\");\n\
+      \    response.EnsureSuccessStatusCode();\n    var content = await response.Content.ReadAsStringAsync();\n\
+      \    return int.Parse(content);\n}\n"
+  pitfalls:
+  - Not awaiting a Task can cause unobserved exceptions.
+  - Blocking on async code (e.g., .Result) leads to deadlocks.
+- id: linq-query
+  title: LINQ Query Syntax
+  explanation: Provides declarative data querying using query syntax or method syntax,
+    enabling powerful transformations over collections.
+  tags:
+  - linq
+  - collections
+  - functional
+  when_to_use: When filtering, projecting, or aggregating in-memory or remote data
+    sources.
+  examples:
+  - title: Filter and project with query syntax
+    language: csharp
+    code: "var ages = new[] { 20, 25, 30, 35 };\nvar results = from age in ages\n\
+      \              where age >= 25\n              select age * 2;\nforeach (var\
+      \ v in results)\n    Console.WriteLine(v);\n"
+  pitfalls:
+  - Using query syntax with side-effecting methods can obscure execution order.
+  - Chaining too many deferred operations may delay errors until enumeration.
+- id: pattern-matching
+  title: Pattern Matching
+  explanation: Allows concise type and value checks inside expressions, improving
+    readability and reducing boilerplate branching logic.
+  tags:
+  - patterns
+  - switch
+  - type-checking
+  when_to_use: When handling diverse types or complex conditional logic.
+  examples:
+  - title: Switch expression with type patterns
+    language: csharp
+    code: "int GetScore(object input) => input switch\n{\n    int i => i,\n    string\
+      \ s when int.TryParse(s, out var n) => n,\n    null => 0,\n    _ => throw new\
+      \ ArgumentException()\n};\n"
+  pitfalls:
+  - Missing a default case can lead to runtime exceptions.
+  - Using patterns in large switch expressions without careful ordering can degrade
+    performance.
+- id: record-types
+  title: Records & Init-only Properties
+  explanation: Immutable reference types with value-based equality and concise syntax,
+    ideal for DTOs and state models.
+  tags:
+  - records
+  - immutability
+  - dto
+  when_to_use: When creating data carriers that should be compared by value.
+  examples:
+  - title: Record with init-only properties
+    language: csharp
+    code: "public record Person(string FirstName, string LastName, int Age)\n{\n \
+      \   public string FullName => $\"{FirstName} {LastName}\";\n}\n\nvar p1 = new\
+      \ Person(\"Jane\", \"Doe\", 28);\nvar p2 = p1 with { Age = 29 }; // copy with\
+      \ modified property\n"
+  pitfalls:
+  - Mutating properties after construction breaks value semantics.
+  - Using records for entities with identity semantics can lead to unexpected equality
+    behavior.
+- id: span-performance
+  title: Span<T> for Performance
+  explanation: Provides a stack-only view over contiguous memory, enabling zero-allocation
+    slicing and high-speed manipulation of arrays and strings.
+  tags:
+  - performance
+  - memory
+  - unsafe
+  when_to_use: When processing large buffers or implementing custom parsers.
+  examples:
+  - title: Slicing an array with Span
+    language: csharp
+    code: 'int[] numbers = { 1, 2, 3, 4, 5 };
+
+      Span<int> middle = numbers.AsSpan(1, 3); // [2,3,4]
+
+      middle[0] = 99;
+
+      Console.WriteLine(string.Join(",", numbers)); // 1,99,3,4,5
+
+      '
+  pitfalls:
+  - Spans cannot be stored on the heap; capturing in async lambdas causes errors.
+  - Improper bounds can lead to runtime exceptions (IndexOutOfRange).
+- id: async-stream
+  title: IAsyncEnumerable<T>
+  explanation: Enables streaming of asynchronous data sequences, combining async/await
+    with iterator semantics for efficient memory usage.
+  tags:
+  - async
+  - streaming
+  - iterator
+  when_to_use: When consuming large or infinite data streams without buffering.
+  examples:
+  - title: Async stream of numbers
+    language: csharp
+    code: "async IAsyncEnumerable<int> GenerateAsync(int count)\n{\n    for (int i\
+      \ = 0; i < count; i++)\n    {\n        await Task.Delay(100); // simulate async\
+      \ work\n        yield return i;\n    }\n}\n\nawait foreach (var n in GenerateAsync(5))\n\
+      \    Console.WriteLine(n);\n"
+  pitfalls:
+  - Using await inside the loop without proper cancellation can block the caller.
+  - Not disposing the async enumerable properly may leak resources.

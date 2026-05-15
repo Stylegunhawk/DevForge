@@ -1,0 +1,143 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: httpx
+  library_version_floor: 0.26.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: async-client-context
+  title: Async Client Context Manager
+  explanation: Use async with httpx.AsyncClient() to automatically close connections.
+  tags:
+  - async
+  - context
+  when_to_use: When making multiple async requests in a coroutine to reuse a connection
+    pool.
+  examples:
+  - title: Basic async GET
+    language: python
+    code: "import httpx\nasync def fetch():\n    async with httpx.AsyncClient() as\
+      \ client:\n        response = await client.get('https://example.com')\n    \
+      \    print(response.text)\n"
+  pitfalls:
+  - Forgetting to await async methods.
+  - Reusing a client after context exit.
+- id: sync-client
+  title: Sync Client with Custom Timeout
+  explanation: Configure httpx.Client with per-request timeout or global timeout.
+  tags:
+  - sync
+  - timeout
+  when_to_use: When performing blocking HTTP calls with strict timeout requirements.
+  examples:
+  - title: Global timeout
+    language: python
+    code: 'import httpx
+
+      client = httpx.Client(timeout=5.0)  # seconds
+
+      response = client.get(''https://example.com'')
+
+      print(response.status_code)
+
+      '
+  pitfalls:
+  - Setting timeout too low causing unintended aborts.
+  - Overriding timeout per request incorrectly.
+- id: async-retry
+  title: Async Retry with RetryHandler
+  explanation: Use RetryHandler to automatically retry failed requests with exponential
+    backoff.
+  tags:
+  - async
+  - retry
+  when_to_use: When dealing with flaky networks or transient server errors.
+  examples:
+  - title: Retry GET with backoff
+    language: python
+    code: "import httpx\nfrom httpx import RetryHandler\nasync def fetch():\n    async\
+      \ with httpx.AsyncClient(\n        event_hooks={'request': [RetryHandler(max_attempts=3,\
+      \ backoff_factor=0.5)]}\n    ) as client:\n        response = await client.get('https://example.com')\n\
+      \        print(response.status_code)\n"
+  pitfalls:
+  - Not specifying max_attempts leading to infinite retries.
+  - Applying retry to non-idempotent methods.
+- id: streaming-response
+  title: Streaming Response Body
+  explanation: Iterate over response.iter_bytes() or iter_text() to process large
+    payloads without loading into memory.
+  tags:
+  - streaming
+  - memory
+  when_to_use: When downloading large files or handling huge JSON payloads.
+  examples:
+  - title: Download file chunk by chunk
+    language: python
+    code: "import httpx\nwith httpx.Client() as client:\n    with client.stream('GET',\
+      \ 'https://example.com/largefile') as r:\n        with open('largefile', 'wb')\
+      \ as f:\n            for chunk in r.iter_bytes(chunk_size=8192):\n         \
+      \       f.write(chunk)\n"
+  pitfalls:
+  - Forgetting to close the stream, leading to connection leaks.
+  - Reading entire content into memory with .content instead of streaming.
+- id: custom-transport
+  title: Custom Transport Adapter
+  explanation: Plug in a custom httpx.AsyncHTTPTransport or SyncHTTPTransport for
+    advanced control over connection handling.
+  tags:
+  - transport
+  - custom
+  when_to_use: When requiring custom socket options or proxy handling beyond built-in
+    support.
+  examples:
+  - title: Using a custom SyncHTTPTransport
+    language: python
+    code: "import httpx\nclass MyTransport(httpx.SyncHTTPTransport):\n    def __init__(self,\
+      \ *args, **kwargs):\n        super().__init__(*args, **kwargs)\n        # custom\
+      \ initialization\n    def send(self, request):\n        # custom send logic\n\
+      \        return super().send(request)\nclient = httpx.Client(transport=MyTransport())\n\
+      response = client.get('https://example.com')\nprint(response.status_code)\n"
+  pitfalls:
+  - Overriding send without calling super() leading to broken requests.
+  - Forgetting to support both sync and async variants.
+- id: auth-basic
+  title: HTTP Basic Authentication
+  explanation: Pass httpx.BasicAuth to automatically set Authorization header.
+  tags:
+  - auth
+  - basic
+  when_to_use: When interacting with APIs that use Basic Auth.
+  examples:
+  - title: GET with Basic Auth
+    language: python
+    code: 'import httpx
+
+      client = httpx.Client(auth=httpx.BasicAuth(''user'', ''pass''))
+
+      response = client.get(''https://api.example.com/secure'')
+
+      print(response.json())
+
+      '
+  pitfalls:
+  - Exposing credentials in logs or stack traces.
+  - Using Basic Auth over unencrypted HTTP.
+- id: proxy-support
+  title: Configuring HTTP and HTTPS Proxies
+  explanation: Set httpx.Client proxies dict to route requests through proxy servers.
+  tags:
+  - proxy
+  - http
+  - https
+  when_to_use: When operating behind corporate proxies or requiring proxy chaining.
+  examples:
+  - title: Proxying HTTP and HTTPS
+    language: python
+    code: "import httpx\nproxies = {\n    'http://': 'http://user:pass@proxy.example.com:3128',\n\
+      \    'https://': 'http://user:pass@proxy.example.com:3128',\n}\nclient = httpx.Client(proxies=proxies)\n\
+      response = client.get('https://example.com')\nprint(response.status_code)\n"
+  pitfalls:
+  - Forgetting to include scheme in proxy URL.
+  - Mixing http and https proxy URLs incorrectly.

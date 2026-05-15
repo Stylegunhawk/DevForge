@@ -1,0 +1,96 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: asyncio
+  library_version_floor: '3.11'
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: create-task
+  title: Create a Background Task
+  explanation: Use asyncio.create_task to schedule a coroutine concurrently without
+    awaiting it immediately.
+  tags:
+  - asyncio
+  - tasks
+  when_to_use: When you want a coroutine to run in the background while the main flow
+    continues.
+  examples:
+  - title: Simple background task
+    language: python
+    code: "import asyncio\n\nasync def worker():\n    await asyncio.sleep(1)\n   \
+      \ print(\"Worker finished\")\n\nasync def main():\n    asyncio.create_task(worker())\n\
+      \    print(\"Main continues\")\n    await asyncio.sleep(2)\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting to await the task if you need its result.
+  - Using create_task with a non-coroutine object.
+- id: run-event-loop
+  title: Run the Event Loop
+  explanation: asyncio.run starts a new event loop, runs the main coroutine, and closes
+    the loop.
+  tags:
+  - asyncio
+  - loop
+  when_to_use: For top-level entry points of async programs.
+  examples:
+  - title: Basic event loop
+    language: python
+    code: "import asyncio\n\nasync def greet():\n    await asyncio.sleep(0.1)\n  \
+      \  print(\"Hello, asyncio!\")\n\nasyncio.run(greet())\n"
+  pitfalls:
+  - Calling asyncio.run from within an existing running loop.
+  - Overusing asyncio.run for long‑running servers; use asyncio.run once.
+- id: async-with
+  title: Async Context Managers
+  explanation: async with handles asynchronous context managers, ensuring proper entry
+    and exit.
+  tags:
+  - asyncio
+  - context
+  when_to_use: When working with resources that require async setup/teardown like
+    connections.
+  examples:
+  - title: Async file write with aiofiles
+    language: python
+    code: "import asyncio\nimport aiofiles\n\nasync def write_file():\n    async with\
+      \ aiofiles.open('out.txt', 'w') as f:\n        await f.write('Async IO')\n\n\
+      asyncio.run(write_file())\n"
+  pitfalls:
+  - Mixing sync with async context managers; use async versions.
+  - Forgetting to await inside async with.
+- id: await-expressions
+  title: Await Expressions
+  explanation: await pauses coroutine until awaitable completes, yielding its result.
+  tags:
+  - asyncio
+  - await
+  when_to_use: When needing the result of an async operation before proceeding.
+  examples:
+  - title: Awaiting multiple coroutines
+    language: python
+    code: "import asyncio\n\nasync def fetch(n):\n    await asyncio.sleep(n)\n   \
+      \ return n\n\nasync def main():\n    result = await fetch(2)\n    print(f\"\
+      Result: {result}\")\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Awaiting a non-awaitable; raises TypeError.
+  - Awaiting inside a non-async function.
+- id: gather-errors
+  title: asyncio.gather with return_exceptions
+  explanation: gather runs coroutines concurrently and can collect exceptions as results.
+  tags:
+  - asyncio
+  - error-handling
+  when_to_use: When you want to continue executing other tasks even if some fail.
+  examples:
+  - title: Gathering tasks with error handling
+    language: python
+    code: "import asyncio\n\nasync def may_fail(i):\n    if i % 2 == 0:\n        raise\
+      \ ValueError(f\"Even number {i}\")\n    return i\n\nasync def main():\n    tasks\
+      \ = [may_fail(i) for i in range(5)]\n    results = await asyncio.gather(*tasks,\
+      \ return_exceptions=True)\n    for r in results:\n        if isinstance(r, Exception):\n\
+      \            print(f\"Error: {r}\")\n        else:\n            print(f\"Success:\
+      \ {r}\")\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting return_exceptions=True and propagating exceptions.
+  - Misinterpreting exceptions as normal results.

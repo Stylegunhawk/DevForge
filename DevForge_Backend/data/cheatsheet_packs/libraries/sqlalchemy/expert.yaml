@@ -1,0 +1,143 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: sqlalchemy
+  library_version_floor: 2.0.27
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: orm-declarative-base
+  title: Declarative Base
+  explanation: Use Declarative Base to map classes to tables with minimal boilerplate.
+  tags:
+  - orm
+  - declarative
+  when_to_use: When defining an object-relational mapping for production code.
+  examples:
+  - title: Simple User Model
+    language: python
+    code: "from sqlalchemy import Column, Integer, String\nfrom sqlalchemy.orm import\
+      \ declarative_base, sessionmaker\nfrom sqlalchemy import create_engine\n\nBase\
+      \ = declarative_base()\n\nclass User(Base):\n    __tablename__ = 'users'\n \
+      \   id = Column(Integer, primary_key=True)\n    name = Column(String, nullable=False)\n\
+      \    email = Column(String, unique=True, nullable=False)\n\nengine = create_engine('sqlite:///:memory:')\n\
+      Base.metadata.create_all(engine)\nSession = sessionmaker(bind=engine)\nsession\
+      \ = Session()\nsession.add(User(name='Alice', email='alice@example.com'))\n\
+      session.commit()\n"
+  pitfalls:
+  - Forgetting to call Base.metadata.create_all() before inserting data.
+  - Using mutable default values in column definitions (e.g., default=[]).
+- id: core-select-statements
+  title: Core SELECT Statements
+  explanation: Build raw SQL with SQLAlchemy Core for fine‑grained control and performance.
+  tags:
+  - core
+  - select
+  - query
+  when_to_use: When you need to write complex joins or use database‑specific features
+    without ORM overhead.
+  examples:
+  - title: Basic SELECT
+    language: python
+    code: "from sqlalchemy import create_engine, MetaData, Table, select, Column,\
+      \ Integer, String\n\nengine = create_engine('sqlite:///:memory:')\nmetadata\
+      \ = MetaData()\nusers = Table(\n    'users', metadata,\n    Column('id', Integer,\
+      \ primary_key=True),\n    Column('name', String),\n    Column('email', String)\n\
+      )\nmetadata.create_all(engine)\n\nwith engine.connect() as conn:\n    stmt =\
+      \ select(users.c.id, users.c.name).where(users.c.id > 10)\n    result = conn.execute(stmt)\n\
+      \    for row in result:\n        print(row)\n"
+  pitfalls:
+  - Mixing ORM and Core objects in the same session leading to unexpected state.
+  - Forgetting to bind the engine or connection before executing statements.
+- id: session-transaction-management
+  title: Transaction Management
+  explanation: Control transactions explicitly to ensure data consistency and rollback
+    on errors.
+  tags:
+  - session
+  - transaction
+  - isolation
+  when_to_use: When multiple writes must succeed or fail as a unit.
+  examples:
+  - title: Explicit Transaction
+    language: python
+    code: "from sqlalchemy import create_engine, Column, Integer, String\nfrom sqlalchemy.orm\
+      \ import declarative_base, sessionmaker\n\nBase = declarative_base()\nengine\
+      \ = create_engine('sqlite:///:memory:')\nSession = sessionmaker(bind=engine)\n\
+      session = Session()\n\nclass Item(Base):\n    __tablename__ = 'items'\n    id\
+      \ = Column(Integer, primary_key=True)\n    name = Column(String)\n\nBase.metadata.create_all(engine)\n\
+      \ntry:\n    with session.begin():\n        session.add(Item(name='Widget'))\n\
+      \        session.add(Item(name='Gadget'))\n        # An exception will trigger\
+      \ rollback\n        # raise ValueError(\"problem\")\nexcept Exception as e:\n\
+      \    print(f\"Transaction aborted: {e}\")\n"
+  pitfalls:
+  - Using session.autocommit=True which is deprecated and can lead to hidden transactions.
+  - Forgetting to close the session after a long‑running transaction.
+- id: bulk-insert
+  title: Bulk Insert
+  explanation: Insert many rows efficiently without individual INSERT statements.
+  tags:
+  - bulk
+  - performance
+  - orm
+  when_to_use: When loading large datasets or seeding tables.
+  examples:
+  - title: ORM Bulk Save
+    language: python
+    code: "from sqlalchemy import create_engine, Column, Integer, String\nfrom sqlalchemy.orm\
+      \ import declarative_base, sessionmaker\n\nBase = declarative_base()\nengine\
+      \ = create_engine('sqlite:///:memory:')\nSession = sessionmaker(bind=engine)\n\
+      session = Session()\n\nclass Product(Base):\n    __tablename__ = 'products'\n\
+      \    id = Column(Integer, primary_key=True)\n    name = Column(String)\n\nBase.metadata.create_all(engine)\n\
+      \nproducts = [Product(name=f'Product {i}') for i in range(1000)]\nsession.bulk_save_objects(products)\n\
+      session.commit()\n"
+  pitfalls:
+  - Relying on ORM bulk methods for tables with complex relationships; foreign key
+    constraints may be skipped.
+  - Forgetting to commit after bulk operations, leaving changes unpersisted.
+- id: table-constraints
+  title: Table Constraints
+  explanation: Define unique, check, and foreign key constraints at table creation
+    for data integrity.
+  tags:
+  - constraints
+  - dml
+  - core
+  when_to_use: When enforcing business rules at the database level.
+  examples:
+  - title: Check and ForeignKey
+    language: python
+    code: "from sqlalchemy import create_engine, MetaData, Table, Column, Integer,\
+      \ String, ForeignKey, CheckConstraint\n\nengine = create_engine('sqlite:///:memory:')\n\
+      metadata = MetaData()\n\nusers = Table(\n    'users', metadata,\n    Column('id',\
+      \ Integer, primary_key=True),\n    Column('email', String, nullable=False, unique=True)\n\
+      )\n\norders = Table(\n    'orders', metadata,\n    Column('id', Integer, primary_key=True),\n\
+      \    Column('user_id', Integer, ForeignKey('users.id'), nullable=False),\n \
+      \   Column('amount', Integer, CheckConstraint('amount > 0')),\n)\n\nmetadata.create_all(engine)\n"
+  pitfalls:
+  - Defining constraints that conflict with existing data, causing DDL errors.
+  - Forgetting to set nullable=False on foreign key columns, leading to orphaned rows.
+- id: jsonb-support
+  title: JSON/JSONB Storage
+  explanation: Store and query JSON data using the JSON type for flexible schemas.
+  tags:
+  - json
+  - column
+  - core
+  when_to_use: When handling semi‑structured data that benefits from native JSON operators.
+  examples:
+  - title: JSON Column
+    language: python
+    code: "from sqlalchemy import create_engine, MetaData, Table, Column, Integer,\
+      \ JSON\nfrom sqlalchemy.orm import declarative_base, sessionmaker\n\nBase =\
+      \ declarative_base()\nengine = create_engine('postgresql://user:pass@localhost/db')\n\
+      Session = sessionmaker(bind=engine)\nsession = Session()\n\nclass Profile(Base):\n\
+      \    __tablename__ = 'profiles'\n    id = Column(Integer, primary_key=True)\n\
+      \    data = Column(JSON)\n\nBase.metadata.create_all(engine)\n\nprofile = Profile(data={'name':\
+      \ 'Alice', 'preferences': {'theme': 'dark'}})\nsession.add(profile)\nsession.commit()\n"
+  pitfalls:
+  - Using JSON type with SQLite, which only supports TEXT; JSON operators are not
+    available.
+  - Overusing JSON columns instead of normal relational columns, leading to query
+    inefficiency.

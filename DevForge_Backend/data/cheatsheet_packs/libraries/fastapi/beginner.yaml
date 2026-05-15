@@ -1,0 +1,109 @@
+pack:
+  language: Python
+  skill_level: beginner
+  version: 1
+  library: fastapi
+  library_version_floor: 0.111.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: fastapi-app
+  title: Creating a FastAPI app
+  explanation: Quickly set up the main FastAPI application and a root endpoint.
+  tags:
+  - app
+  - basics
+  when_to_use: Use when you need a minimal running FastAPI server.
+  examples:
+  - title: Minimal FastAPI app
+    language: Python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/\")\ndef\
+      \ read_root():\n    return {\"Hello\": \"World\"}\n"
+  pitfalls:
+  - Forgetting to run the app with Uvicorn (uvicorn main:app).
+  - Defining endpoints before creating the FastAPI instance.
+- id: fastapi-get
+  title: Defining a GET endpoint
+  explanation: Create a simple GET route that returns data based on a path parameter.
+  tags:
+  - endpoint
+  - get
+  when_to_use: When you need to expose data via a URL.
+  examples:
+  - title: GET with path parameter
+    language: Python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/items/{item_id}\"\
+      )\ndef read_item(item_id: int):\n    return {\"item_id\": item_id}\n"
+  pitfalls:
+  - Omitting the type annotation for the path parameter, causing type mismatches.
+  - Returning a non-JSON serializable object (e.g., a Python set).
+- id: fastapi-path-params
+  title: Using multiple path parameters
+  explanation: Combine several path parameters to capture complex URLs.
+  tags:
+  - path
+  - parameters
+  when_to_use: When a resource is nested under multiple identifiers.
+  examples:
+  - title: Nested path parameters
+    language: Python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/users/{user_id}/posts/{post_id}\"\
+      )\ndef read_user_post(user_id: int, post_id: int):\n    return {\"user_id\"\
+      : user_id, \"post_id\": post_id}\n"
+  pitfalls:
+  - Misordering the parameters in the function signature, leading to incorrect mapping.
+  - Using string types for numeric IDs without validation.
+- id: fastapi-query-params
+  title: Handling query parameters
+  explanation: Retrieve optional query parameters with default values.
+  tags:
+  - query
+  - parameters
+  when_to_use: When filtering or paginating results via the URL.
+  examples:
+  - title: Query parameters example
+    language: Python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/search\"\
+      )\ndef search(q: str = None, page: int = 1):\n    return {\"query\": q, \"page\"\
+      : page}\n"
+  pitfalls:
+  - Forgetting to provide a default value, causing a 422 error when the parameter
+    is missing.
+  - Using mutable default arguments (e.g., list) for query parameters.
+- id: fastapi-request-body
+  title: Posting JSON with Pydantic models
+  explanation: Accept structured JSON payloads by defining a Pydantic model.
+  tags:
+  - post
+  - body
+  - pydantic
+  when_to_use: When creating resources that require validated input.
+  examples:
+  - title: POST with Pydantic model
+    language: Python
+    code: "from fastapi import FastAPI\nfrom pydantic import BaseModel\n\napp = FastAPI()\n\
+      \nclass Item(BaseModel):\n    name: str\n    price: float\n    is_offer: bool\
+      \ = None\n\n@app.post(\"/items/\")\ndef create_item(item: Item):\n    return\
+      \ item\n"
+  pitfalls:
+  - Returning the Pydantic model directly without converting it to a dict, which FastAPI
+    handles but may confuse newcomers.
+  - Not providing default values for optional fields, leading to validation errors.
+- id: fastapi-dependencies
+  title: Using dependency injection
+  explanation: Inject reusable logic into path operations via Depends.
+  tags:
+  - dependency
+  - injection
+  when_to_use: When sharing common logic (e.g., query parsing) across multiple endpoints.
+  examples:
+  - title: Dependency injection for query params
+    language: Python
+    code: "from fastapi import FastAPI, Depends\n\napp = FastAPI()\n\ndef common_parameters(q:\
+      \ str = None, limit: int = 10):\n    return {\"q\": q, \"limit\": limit}\n\n\
+      @app.get(\"/items/\")\ndef read_items(commons: dict = Depends(common_parameters)):\n\
+      \    return commons\n"
+  pitfalls:
+  - Forgetting to import Depends, causing NameError.
+  - Returning a mutable object from a dependency, which can be shared across requests
+    inadvertently.

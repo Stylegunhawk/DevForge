@@ -1,0 +1,124 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: pandas
+  library_version_floor: 2.4.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: dataframe-basic-ops
+  title: Basic DataFrame Operations
+  explanation: Create, inspect, and modify DataFrames using pandas constructors and
+    attribute access.
+  tags:
+  - dataframe
+  - creation
+  - inspection
+  when_to_use: When you need a quick overview of DataFrame layout and simple manipulations.
+  examples:
+  - title: Create and view a DataFrame
+    language: python
+    code: "import pandas as pd\ndf = pd.DataFrame({\n    'A': [1, 2, 3],\n    'B':\
+      \ ['x', 'y', 'z']\n})\nprint(df.head())\n"
+  pitfalls:
+  - Misinterpreting index vs column labels
+  - Forgetting that DataFrames are mutable; changes persist
+- id: dataframe-filter-conditions
+  title: Conditional Filtering
+  explanation: Use boolean masks to subset rows based on column values.
+  tags:
+  - filtering
+  - boolean-masks
+  - selection
+  when_to_use: When you need rows matching complex criteria.
+  examples:
+  - title: Create mask
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''score'': [88, 92, 75, 64], ''passed'': [True, True, True,
+      False]})
+
+      passed = df[''passed''] & (df[''score''] > 80)
+
+      print(df[passed])
+
+      '
+  pitfalls:
+  - Using `==` with NaN values; comparison returns False
+  - Forgetting parentheses around multiple conditions
+- id: groupby-aggregation
+  title: GroupBy Aggregation
+  explanation: Aggregate data by one or more keys using `groupby` and aggregation
+    functions.
+  tags:
+  - groupby
+  - aggregation
+  - statistics
+  when_to_use: When summarizing data by categories.
+  examples:
+  - title: groupby sum
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''team'': [''A'', ''A'', ''B'', ''B''], ''points'': [10,
+      15, 7, 12]})
+
+      result = df.groupby(''team'')[''points''].sum()
+
+      print(result)
+
+      '
+  pitfalls:
+  - Forgetting to reset_index after groupby if you need DataFrame output
+  - Using the wrong aggregation function for the data type
+- id: merge-join
+  title: Merging DataFrames
+  explanation: Combine multiple DataFrames with SQL-like joins using `merge`.
+  tags:
+  - merge
+  - join
+  - relational
+  when_to_use: When correlating data across tables or datasets.
+  examples:
+  - title: inner join
+    language: python
+    code: 'import pandas as pd
+
+      left = pd.DataFrame({''id'': [1, 2, 3], ''val'': [''x'', ''y'', ''z'']})
+
+      right = pd.DataFrame({''id'': [2, 3, 4], ''score'': [90, 85, 88]})
+
+      merged = pd.merge(left, right, on=''id'', how=''inner'')
+
+      print(merged)
+
+      '
+  pitfalls:
+  - Duplicate column names causing suffix conflicts
+  - Forgetting to specify `on` or `left_on/right_on` leading to unexpected joins
+- id: rolling-window
+  title: Rolling Window Computations
+  explanation: Apply moving window calculations like rolling mean or sum over a DataFrame
+    column.
+  tags:
+  - rolling
+  - window
+  - time-series
+  when_to_use: When analyzing trends or smoothing noisy data.
+  examples:
+  - title: rolling mean
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''value'': [1, 2, 3, 4, 5]})
+
+      df[''rolling_avg''] = df[''value''].rolling(window=3).mean()
+
+      print(df)
+
+      '
+  pitfalls:
+  - Forgetting to set `min_periods` when window is larger than data
+  - Misunderstanding that the window is applied to index positions, not sorted values

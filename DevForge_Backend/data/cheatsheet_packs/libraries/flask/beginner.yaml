@@ -1,0 +1,117 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: flask
+  library_version_floor: 3.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: flask-basic-app
+  title: Create a Basic Flask App
+  explanation: Initialize a Flask application and run it locally.
+  tags:
+  - initialization
+  - run
+  when_to_use: When starting a new Flask project.
+  examples:
+  - title: Minimal App
+    language: python
+    code: "from flask import Flask\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef\
+      \ hello():\n    return \"Hello, Flask!\"\n\nif __name__ == \"__main__\":\n \
+      \   app.run(debug=True)\n"
+  pitfalls:
+  - Forgetting the guard `if __name__ == "__main__":` can cause unintended double
+    starts when imported.
+  - Running `app.run()` without `debug=True` during development may hide helpful error
+    messages.
+- id: flask-route
+  title: Define Routes with Parameters
+  explanation: Map URLs to view functions and capture dynamic segments.
+  tags:
+  - routing
+  - parameters
+  when_to_use: When you need variable content in URLs.
+  examples:
+  - title: Route with Variable
+    language: python
+    code: "from flask import Flask\napp = Flask(__name__)\n\n@app.route(\"/user/<username>\"\
+      )\ndef show_user(username):\n    return f\"User: {username}\"\n"
+  pitfalls:
+  - Using the same route for multiple methods without specifying `methods=[...]` can
+    lead to unexpected 405 errors.
+  - Placing a static route after a dynamic one may never be reached because the dynamic
+    route matches first.
+- id: flask-request
+  title: Access Request Data
+  explanation: Retrieve query strings, form data, and JSON payloads from incoming
+    requests.
+  tags:
+  - request
+  - data
+  when_to_use: When handling form submissions or API calls.
+  examples:
+  - title: Get Query Parameter
+    language: python
+    code: "from flask import Flask, request\napp = Flask(__name__)\n\n@app.route(\"\
+      /search\")\ndef search():\n    term = request.args.get(\"q\", \"\")\n    return\
+      \ f\"Searching for: {term}\"\n"
+  pitfalls:
+  - Assuming `request.args` contains POST data; it only holds query string parameters.
+  - Forgetting to convert form data to the correct type before processing (e.g., string
+    to int).
+- id: flask-template
+  title: Render Templates
+  explanation: Use Jinja2 to generate HTML responses from templates.
+  tags:
+  - templates
+  - html
+  when_to_use: When you want dynamic HTML content.
+  examples:
+  - title: Render with Variables
+    language: python
+    code: "from flask import Flask, render_template_string\napp = Flask(__name__)\n\
+      \n@app.route(\"/greet/<name>\")\ndef greet(name):\n    template = \"\"\"\n \
+      \   <h1>Hello, {{ name }}!</h1>\n    \"\"\"\n    return render_template_string(template,\
+      \ name=name)\n"
+  pitfalls:
+  - Using `render_template_string` for large templates can be slow; prefer `render_template`
+    with actual files.
+  - Forgetting to escape user-provided content can lead to XSS vulnerabilities.
+- id: flask-error
+  title: Handle Errors Gracefully
+  explanation: Define custom error pages for HTTP status codes.
+  tags:
+  - errors
+  - status
+  when_to_use: When you want a user-friendly error response.
+  examples:
+  - title: 404 Page
+    language: python
+    code: "from flask import Flask, abort\napp = Flask(__name__)\n\n@app.route(\"\
+      /secret\")\ndef secret():\n    abort(404)\n\n@app.errorhandler(404)\ndef page_not_found(e):\n\
+      \    return \"<h1>Page not found</h1>\", 404\n"
+  pitfalls:
+  - Returning a string without a status code will default to 200, hiding the intended
+    error.
+  - Overriding too many error handlers can make debugging harder if generic errors
+    are masked.
+- id: flask-json
+  title: Return JSON Responses
+  explanation: Send structured data to clients in JSON format using Flask’s jsonify
+    helper.
+  tags:
+  - json
+  - api
+  when_to_use: When building APIs that return data to JavaScript or other services.
+  examples:
+  - title: Simple JSON API
+    language: python
+    code: "from flask import Flask, jsonify\napp = Flask(__name__)\n\n@app.route(\"\
+      /api/data\")\ndef get_data():\n    data = {\"name\": \"Alice\", \"age\": 30}\n\
+      \    return jsonify(data)\n"
+  pitfalls:
+  - Returning a plain Python dict without `jsonify` will still work in recent Flask
+    but may lead to incorrect MIME types in older versions.
+  - Forgetting to set `app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False` can result
+    in large, indented JSON in production, affecting bandwidth.

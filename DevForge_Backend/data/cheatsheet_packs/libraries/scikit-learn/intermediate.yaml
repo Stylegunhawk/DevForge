@@ -1,0 +1,141 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: scikit-learn
+  library_version_floor: 1.3.2
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: train-test-split
+  title: Train/Test Split
+  explanation: Splits a dataset into training and testing subsets for model evaluation.
+  tags:
+  - data-splitting
+  - evaluation
+  when_to_use: Use when you need separate data for training and unbiased testing.
+  examples:
+  - title: Basic split with stratification
+    language: python
+    code: "from sklearn.model_selection import train_test_split\nX_train, X_test,\
+      \ y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42,\
+      \ stratify=y)\n"
+  pitfalls:
+  - Forgetting to set a random_state for reproducibility.
+  - Using the same split for hyperparameter tuning and final evaluation.
+- id: standard-scaler
+  title: Standard Scaler
+  explanation: Centers features by removing the mean and scaling to unit variance.
+  tags:
+  - preprocessing
+  - scaling
+  when_to_use: Use before algorithms that assume zero mean, e.g., SVM, KNN.
+  examples:
+  - title: Fit and transform training data
+    language: python
+    code: 'from sklearn.preprocessing import StandardScaler
+
+      scaler = StandardScaler()
+
+      X_train_scaled = scaler.fit_transform(X_train)
+
+      X_test_scaled = scaler.transform(X_test)
+
+      '
+  pitfalls:
+  - Fitting the scaler on the entire dataset instead of only the training set.
+  - Using the fitted scaler on new data that was not part of the fit.
+- id: pca-feature-reduction
+  title: PCA for Dimensionality Reduction
+  explanation: Projects data onto principal components to reduce dimensionality while
+    preserving variance.
+  tags:
+  - feature-engineering
+  - dimensionality-reduction
+  when_to_use: Use when the dataset has many correlated features or you need faster
+    training.
+  examples:
+  - title: Reduce to 95% variance
+    language: python
+    code: 'from sklearn.decomposition import PCA
+
+      pca = PCA(n_components=0.95, random_state=42)
+
+      X_train_pca = pca.fit_transform(X_train_scaled)
+
+      X_test_pca = pca.transform(X_test_scaled)
+
+      '
+  pitfalls:
+  - Applying PCA before scaling; results may be dominated by feature magnitude.
+  - Not transforming the test set with the same PCA fitted on the training data.
+- id: gridsearchcv-hyperparameter-tuning
+  title: GridSearchCV for Hyperparameter Tuning
+  explanation: Exhaustively searches over specified parameter values for an estimator.
+  tags:
+  - hyperparameter-tuning
+  - model-selection
+  when_to_use: Use when you need systematic exploration of hyperparameters.
+  examples:
+  - title: Tune a random forest classifier
+    language: python
+    code: 'from sklearn.ensemble import RandomForestClassifier
+
+      from sklearn.model_selection import GridSearchCV
+
+      param_grid = {''n_estimators'': [100, 200], ''max_depth'': [None, 10, 20]}
+
+      grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=5,
+      scoring=''accuracy'')
+
+      grid.fit(X_train_pca, y_train)
+
+      '
+  pitfalls:
+  - Forgetting to standardize or scale data before grid search if the model requires
+    it.
+  - Using too many parameters or values, leading to excessive computation time.
+- id: cross-validate
+  title: Cross-Validation Scoring
+  explanation: Provides a robust estimate of model performance by training on multiple
+    folds.
+  tags:
+  - model-evaluation
+  - validation
+  when_to_use: Use when you want to assess generalization error without a separate
+    test set.
+  examples:
+  - title: 5-fold cross-validation with accuracy
+    language: python
+    code: 'from sklearn.model_selection import cross_val_score
+
+      scores = cross_val_score(grid.best_estimator_, X_pca, y, cv=5, scoring=''accuracy'')
+
+      print(f''CV accuracy: {scores.mean():.3f} ± {scores.std():.3f}'')
+
+      '
+  pitfalls:
+  - Mixing cross-validation with a separate test split; results may be biased.
+  - Not setting random_state for reproducible folds.
+- id: impute-missing-values
+  title: Impute Missing Values
+  explanation: Replaces missing entries with statistical estimates like mean or median.
+  tags:
+  - preprocessing
+  - missing-data
+  when_to_use: Use before training models that cannot handle NaNs.
+  examples:
+  - title: Impute with median for numeric features
+    language: python
+    code: 'from sklearn.impute import SimpleImputer
+
+      imputer = SimpleImputer(strategy=''median'')
+
+      X_train_imputed = imputer.fit_transform(X_train_pca)
+
+      X_test_imputed = imputer.transform(X_test_pca)
+
+      '
+  pitfalls:
+  - Fitting the imputer on the entire dataset, leaking information.
+  - Applying the imputer after scaling, which may alter the distribution.

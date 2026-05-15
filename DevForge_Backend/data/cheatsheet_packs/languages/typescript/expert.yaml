@@ -1,0 +1,127 @@
+pack:
+  language: typescript
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: conditional-types
+  title: Conditional Types
+  explanation: Use to produce a type based on a condition, enabling compile‑time branching.
+  tags:
+  - type-system
+  - generics
+  when_to_use: when the output type depends on the input type.
+  examples:
+  - title: Basic conditional
+    language: typescript
+    code: 'type Result<T> = T extends string ? number : boolean;
+
+      const a: Result<string> = 42;
+
+      const b: Result<boolean> = true;
+
+      '
+  pitfalls:
+  - Forgetting to wrap the condition in parentheses when using complex types.
+  - Misusing the inferred type, expecting a value instead of a type.
+- id: mapped-types
+  title: Mapped Types
+  explanation: Create a new type by iterating over the keys of an existing type.
+  tags:
+  - type-system
+  - utilities
+  when_to_use: when transforming all properties, e.g. making them readonly or optional.
+  examples:
+  - title: Readonly wrapper
+    language: typescript
+    code: 'type ReadonlyProps<T> = { readonly [P in keyof T]: T[P] };
+
+      const obj: ReadonlyProps<{ x: number; y: string }> = { x: 1, y: ''a'' };
+
+      '
+  pitfalls:
+  - Not accounting for index signatures, which are preserved by default.
+  - Overusing mapped types can lead to overly complex type definitions.
+- id: template-literal-types
+  title: Template Literal Types
+  explanation: Construct literal string types using template syntax for type‑safe
+    patterns.
+  tags:
+  - type-system
+  - literals
+  when_to_use: when you need to enforce specific string patterns, such as API paths
+    or CSS class names.
+  examples:
+  - title: API route type
+    language: typescript
+    code: 'type Route = `/api/${string}`;
+
+      const userRoute: Route = ''/api/user'';
+
+      '
+  pitfalls:
+  - Using `${string}` where a narrower literal is intended, losing compile‑time safety.
+  - Forgetting to prefix with backticks, causing a syntax error.
+- id: discriminated-unions
+  title: Discriminated Unions
+  explanation: Narrow union members by a common discriminant property.
+  tags:
+  - type-system
+  - unions
+  when_to_use: handling data that can be one of several shapes with a shared key.
+  examples:
+  - title: Shape area calculation
+    language: typescript
+    code: "type Shape =\n  | { kind: 'circle'; radius: number }\n  | { kind: 'square';\
+      \ side: number };\n\nfunction area(s: Shape) {\n  switch (s.kind) {\n    case\
+      \ 'circle': return Math.PI * s.radius ** 2;\n    case 'square': return s.side\
+      \ ** 2;\n  }\n}\n"
+  pitfalls:
+  - Forgetting to include the discriminant in every union variant.
+  - Using a non‑string discriminant, which can confuse the compiler.
+- id: infer-generic
+  title: Infer in Generics
+  explanation: Extract types from other types or function signatures using `infer`.
+  tags:
+  - type-system
+  - generics
+  when_to_use: deriving the inner type of a Promise, callback, or other generic wrapper.
+  examples:
+  - title: Unwrapping Promise
+    language: typescript
+    code: 'type Unwrap<T> = T extends Promise<infer U> ? U : T;
+
+      const num: Unwrap<Promise<number>> = 5;
+
+      '
+  pitfalls:
+  - Using `infer` in a context that doesn't support type inference, causing errors.
+  - Over‑narrowing the inferred type with additional constraints.
+- id: utility-types
+  title: Utility Types (Omit, Partial, Pick)
+  explanation: Built‑in helpers for manipulating existing types.
+  tags:
+  - type-system
+  - utilities
+  when_to_use: quickly creating sub‑types or making properties optional/required.
+  examples:
+  - title: Pick and Omit
+    language: typescript
+    code: 'type User = { id: number; name: string; email: string };
+
+      type Contact = Pick<User, ''name'' | ''email''>;
+
+      const contact: Contact = { name: ''Alice'', email: ''a@example.com'' };
+
+
+      type PublicUser = Omit<User, ''id''>;
+
+      const publicInfo: PublicUser = { name: ''Bob'', email: ''b@example.com'' };
+
+      '
+  pitfalls:
+  - Assuming `Omit` works on all types; it requires object types.
+  - Mixing `Partial` and `Required` incorrectly, leading to unintended optionality.

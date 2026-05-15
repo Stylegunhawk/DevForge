@@ -1,0 +1,227 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: matplotlib
+  library_version_floor: 3.8.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: custom-colormaps
+  title: Custom Colormaps
+  explanation: Create user-defined colormaps to map data values to colors with great
+    visual impact.
+  tags:
+  - colormap
+  - color
+  - data
+  when_to_use: Use when default colormaps fail to convey subtle data gradients or
+    when specific color themes are required.
+  examples:
+  - title: Linear Segmented Colormap
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      import matplotlib.colors as mcolors
+
+      import numpy as np
+
+
+      # Define a custom linear segmented colormap
+
+      colors = [(0, ''blue''), (0.5, ''green''), (1, ''red'')]
+
+      cmap = mcolors.LinearSegmentedColormap.from_list(''custom'', colors)
+
+
+      # Sample data
+
+      x = np.linspace(0, 10, 500)
+
+      y = np.sin(x)
+
+
+      plt.scatter(x, y, c=y, cmap=cmap)
+
+      plt.colorbar(label=''Amplitude'')
+
+      plt.title(''Custom Linear Colormap'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Using too many color stops can produce undesired color banding.
+  - Forgetting to normalize data when mapping to colormap can lead to incorrect color
+    intensity.
+- id: interactive-widgets
+  title: Interactive Widgets
+  explanation: Combine Matplotlib with ipywidgets to build interactive plots in Jupyter
+    environments.
+  tags:
+  - interactive
+  - widgets
+  - jupyter
+  when_to_use: Use when you need real-time parameter adjustments for data exploration
+    or teaching.
+  examples:
+  - title: Slider-Controlled Sine Wave
+    language: python
+    code: "import numpy as np\nimport matplotlib.pyplot as plt\nfrom ipywidgets import\
+      \ interact, FloatSlider\n\ndef plot_sine(freq=1.0, amp=1.0):\n    x = np.linspace(0,\
+      \ 2*np.pi, 400)\n    y = amp * np.sin(freq * x)\n    plt.figure(figsize=(6,\
+      \ 3))\n    plt.plot(x, y)\n    plt.title(f'Frequency={freq}Hz, Amplitude={amp}')\n\
+      \    plt.ylim(-2, 2)\n    plt.show()\n\ninteract(plot_sine,\n         freq=FloatSlider(min=0.5,\
+      \ max=5.0, step=0.1, value=1.0),\n         amp=FloatSlider(min=0.1, max=2.0,\
+      \ step=0.1, value=1.0))\n"
+  pitfalls:
+  - Forgetting to run the cell that imports ipywidgets can cause the slider to not
+    appear.
+  - Plotting inside a loop without clearing the figure leads to overlapping graphs.
+- id: 3d-plotting
+  title: 3D Plotting with Axes3D
+  explanation: Render three-dimensional visualizations such as surface plots and scatter
+    plots using Matplotlib's mpl_toolkits.mplot3d.
+  tags:
+  - 3d
+  - surface
+  - scatter
+  when_to_use: Use when visualizing volumetric data or spatial relationships.
+  examples:
+  - title: 3D Surface of a Gaussian
+    language: python
+    code: 'import numpy as np
+
+      import matplotlib.pyplot as plt
+
+      from mpl_toolkits.mplot3d import Axes3D
+
+
+      x = np.linspace(-3, 3, 100)
+
+      y = np.linspace(-3, 3, 100)
+
+      X, Y = np.meshgrid(x, y)
+
+      Z = np.exp(-(X**2 + Y**2))
+
+
+      fig = plt.figure(figsize=(6, 5))
+
+      ax = fig.add_subplot(111, projection=''3d'')
+
+      surf = ax.plot_surface(X, Y, Z, cmap=''viridis'', edgecolor=''none'')
+
+      fig.colorbar(surf, shrink=0.5, aspect=10)
+
+      ax.set_title(''Gaussian Surface'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Not setting the projection to '3d' results in a 2D plot.
+  - Using large datasets without proper downsampling can freeze the rendering process.
+- id: annotations
+  title: Annotations and Text
+  explanation: Add informative labels, arrows, and mathematical expressions to plots
+    for clarity.
+  tags:
+  - annotation
+  - text
+  - labeling
+  when_to_use: Use when highlighting key data points or explaining plot features.
+  examples:
+  - title: Annotated Peak Detection
+    language: python
+    code: "import numpy as np\nimport matplotlib.pyplot as plt\n\nx = np.linspace(0,\
+      \ 2*np.pi, 400)\ny = np.sin(x)\n\nplt.plot(x, y)\npeak_x = np.pi/2\npeak_y =\
+      \ np.sin(peak_x)\nplt.annotate('Peak',\n             xy=(peak_x, peak_y),\n\
+      \             xytext=(peak_x+0.3, 0.8),\n             arrowprops=dict(facecolor='black',\
+      \ shrink=0.05))\nplt.title('Sine Wave with Annotation')\nplt.grid(True)\nplt.show()\n"
+  pitfalls:
+  - Overlapping annotations can obscure data points if not positioned carefully.
+  - Forgetting to use LaTeX syntax can lead to misrendered mathematical expressions.
+- id: twin-axes
+  title: Twin Axes for Dual Units
+  explanation: Overlay two y-axes to display related data sets with different scales
+    or units.
+  tags:
+  - axes
+  - twin
+  - dual
+  when_to_use: Use when comparing two related metrics that require distinct scales
+    on the same plot.
+  examples:
+  - title: Temperature vs Humidity
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      import numpy as np
+
+
+      days = np.arange(1, 11)
+
+      temp = [22, 23, 21, 20, 19, 20, 22, 23, 24, 25]  # Celsius
+
+      humidity = [55, 57, 53, 60, 65, 63, 58, 56, 54, 52]  # %
+
+
+      fig, ax1 = plt.subplots()
+
+      color = ''tab:red''
+
+      ax1.set_xlabel(''Day'')
+
+      ax1.set_ylabel(''Temperature (°C)'', color=color)
+
+      ax1.plot(days, temp, color=color)
+
+      ax1.tick_params(axis=''y'', labelcolor=color)
+
+
+      ax2 = ax1.twinx()
+
+      color = ''tab:blue''
+
+      ax2.set_ylabel(''Humidity (%)'', color=color)
+
+      ax2.plot(days, humidity, color=color)
+
+      ax2.tick_params(axis=''y'', labelcolor=color)
+
+
+      plt.title(''Daily Temperature and Humidity'')
+
+      fig.tight_layout()
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Forgetting to synchronize the x-axis limits can cause misalignment of data.
+  - Using identical y-axis scales on both axes may defeat the purpose of a twin axis.
+- id: savefig-high-dpi
+  title: Savefig with High DPI and Metadata
+  explanation: Export figures with high resolution and embed descriptive metadata
+    for reproducibility.
+  tags:
+  - savefig
+  - dpi
+  - metadata
+  when_to_use: Use when preparing figures for print publications or archival purposes.
+  examples:
+  - title: High-Res PDF Export
+    language: python
+    code: "import matplotlib.pyplot as plt\nimport numpy as np\n\nx = np.linspace(0,\
+      \ 2*np.pi, 1000)\ny = np.cos(x)\n\nplt.figure(figsize=(5, 3))\nplt.plot(x, y,\
+      \ linewidth=2, color='navy')\nplt.title('Cosine Wave')\nplt.xlabel('Angle [rad]')\n\
+      plt.ylabel('Amplitude')\n\n# Save with metadata\nplt.savefig('cosine_wave.pdf',\n\
+      \            dpi=600,\n            format='pdf',\n            bbox_inches='tight',\n\
+      \            metadata={'Title': 'Cosine Wave',\n                       'Author':\
+      \ 'Data Scientist',\n                       'Subject': 'Matplotlib example'})\n\
+      plt.close()\n"
+  pitfalls:
+  - Using a too low DPI (e.g., 72) results in pixelated text in printed documents.
+  - Omitting bbox_inches='tight' can cut off axis labels or titles in the exported
+    file.

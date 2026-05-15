@@ -1,0 +1,118 @@
+pack:
+  language: csharp
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: async-await
+  title: Async/Await
+  explanation: Use async and await to perform asynchronous operations without blocking
+    threads.
+  tags:
+  - async
+  - await
+  - concurrency
+  when_to_use: When you need to perform I/O-bound work without blocking the UI or
+    server thread.
+  examples:
+  - title: Simple async file read
+    language: csharp
+    code: "public async Task<string> ReadFileAsync(string path)\n{\n    using var\
+      \ reader = new StreamReader(path);\n    return await reader.ReadToEndAsync();\n\
+      }\n"
+  pitfalls:
+  - Never block on async code synchronously (e.g., .Result or .Wait()).
+  - Avoid forgetting to await, leading to unobserved tasks.
+- id: linq
+  title: LINQ Queries
+  explanation: Language Integrated Query enables declarative data manipulation.
+  tags:
+  - linq
+  - query
+  - collections
+  when_to_use: When you need to filter, project, or aggregate data from collections.
+  examples:
+  - title: Filter and project
+    language: csharp
+    code: "var numbers = Enumerable.Range(1, 10);\nvar evens = numbers.Where(n =>\
+      \ n % 2 == 0)\n                   .Select(n => n * n);\n"
+  pitfalls:
+  - Using deferred execution can lead to unexpected late evaluation.
+  - Mixing side effects inside LINQ queries breaks functional style.
+- id: pattern-matching
+  title: Pattern Matching
+  explanation: Use switch expressions and type patterns to write concise conditional
+    logic.
+  tags:
+  - pattern
+  - switch
+  - type
+  when_to_use: When you need to branch logic based on value types or nullability.
+  examples:
+  - title: Switch expression with null check
+    language: csharp
+    code: "string? GetStatusMessage(object? obj) => obj switch\n{\n    null => \"\
+      No value\",\n    int i => $\"Integer {i}\",\n    string s => $\"String {s}\"\
+      ,\n    _ => \"Unknown\"\n};\n"
+  pitfalls:
+  - Mistaking pattern matching for if-else chains can lead to missing cases.
+  - Using pattern matching with mutable types may hide bugs.
+- id: records
+  title: Records
+  explanation: Records provide immutable reference types with value-based equality.
+  tags:
+  - records
+  - immutability
+  - value
+  when_to_use: When modeling data objects that should not change after creation.
+  examples:
+  - title: Simple record
+    language: csharp
+    code: 'public record Person(string FirstName, string LastName);
+
+      '
+  pitfalls:
+  - Confusing record with class; records generate value-based equality by default.
+  - Mutable properties in records defeat immutability benefits.
+- id: using-statements
+  title: Using Declarations
+  explanation: Using declarations automatically dispose objects without explicit blocks.
+  tags:
+  - using
+  - disposal
+  - resource
+  when_to_use: When you need deterministic cleanup for disposable resources.
+  examples:
+  - title: Using declaration with file stream
+    language: csharp
+    code: 'using var stream = File.OpenRead("data.bin");
+
+      // stream is disposed at the end of the scope
+
+      '
+  pitfalls:
+  - Relying on GC to clean up when using explicit using blocks too early.
+  - Assuming using declarations work in older C# versions.
+- id: nullable-reference-types
+  title: Nullable Reference Types
+  explanation: Enable nullable reference type annotations to catch null reference
+    bugs at compile time.
+  tags:
+  - nullable
+  - reference
+  - safety
+  when_to_use: When you want stronger static analysis for null safety in C# 8+.
+  examples:
+  - title: Enable and use
+    language: csharp
+    code: '#nullable enable
+
+      public string? GetName(Person? person) => person?.Name;
+
+      '
+  pitfalls:
+  - Not enabling
+  - Overusing '?' can hide actual null cases rather than handling them.

@@ -1,0 +1,99 @@
+pack:
+  language: Python
+  skill_level: beginner
+  version: 1
+  library: pytest
+  library_version_floor: 8.2.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-test-function
+  title: Basic Test Function
+  explanation: Define a simple test function using pytest to verify a single behavior
+    or value.
+  tags:
+  - testing
+  when_to_use: Use when you want to check a straightforward outcome.
+  examples:
+  - title: simple_test
+    language: Python
+    code: "import pytest\n\ndef test_addition():\n    assert 1 + 1 == 2\n"
+  pitfalls:
+  - Forgetting the 'test_' prefix on the function name.
+  - Using print statements instead of assertions for validation.
+- id: assert-statements
+  title: Assert Statements
+  explanation: Employ Python's assert keyword to validate expressions within tests.
+  tags:
+  - assertions
+  when_to_use: Use to confirm expected values or conditions directly in the test body.
+  examples:
+  - title: assert_example
+    language: Python
+    code: "import pytest\n\ndef test_greeting():\n    greeting = \"Hello, World!\"\
+      \n    assert greeting.startswith(\"Hello\")\n"
+  pitfalls:
+  - Using `==` inside assert without a clear message; consider adding `msg` for clarity.
+  - Relying on global state without resetting before each test.
+- id: parameterized-tests
+  title: Parameterized Tests
+  explanation: Run the same test logic with multiple input values using @pytest.mark.parametrize.
+  tags:
+  - parameterization
+  when_to_use: Use when the same assertion should hold for a range of inputs.
+  examples:
+  - title: parametrize_example
+    language: Python
+    code: "import pytest\n\n@pytest.mark.parametrize(\"a,b,expected\", [\n    (1,\
+      \ 2, 3),\n    (2, 3, 5),\n    (5, 5, 10),\n])\ndef test_sum(a, b, expected):\n\
+      \    assert a + b == expected\n"
+  pitfalls:
+  - Mixing positional and keyword arguments incorrectly in the parametrize decorator.
+  - Forgetting to import pytest when using the decorator.
+- id: fixtures
+  title: Fixtures
+  explanation: Provide reusable setup and teardown logic with @pytest.fixture.
+  tags:
+  - fixtures
+  when_to_use: Use to share common resources like test data or mock objects across
+    multiple tests.
+  examples:
+  - title: fixture_example
+    language: Python
+    code: "import pytest\n\n@pytest.fixture\ndef sample_data():\n    return {\"name\"\
+      : \"Alice\", \"age\": 30}\n\ndef test_age(sample_data):\n    assert sample_data[\"\
+      age\"] == 30\n"
+  pitfalls:
+  - Using mutable default arguments in fixture functions that can leak state between
+    tests.
+  - Forgetting to declare the fixture name as a parameter in the test function.
+- id: skipping-tests
+  title: Skipping Tests
+  explanation: Temporarily disable tests with pytest.mark.skip or skip(reason).
+  tags:
+  - skipping
+  when_to_use: Use when a test is not applicable in the current environment or is
+    under development.
+  examples:
+  - title: skip_example
+    language: Python
+    code: "import pytest\n\n@pytest.mark.skip(reason=\"Not implemented yet\")\ndef\
+      \ test_future_feature():\n    assert False\n"
+  pitfalls:
+  - Overusing skip without documenting why, leading to hidden failures.
+  - Ignoring the run-time condition that might be better handled with skipif.
+- id: approximate-assertion
+  title: Approximate Assertion
+  explanation: Verify floating‑point values within a tolerance using pytest.approx.
+  tags:
+  - approx
+  when_to_use: Use when comparing results of mathematical computations where rounding
+    errors are expected.
+  examples:
+  - title: approx_example
+    language: Python
+    code: "import pytest\n\ndef test_pi():\n    assert 3.14159 == pytest.approx(3.1416,\
+      \ rel=1e-4)\n"
+  pitfalls:
+  - Using a too‑tight tolerance that causes legitimate precision errors to fail.
+  - Forgetting to import pytest.approx explicitly.

@@ -1,0 +1,141 @@
+pack:
+  language: rust
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: result-option-handling
+  title: Result and Option Handling
+  explanation: Use Result and Option to propagate errors and handle absence of values
+    safely.
+  tags:
+  - error-handling
+  - option
+  when_to_use: When a function may fail or return an optional value.
+  examples:
+  - title: Propagate errors with ? operator
+    language: rust
+    code: "fn read_file(path: &str) -> Result<String, std::io::Error> {\n    std::fs::read_to_string(path)\n\
+      }\n"
+  - title: Provide default with unwrap_or
+    language: rust
+    code: "fn get_length(opt: Option<&str>) -> usize {\n    opt.unwrap_or(\"\").len()\n\
+      }\n"
+  pitfalls:
+  - Forgetting that ? propagates only on Result, not on Option.
+  - Using unwrap() or expect() in production code.
+- id: pattern-matching
+  title: Pattern Matching with match
+  explanation: Use match to destructure enums, tuples, and control flow based on value
+    patterns.
+  tags:
+  - match
+  - control-flow
+  when_to_use: When you need to branch logic based on complex value patterns.
+  examples:
+  - title: Match on enum variants
+    language: rust
+    code: "enum Direction { North, South, East, West }\n\nfn turn(dir: Direction)\
+      \ -> &'static str {\n    match dir {\n        Direction::North => \"turn left\"\
+      ,\n        Direction::South => \"turn right\",\n        Direction::East  =>\
+      \ \"go straight\",\n        Direction::West  => \"go straight\",\n    }\n}\n"
+  - title: Destructure tuple in match
+    language: rust
+    code: "fn describe_point(p: (i32, i32)) -> &'static str {\n    match p {\n   \
+      \     (0, 0) => \"origin\",\n        (x, 0) => \"on the x-axis\",\n        (0,\
+      \ y) => \"on the y-axis\",\n        _      => \"in the plane\",\n    }\n}\n"
+  pitfalls:
+  - Not covering all enum variants, leading to compiler errors.
+  - Using match for side-effect only when a simple if let or while let would suffice.
+- id: ownership-borrowing
+  title: Ownership and Borrowing
+  explanation: Manage memory by moving or borrowing values with references and the
+    borrow checker.
+  tags:
+  - ownership
+  - borrowing
+  when_to_use: When passing data between functions without copying large structures.
+  examples:
+  - title: Move ownership into a function
+    language: rust
+    code: "fn take_vec(v: Vec<i32>) -> usize {\n    v.len()\n}\n"
+  - title: Borrow immutably
+    language: rust
+    code: "fn sum(v: &Vec<i32>) -> i32 {\n    v.iter().sum()\n}\n"
+  pitfalls:
+  - Forgetting that mutable references require exclusive access.
+  - Creating dangling references by returning a reference to a local variable.
+- id: generics-trait-bounds
+  title: Generics and Trait Bounds
+  explanation: Write reusable code that works over multiple types by constraining
+    generics with traits.
+  tags:
+  - generics
+  - traits
+  when_to_use: When a function or struct should operate on many types but only those
+    that implement certain behavior.
+  examples:
+  - title: Generic function with Display bound
+    language: rust
+    code: "fn print<T: std::fmt::Display>(value: T) {\n    println!(\"{}\", value);\n\
+      }\n"
+  - title: Struct with generic type implementing Clone
+    language: rust
+    code: "struct Wrapper<T: Clone> {\n    value: T,\n}\n\nimpl<T: Clone> Wrapper<T>\
+      \ {\n    fn duplicate(&self) -> Self {\n        Self { value: self.value.clone()\
+      \ }\n    }\n}\n"
+  pitfalls:
+  - Overly broad trait bounds leading to unnecessary constraints.
+  - Forgetting that trait bounds are checked at compile time, causing opaque errors
+    if omitted.
+- id: async-await
+  title: Async/Await and Futures
+  explanation: Use async/await to write non-blocking code with futures and runtime
+    executors.
+  tags:
+  - async
+  - futures
+  when_to_use: When performing I/O or long-running tasks that should not block the
+    thread.
+  examples:
+  - title: Basic async function
+    language: rust
+    code: "async fn fetch_data(url: &str) -> Result<String, reqwest::Error> {\n  \
+      \  let resp = reqwest::get(url).await?;\n    resp.text().await\n}\n"
+  - title: Spawn a task with Tokio
+    language: rust
+    code: "#[tokio::main]\nasync fn main() {\n    let handle = tokio::spawn(async\
+      \ {\n        println!(\"Running in background\");\n    });\n    handle.await.unwrap();\n\
+      }\n"
+  pitfalls:
+  - Forgetting to use an async runtime, leading to silent futures that never run.
+  - Mixing blocking code inside async functions without proper wrappers.
+- id: custom-derive-macros
+  title: Custom Derive Macros
+  explanation: Generate boilerplate code automatically using procedural macros with
+  tags:
+  - macros
+  - derive
+  when_to_use: When you need repetitive code patterns across many structs or enums.
+  examples:
+  - title: Implement Clone manually via derive
+    language: rust
+    code: "#[derive(Clone)]\nstruct Point {\n    x: i32,\n    y: i32,\n}\n"
+  - title: Create a custom derive
+    language: rust
+    code: "// In a separate crate\nuse proc_macro::TokenStream;\nuse quote::quote;\n\
+      use syn::{parse_macro_input, DeriveInput};\n\n#[proc_macro_derive(DebugCustom)]\n\
+      pub fn debug_custom_derive(input: TokenStream) -> TokenStream {\n    let ast\
+      \ = parse_macro_input!(input as DeriveInput);\n    let name = &ast.ident;\n\
+      \    let gen = quote! {\n        impl std::fmt::Debug for #name {\n        \
+      \    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {\n    \
+      \            write!(f, \"Custom debug for {}\", stringify!(#name))\n       \
+      \     }\n        }\n    };\n    gen.into()\n}\n"
+  pitfalls:
+  - Not handling all fields (e.g., lifetimes) in custom derive leading to compile
+    errors.
+  - Using derive macros that depend on unstable features without enabling required
+    features.

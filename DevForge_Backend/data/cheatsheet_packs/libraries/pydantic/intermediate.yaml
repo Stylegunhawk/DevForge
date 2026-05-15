@@ -1,0 +1,120 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: pydantic
+  library_version_floor: 2.5.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: model-validation
+  title: BaseModel Validation
+  explanation: Define data models with automatic type checking and validation.
+  tags:
+  - pydantic
+  - model
+  - validation
+  when_to_use: When you need structured data with automatic type enforcement.
+  examples:
+  - title: Simple User Model
+    language: python
+    code: "from pydantic import BaseModel\n\nclass User(BaseModel):\n    id: int\n\
+      \    name: str\n    email: str\n\n# Valid instance\nuser = User(id=1, name=\"\
+      Alice\", email=\"alice@example.com\")\n# Invalid instance (raises ValidationError)\n\
+      # User(id=\"one\", name=123, email=\"not-an-email\")\n"
+  pitfalls:
+  - Forgetting to import BaseModel from pydantic.
+  - Passing raw dicts without using .parse_obj or direct constructor.
+- id: field-defaults
+  title: Field Defaults & Validators
+  explanation: Set default values and custom validators for fields.
+  tags:
+  - pydantic
+  - field
+  - default
+  - validator
+  when_to_use: When fields need default values or custom validation logic.
+  examples:
+  - title: Age Validator
+    language: python
+    code: "from pydantic import BaseModel, validator\n\nclass Person(BaseModel):\n\
+      \    name: str\n    age: int = 0\n\n    @validator('age')\n    def age_must_be_positive(cls,\
+      \ v):\n        if v < 0:\n            raise ValueError('age must be non-negative')\n\
+      \        return v\n"
+  pitfalls:
+  - Using `default_factory` incorrectly when a callable is needed.
+  - Forgetting the `pre=True` argument when validation must run before type conversion.
+- id: aliasing
+  title: Field Aliases and Naming
+  explanation: Map JSON keys to Python attributes using aliases.
+  tags:
+  - pydantic
+  - alias
+  - naming
+  when_to_use: When incoming data uses non‑Pythonic keys.
+  examples:
+  - title: Alias Example
+    language: python
+    code: "from pydantic import BaseModel, Field\n\nclass Product(BaseModel):\n  \
+      \  product_id: int = Field(..., alias='productId')\n    name: str\n\ndata =\
+      \ {\"productId\": 101, \"name\": \"Widget\"}\nproduct = Product(**data)  # works\
+      \ because of alias\n"
+  pitfalls:
+  - Forgetting to set `allow_population_by_field_name=True` when you need to instantiate
+    with field names.
+  - Using the same name for both field and alias, causing confusion during serialization.
+- id: nested-models
+  title: Nested Models and List Validation
+  explanation: Embed models inside other models for complex structures.
+  tags:
+  - pydantic
+  - nested
+  - list
+  - validation
+  when_to_use: When representing hierarchical data with lists of objects.
+  examples:
+  - title: Order with Items
+    language: python
+    code: "from typing import List\nfrom pydantic import BaseModel\n\nclass Item(BaseModel):\n\
+      \    product_id: int\n    quantity: int\n\nclass Order(BaseModel):\n    order_id:\
+      \ int\n    items: List[Item]\n\norder = Order(order_id=123, items=[{\"product_id\"\
+      : 1, \"quantity\": 2}])\n"
+  pitfalls:
+  - Providing a list of dictionaries without the model type, causing validation errors.
+  - Forgetting to import `List` from `typing`.
+- id: custom-validation
+  title: Custom Validation with @root_validator
+  explanation: Validate across multiple fields or entire model.
+  tags:
+  - pydantic
+  - root_validator
+  - cross-field
+  when_to_use: When fields depend on each other for validity.
+  examples:
+  - title: Password Confirmation
+    language: python
+    code: "from pydantic import BaseModel, root_validator\n\nclass Credentials(BaseModel):\n\
+      \    password: str\n    confirm_password: str\n\n    @root_validator\n    def\
+      \ passwords_match(cls, values):\n        pwd = values.get('password')\n    \
+      \    confirm = values.get('confirm_password')\n        if pwd != confirm:\n\
+      \            raise ValueError('Passwords do not match')\n        return values\n"
+  pitfalls:
+  - Returning the wrong values dictionary, breaking field assignments.
+  - Forgetting to mark the validator as `pre=True` when necessary.
+- id: json-serialization
+  title: JSON Export & Import
+  explanation: Serialize models to JSON and parse from JSON strings.
+  tags:
+  - pydantic
+  - json
+  - serialization
+  when_to_use: When exchanging data with APIs or storing to files.
+  examples:
+  - title: Model to JSON
+    language: python
+    code: "from pydantic import BaseModel\n\nclass BlogPost(BaseModel):\n    title:\
+      \ str\n    content: str\n\npost = BlogPost(title=\"Hello\", content=\"World\"\
+      )\njson_str = post.json()\n# Parse back\nnew_post = BlogPost.parse_raw(json_str)\n"
+  pitfalls:
+  - Forgetting to set `by_alias=True` when serializing with field aliases.
+  - Not handling datetime or other non‑JSON‑serializable types.

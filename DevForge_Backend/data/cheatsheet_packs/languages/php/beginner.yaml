@@ -1,0 +1,115 @@
+pack:
+  language: php
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: variables
+  title: Variables
+  explanation: Declaring and using variables in PHP.
+  tags:
+  - variables
+  - basic
+  when_to_use: When you need to store and manipulate data.
+  examples:
+  - title: Basic variable usage
+    language: php
+    code: '<?php
+
+      $name = "Alice";
+
+      $age = 30;
+
+      echo "Name: $name, Age: $age";
+
+      ?>
+
+      '
+  pitfalls:
+  - Forgetting the dollar sign before variable names.
+  - Using uninitialized variables leading to notices.
+- id: if-statements
+  title: If Statements
+  explanation: Basic conditional branching in PHP.
+  tags:
+  - control-flow
+  - if
+  when_to_use: When you need to execute code based on a condition.
+  examples:
+  - title: Simple if-else
+    language: php
+    code: "<?php\n$score = 85;\nif ($score >= 60) {\n    echo \"Passed\";\n} else\
+      \ {\n    echo \"Failed\";\n}\n?>\n"
+  pitfalls:
+  - Using assignment (=) instead of comparison (== or ===).
+  - Forgetting to close the if block with a brace.
+- id: loops
+  title: Loops
+  explanation: Repeating code blocks using for, while, and foreach loops.
+  tags:
+  - control-flow
+  - loops
+  when_to_use: When you need to iterate over a range or collection.
+  examples:
+  - title: foreach over array
+    language: php
+    code: "<?php\n$colors = [\"red\", \"green\", \"blue\"];\nforeach ($colors as $color)\
+      \ {\n    echo $color . PHP_EOL;\n}\n?>\n"
+  pitfalls:
+  - Using ++ on array indexes incorrectly.
+  - Forgetting to initialize loop variables.
+- id: functions
+  title: Functions
+  explanation: Defining reusable blocks of code with optional parameters.
+  tags:
+  - functions
+  - reusable
+  when_to_use: When you need to encapsulate logic for reuse or clarity.
+  examples:
+  - title: Function with default parameter
+    language: php
+    code: "<?php\nfunction greet($name = \"Guest\") {\n    return \"Hello, $name!\"\
+      ;\n}\necho greet(\"Bob\");\n?>\n"
+  pitfalls:
+  - Not declaring return type when needed.
+  - Using global variables without passing them as parameters.
+- id: arrays
+  title: Arrays
+  explanation: Working with indexed and associative arrays.
+  tags:
+  - arrays
+  - data-structures
+  when_to_use: When you need to store ordered or key-value collections.
+  examples:
+  - title: Associative array
+    language: php
+    code: "<?php\n$person = [\n    \"name\" => \"Charlie\",\n    \"age\" => 28\n];\n\
+      echo $person[\"name\"];\n?>\n"
+  pitfalls:
+  - Mixing single and double quotes for array keys.
+  - Using array() syntax incorrectly.
+- id: string-interpolation
+  title: String Interpolation
+  explanation: Embedding variables directly inside double-quoted strings.
+  tags:
+  - strings
+  - interpolation
+  when_to_use: When you need concise string building without concatenation.
+  examples:
+  - title: Interpolated string
+    language: php
+    code: '<?php
+
+      $city = "Paris";
+
+      echo "Welcome to $city!";
+
+      ?>
+
+      '
+  pitfalls:
+  - Using single quotes which do not interpolate.
+  - Forgetting to escape special characters inside double quotes.

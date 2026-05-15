@@ -1,0 +1,150 @@
+pack:
+  language: javascript
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: es6-destructuring
+  title: Destructuring Assignment
+  explanation: Allows unpacking values from arrays or properties from objects into
+    distinct variables in a single statement.
+  tags:
+  - destructuring
+  - es6
+  - syntax
+  when_to_use: Use when you need to extract multiple values from a data structure
+    for clearer and concise code.
+  examples:
+  - title: Array and object destructuring
+    language: javascript
+    code: 'const [first, second] = [10, 20];
+
+      const {name, age} = {name: ''Alice'', age: 30};
+
+      console.log(first, second, name, age); // 10 20 Alice 30
+
+      '
+  pitfalls:
+  - Forgetting to use the correct syntax for nested destructuring
+  - Ignoring default values for missing properties
+- id: async-await
+  title: async/await
+  explanation: Provides a cleaner syntax for working with Promises, making asynchronous
+    code look synchronous.
+  tags:
+  - async
+  - await
+  - promises
+  - es6
+  when_to_use: When you need to chain asynchronous operations or handle errors using
+    try/catch.
+  examples:
+  - title: Fetch with async/await
+    language: javascript
+    code: "async function fetchData() {\n  try {\n    const response = await fetch('https://api.example.com/data');\n\
+      \    const data = await response.json();\n    console.log(data);\n  } catch\
+      \ (error) {\n    console.error(error);\n  }\n}\n"
+  pitfalls:
+  - Forgetting to mark function as async before using await
+  - Not handling errors with try/catch, leading to unhandled rejections
+- id: map-vs-object
+  title: Map vs Object for Key-Value Storage
+  explanation: Map offers better performance for frequent additions/removals and preserves
+    insertion order, while plain objects are simpler for static sets.
+  tags:
+  - map
+  - object
+  - data-structures
+  - es6
+  when_to_use: Use Map when keys are dynamic or not strings, or when you need guaranteed
+    insertion order.
+  examples:
+  - title: Using Map
+    language: javascript
+    code: 'const map = new Map();
+
+      map.set(''a'', 1);
+
+      map.set(''b'', 2);
+
+      console.log(map.get(''a'')); // 1
+
+      '
+  pitfalls:
+  - Using objects for large dynamic datasets, causing hash collisions
+  - Forgetting that Map keys are compared by identity, not by value for objects
+- id: spread-operator
+  title: Spread Operator
+  explanation: Enables expanding iterable elements or object properties into a new
+    array or object, facilitating immutability.
+  tags:
+  - spread
+  - es6
+  - array
+  - object
+  when_to_use: When you need to merge arrays or clone objects without mutation.
+  examples:
+  - title: Merging arrays
+    language: javascript
+    code: 'const arr1 = [1, 2];
+
+      const arr2 = [3, 4];
+
+      const merged = [...arr1, ...arr2];
+
+      console.log(merged); // [1,2,3,4]
+
+      '
+  pitfalls:
+  - Unintentionally copying nested objects by reference
+  - Misusing spread on non-iterable values, causing TypeError
+- id: promise-allsettled
+  title: Promise.allSettled
+  explanation: Waits for all promises to settle (fulfilled or rejected) and returns
+    an array of outcome objects.
+  tags:
+  - promise
+  - allSettled
+  - async
+  - es2020
+  when_to_use: When you need to run multiple independent async tasks and handle each
+    result regardless of failures.
+  examples:
+  - title: Handling mixed promises
+    language: javascript
+    code: "const promises = [\n  Promise.resolve('Success 1'),\n  Promise.reject('Error\
+      \ 2'),\n  Promise.resolve('Success 3')\n];\nPromise.allSettled(promises).then(results\
+      \ => {\n  results.forEach((result, idx) => {\n    if (result.status === 'fulfilled')\
+      \ {\n      console.log(`Promise ${idx} succeeded:`, result.value);\n    } else\
+      \ {\n      console.log(`Promise ${idx} failed:`, result.reason);\n    }\n  });\n\
+      });\n"
+  pitfalls:
+  - Assuming all promises succeeded without checking status
+  - Ignoring rejections, leading to silent failures
+- id: optional-chaining
+  title: Optional Chaining (?.)
+  explanation: Safely accesses nested properties, returning undefined instead of throwing
+    if intermediate value is nullish.
+  tags:
+  - optionalChaining
+  - es2020
+  - nullish
+  - access
+  when_to_use: When navigating deep object structures where some properties may be
+    undefined or null.
+  examples:
+  - title: Accessing nested data
+    language: javascript
+    code: 'const user = { profile: { name: ''Bob'' } };
+
+      console.log(user.profile?.name); // ''Bob''
+
+      console.log(user.address?.street); // undefined
+
+      '
+  pitfalls:
+  - Relying on optional chaining for error handling; it hides bugs
+  - Using it on array indices that might be out of bounds without additional checks

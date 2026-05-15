@@ -1,0 +1,161 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: pandas
+  library_version_floor: 1.5.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: create-dataframe
+  title: Create DataFrame
+  explanation: Build a DataFrame from a dictionary of lists or a list of tuples.
+  tags:
+  - creation
+  - data-structures
+  when_to_use: Use when you need a new DataFrame from scratch.
+  examples:
+  - title: From dict
+    language: python
+    code: 'import pandas as pd
+
+      data = {''A'': [1, 2, 3], ''B'': [4, 5, 6]}
+
+      df = pd.DataFrame(data)
+
+      '
+  - title: From list of tuples
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame([(1, 4), (2, 5), (3, 6)], columns=[''A'', ''B''])
+
+      '
+  pitfalls:
+  - Assuming all columns have the same length; mismatched lengths raise ValueError.
+  - Forgetting to import pandas as pd.
+- id: select-columns
+  title: Select Columns
+  explanation: Retrieve one or more columns via indexing or .loc, returning a Series
+    or DataFrame.
+  tags:
+  - selection
+  - indexing
+  when_to_use: When you need to work with specific columns.
+  examples:
+  - title: Single column
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''A'': [1, 2], ''B'': [3, 4]})
+
+      col = df[''A'']
+
+      '
+  - title: Multiple columns
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''A'': [1, 2], ''B'': [3, 4], ''C'': [5, 6]})
+
+      sub = df[[''A'', ''C'']]
+
+      '
+  pitfalls:
+  - Using df.column syntax which fails if the column name has spaces or conflicts
+    with methods.
+  - Returning a copy when you intend to modify the original in place.
+- id: filter-rows
+  title: Filter Rows
+  explanation: Use boolean masks to subset rows that meet a condition.
+  tags:
+  - filtering
+  - boolean
+  when_to_use: When you need to extract rows based on criteria.
+  examples:
+  - title: Simple condition
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''A'': [1, 2, 3], ''B'': [4, 5, 6]})
+
+      filtered = df[df[''A''] > 1]
+
+      '
+  pitfalls:
+  - Forgetting to use parentheses when chaining multiple conditions.
+  - Misusing .loc; .loc expects label-based access.
+- id: groupby-sum
+  title: GroupBy and Aggregate
+  explanation: Group rows by one or more keys and compute aggregate functions.
+  tags:
+  - groupby
+  - aggregation
+  when_to_use: When summarizing data by categories.
+  examples:
+  - title: Sum by group
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''Key'': [''X'', ''Y'', ''X'', ''Y''], ''Value'': [10, 20,
+      30, 40]})
+
+      grouped = df.groupby(''Key'')[''Value''].sum()
+
+      '
+  pitfalls:
+  - Forgetting to reset the index after grouping if a DataFrame is needed.
+  - Using df.groupby('Key').sum() without selecting a column, which aggregates all
+    numeric columns.
+- id: handle-missing
+  title: Handle Missing Data
+  explanation: Detect and fill or drop NaN values.
+  tags:
+  - missing-data
+  - cleaning
+  when_to_use: When data contains gaps that affect analysis.
+  examples:
+  - title: Drop rows with NaN
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''A'': [1, None, 3], ''B'': [4, 5, 6]})
+
+      cleaned = df.dropna()
+
+      '
+  - title: Fill NaN with value
+    language: python
+    code: 'import pandas as pd
+
+      df = pd.DataFrame({''A'': [1, None, 3], ''B'': [4, 5, 6]})
+
+      filled = df.fillna(0)
+
+      '
+  pitfalls:
+  - Using df.fillna(method='ffill') without specifying axis can propagate unexpectedly.
+  - Dropping NaN without checking if it removes critical rows.
+- id: merge-dataframes
+  title: Merge DataFrames
+  explanation: Combine two DataFrames on key columns with inner, left, right, or outer
+    joins.
+  tags:
+  - merging
+  - join
+  when_to_use: When building a dataset from multiple sources.
+  examples:
+  - title: Inner join
+    language: python
+    code: 'import pandas as pd
+
+      left = pd.DataFrame({''Key'': [1, 2, 3], ''A'': [10, 20, 30]})
+
+      right = pd.DataFrame({''Key'': [2, 3, 4], ''B'': [200, 300, 400]})
+
+      merged = pd.merge(left, right, on=''Key'', how=''inner'')
+
+      '
+  pitfalls:
+  - Forgetting to specify on when column names differ.
+  - Using df.join incorrectly; it defaults to index-based join.

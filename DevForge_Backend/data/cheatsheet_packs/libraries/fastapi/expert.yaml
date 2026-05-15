@@ -1,0 +1,114 @@
+pack:
+  language: Python
+  skill_level: expert
+  version: 1
+  library: fastapi
+  library_version_floor: 0.110.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: route-decorators
+  title: Route Decorators
+  explanation: Use @app.get, @app.post, etc. to bind URL paths to async functions.
+  tags:
+  - routing
+  - decorator
+  when_to_use: When defining simple HTTP endpoints that respond to specific methods.
+  examples:
+  - title: Basic GET
+    language: Python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/items/{item_id}\"\
+      )\nasync def read_item(item_id: int, q: str = None):\n    return {\"item_id\"\
+      : item_id, \"q\": q}\n"
+  pitfalls:
+  - Forgetting the async keyword can block the event loop.
+  - Using mutable default arguments in path operation functions.
+- id: dependency-injection
+  title: Dependency Injection
+  explanation: FastAPI's Depends injects reusable components into path operations.
+  tags:
+  - dependency
+  - injection
+  when_to_use: When you need shared services like configuration or authentication.
+  examples:
+  - title: Simple Dependency
+    language: Python
+    code: "from fastapi import FastAPI, Depends\n\napp = FastAPI()\n\ndef get_greeting():\n\
+      \    return \"Hello\"\n\n@app.get(\"/greet\")\nasync def greet(name: str, greeting:\
+      \ str = Depends(get_greeting)):\n    return {\"message\": f\"{greeting}, {name}!\"\
+      }\n"
+  pitfalls:
+  - Not using a generator or context manager for resources that need cleanup.
+  - Overusing global state instead of dependencies.
+- id: background-tasks
+  title: Background Tasks
+  explanation: Use BackgroundTasks to run non-blocking work after a response is sent.
+  tags:
+  - background
+  - tasks
+  when_to_use: When you need to perform side effects like sending emails after a response.
+  examples:
+  - title: Email Notification
+    language: Python
+    code: "from fastapi import FastAPI, BackgroundTasks\n\napp = FastAPI()\n\ndef\
+      \ send_email(email: str):\n    print(f\"Sending email to {email}\")\n\n@app.post(\"\
+      /send-email\")\nasync def email_user(email: str, background_tasks: BackgroundTasks):\n\
+      \    background_tasks.add_task(send_email, email)\n    return {\"message\":\
+      \ \"Email queued\"}\n"
+  pitfalls:
+  - Modifying request data in background tasks.
+  - Long-running tasks blocking the thread pool.
+- id: middleware
+  title: Custom Middleware
+  explanation: Middleware can intercept requests/responses globally.
+  tags:
+  - middleware
+  - request
+  when_to_use: When you need to modify headers, log, or enforce policies across all
+    endpoints.
+  examples:
+  - title: Logging Middleware
+    language: Python
+    code: "from fastapi import FastAPI, Request\n\napp = FastAPI()\n\n@app.middleware(\"\
+      http\")\nasync def log_requests(request: Request, call_next):\n    print(f\"\
+      Incoming request: {request.method} {request.url}\")\n    response = await call_next(request)\n\
+      \    print(f\"Response status: {response.status_code}\")\n    return response\n"
+  pitfalls:
+  - Using synchronous middleware in an async app.
+  - Forgetting to await call_next.
+- id: websockets
+  title: WebSockets Support
+  explanation: FastAPI provides native support for WebSocket endpoints for real-time
+    communication.
+  tags:
+  - websocket
+  - real-time
+  when_to_use: When building chat, live feeds, or interactive dashboards.
+  examples:
+  - title: Echo Socket
+    language: Python
+    code: "from fastapi import FastAPI, WebSocket\n\napp = FastAPI()\n\n@app.websocket(\"\
+      /ws\")\nasync def websocket_endpoint(websocket: WebSocket):\n    await websocket.accept()\n\
+      \    while True:\n        data = await websocket.receive_text()\n        await\
+      \ websocket.send_text(f\"Echo: {data}\")\n"
+  pitfalls:
+  - Forgetting websocket.accept() before receiving.
+  - Blocking loops without await.
+- id: error-handling
+  title: Custom Error Handling
+  explanation: Define exception handlers to return consistent error responses.
+  tags:
+  - error
+  - handler
+  when_to_use: When you want to customize HTTP error payloads or log exceptions.
+  examples:
+  - title: ValidationError Handler
+    language: Python
+    code: "from fastapi import FastAPI, Request\nfrom fastapi.exceptions import RequestValidationError\n\
+      from fastapi.responses import JSONResponse\n\napp = FastAPI()\n\n@app.exception_handler(RequestValidationError)\n\
+      async def validation_exception_handler(request: Request, exc: RequestValidationError):\n\
+      \    return JSONResponse(\n        status_code=422,\n        content={\"detail\"\
+      : exc.errors(), \"body\": exc.body},\n    )\n"
+  pitfalls:
+  - Overriding built-in handlers unintentionally.
+  - Returning non-JSON responses for API clients.

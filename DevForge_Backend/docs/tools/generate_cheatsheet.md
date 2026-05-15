@@ -1,9 +1,10 @@
 # generate_cheatsheet — Curated Packs + LLM Personalization
 
 **Tool Name:** `generate_cheatsheet`
-**Version:** 0.11.0
+**Version:** 0.11.0 (Python packs v2 — hand-deepened 2026-05-15)
 **Status:** Production-grade (curated packs ground truth, LLM ranks/personalizes only)
 **Last Updated:** 2026-05-15
+**Pack status:** 69 packs on disk (all 9 langs × 3 skills + 14 libs × 3 skills bootstrapped; **python beginner/intermediate/expert hand-deepened to v2** with 33 entries / 99 tree-sitter-validated examples)
 
 ---
 
@@ -43,7 +44,8 @@ Key benefits over v0.8.0:
 
 | Language | Status |
 |----------|--------|
-| python, javascript, typescript, go, rust, java, ruby, php, csharp | ✅ Pack tree on disk; bootstrap-generated packs reviewed via PR |
+| **python** | ✅ Hand-deepened to v2 (2026-05-15): 33 entries across 3 skill levels, 99 tree-sitter-validated examples, rich tags for personalizer matching |
+| javascript, typescript, go, rust, java, ruby, php, csharp | ✅ LLM-bootstrapped 2026-05-15; all 24 packs (8 × 3 skills) on disk and exercised in 23-scenario MCP stress test |
 
 Unsupported languages return:
 
@@ -229,6 +231,18 @@ curl -X POST http://localhost:8001/api/gateway \
 
 Cold ~12–15 s and warm ~2–8 s — **within the budget**. Free Ollama Cloud dominates the LLM call; a managed inference endpoint would bring warm latency under 2 s.
 
+### Observed (23-scenario aggressive REST stress test, post-bootstrap, 2026-05-15)
+
+| Path | Latency |
+|------|---------|
+| Pydantic gate (length, enum, empty inputs) | 0.0–0.1 s |
+| Language allow-list reject | 0.0 s |
+| Full LLM personalization (cold) | 1.4–6.6 s |
+| Warm/follow-on personalization | 1.9–3.7 s |
+| 3 parallel requests, all warm | 3.1 s total (vs ~9 s sequential) |
+
+Re-run against 69-pack-populated container. Lower than the 16-scenario test because the Ollama cloud model warmed during the bootstrap run.
+
 ---
 
 ## Testing
@@ -262,9 +276,48 @@ python scripts/bootstrap_cheatsheet_packs.py --language python --skill intermedi
 
 ---
 
-## Aggressive MCP verification (2026-05-15)
+## Aggressive REST verification (2026-05-15, post-bootstrap)
 
-The live MCP endpoint was stress-tested with 16 scenarios. Highlights:
+A second 23-scenario stress test was run against `POST /api/gateway` after the 69-pack bootstrap and the Python pack deepening. Highlights:
+
+### ✅ Working as designed
+
+- **All 9 languages reachable** through the gateway with both intent-only and code-context requests
+- **9-library detection** from one Python code blob (`pandas, numpy, requests, pytest, fastapi, sqlalchemy, pydantic, httpx, asyncio`)
+- **Auto-detection** correctly identified Python, TypeScript, Go from idiomatic code shape
+- **Multi-block code parsing** via `\n\n---\n\n` separator detected fastapi + pytest from two snippets
+- **Explicit-input precedence** — `language=rust` overrode Python code (returned 6 Rust entries); `skill_level=beginner` overrode complexity_score=46 (returned beginner entries)
+- **Hot-reload** — deepened Python packs picked up by L2 mtime cache without container restart
+- **Concurrency** — 3 parallel REST requests completed in 3.1 s wall-clock (vs ~9 s sequential)
+
+### 🛡️ Security / adversarial input handling (re-verified)
+
+- Prompt injection in `intent`, hallucinated-id injection, and SQL-injection-shaped intent all produced normal cheatsheets (LLM ignored injection attempts; hallucinated-id drop guard filtered fake ids)
+- Length-limit attacks on `intent` (>400 chars) and `code_context` (>20,000 chars) rejected by Pydantic in <0.1 s with zero LLM spend
+- Unicode / Cyrillic / CJK / emoji in `intent` processed cleanly with `curated` quality
+
+### 🔴 Bug found and fixed during this run
+
+**`data/cheatsheet_packs/languages/rust/expert.yaml` had `library: serde` and `library_version_floor: 1.0.0`** on its `PackMeta`. The LLM bootstrap overzealously filled in library fields on a *language* pack (the only one of 26 packs to do so). The personalizer's pre-filter then treated it as a serde library pack and gated all entries behind `serde ∈ detected_libraries` → 0 candidates → `quality: curated_unpersonalized` with empty markdown. **Fix:** set both fields to `null`. Retest confirmed normal curated behavior. Other 25 language packs already had `library: null` correctly.
+
+### 🐍 Python pack deepening (2026-05-15)
+
+The python triplet (beginner.yaml, intermediate.yaml, expert.yaml) was rewritten by hand to v2 — going from bootstrap-default ~5-6 entries per pack to:
+
+| Pack | Entries | Examples | Tree-sitter |
+|------|---------|----------|-------------|
+| `python/beginner.yaml` | 10 | 30 | ✅ 0 errors |
+| `python/intermediate.yaml` | 12 | 36 | ✅ 0 errors |
+| `python/expert.yaml` | 11 | 33 | ✅ 0 errors |
+| **Total** | **33** | **99** | **All clean** |
+
+Each entry now has 3 examples (typically), 4-5 substantive pitfalls, and 5-9 tags for richer personalizer matching. This is the recommended pattern for promoting bootstrap-generated packs to production quality — hand-edit, deepen tags, validate with `scripts/validate_cheatsheet_packs.py`.
+
+---
+
+## Aggressive MCP verification (2026-05-15, pre-bootstrap)
+
+The live MCP endpoint was stress-tested with 16 scenarios on the python/beginner-only seed configuration. Highlights:
 
 ### ✅ Working as designed
 
@@ -295,7 +348,7 @@ The live MCP endpoint was stress-tested with 16 scenarios. Highlights:
 ## Known Limitations
 
 1. **LLM latency on free Ollama Cloud** — 20–30 s cold, 5–15 s warm. Acceptable for a learning resource, slow for a "quick" lookup. Document in UI with a loading indicator.
-2. **One seed pack ships in this commit (`languages/python/beginner.yaml`)** — a hand-written ground-truth file kept in git so the test suite and CI never depend on LLM availability. The remaining 68 packs are bootstrapped by running `scripts/bootstrap_cheatsheet_packs.py --all` (requires Ollama). Until then, non-python and non-beginner requests fall back to `success: false` with `"pack data missing"` — this is intentional and correct (no silent wrong content). The bootstrap script will preserve this seed (skip unless `--overwrite`).
+2. **All 69 packs on disk as of 2026-05-15.** The python triplet is hand-deepened (v2, 33 entries / 99 examples, 0 tree-sitter errors). The other 66 packs are LLM-bootstrapped (`scripts/bootstrap_cheatsheet_packs.py --all`) and are recommended-but-not-required to hand-edit for production polish — the bootstrap output is "first draft" quality (5-8 entries per pack, single example per entry, sparse tags). To deepen another language to v2 quality, follow the Python pattern: 10-12 entries, 2-3 examples per entry, 4-6 tags, substantive pitfalls.
 3. **`library_version_floor` is informational only.** Pack content isn't auto-checked against installed library versions.
 4. **No per-tenant pack overrides** — single shared knowledge base. Custom corporate cheatsheets would need a separate v0.12 spec.
 
@@ -333,7 +386,15 @@ The live MCP endpoint was stress-tested with 16 scenarios. Highlights:
 
 **MCP tool description** updated in agent-instructive style (matches `generate_data` v0.9 and `refine_prompt` v0.10). Includes supported-language list, input guidance, output field reference, and cold/warm latency expectations.
 
-**Verified through 16-scenario MCP stress test** (2026-05-15): all defenses hold under adversarial input (prompt injection in intent + code, SQL-injection-shaped intent, length-limit attack, hallucinated-id injection attempt). All explicit-input semantics honored (language wins over auto-detect; skill_level wins over complexity suggestion). Concurrency, caching, unicode all clean.
+**Verified through 16-scenario MCP stress test** (2026-05-15, pre-bootstrap) and **23-scenario REST stress test** (2026-05-15, post-bootstrap + python deepening): all defenses hold under adversarial input (prompt injection in intent + code, SQL-injection-shaped intent, length-limit attack, hallucinated-id injection attempt). All explicit-input semantics honored (language wins over auto-detect; skill_level wins over complexity suggestion). Concurrency, caching, unicode all clean. The 23-scenario re-run also caught and fixed one LLM-bootstrap data contamination (`rust/expert.yaml` had spurious `library: serde` on PackMeta).
+
+### v0.11.1 — 2026-05-15 (same-day deepening pass)
+
+**Pack data improvements:**
+- LLM-bootstrapped all 68 remaining packs via `scripts/bootstrap_cheatsheet_packs.py --all` (0 hard failures; 8 packs needed retry-2)
+- Hand-rewrote `python/{beginner,intermediate,expert}.yaml` to **v2** with 33 substantive entries / 99 tree-sitter-clean examples (4-9 tags per entry, 4-5 pitfalls per entry, 2-3 examples per entry)
+- Fixed `rust/expert.yaml` PackMeta contamination (`library: serde` → `null`) — was causing `curated_unpersonalized` empty responses for that one pack
+- Hot-reload via L2 mtime cache verified — deepened packs picked up by the running container without restart
 
 ### v0.8.0 — 2026-03-04
 Initial library-detection + complexity-scoring pass (Python-only).

@@ -1,0 +1,135 @@
+pack:
+  language: Go
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-variables
+  title: Basic Variable Declaration
+  explanation: Declares variables using var, short var, or type inference.
+  tags:
+  - variables
+  - declaration
+  when_to_use: When you need to store data in memory.
+  examples:
+  - title: Explicit Declaration
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    var name string =\
+      \ \"Alice\"\n    fmt.Println(name)\n}\n"
+  - title: Short Declaration
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    age := 30\n    fmt.Println(age)\n\
+      }\n"
+  - title: Type Inference
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    price := 19.99 //\
+      \ inferred as float64\n    fmt.Println(price)\n}\n"
+  pitfalls:
+  - Forgetting to specify the variable type when required.
+  - Using := in the package scope (outside of functions) causes a compilation error.
+- id: control-ifs
+  title: Conditional Statements
+  explanation: Uses if/else to execute code blocks based on boolean conditions.
+  tags:
+  - control
+  - if
+  when_to_use: When branching logic is needed.
+  examples:
+  - title: Simple if
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    age := 20\n    if\
+      \ age >= 18 {\n        fmt.Println(\"Adult\")\n    }\n}\n"
+  - title: if-else
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    score := 85\n    if\
+      \ score > 90 {\n        fmt.Println(\"Excellent\")\n    } else {\n        fmt.Println(\"\
+      Needs Improvement\")\n    }\n}\n"
+  pitfalls:
+  - Using assignment (=) instead of equality (==) in condition.
+  - Forgetting to import "fmt" when printing.
+- id: for-loop
+  title: For Loops
+  explanation: The only loop construct in Go, can act as a while or standard for loop.
+  tags:
+  - loop
+  - for
+  when_to_use: When iterating over a range or counting.
+  examples:
+  - title: Traditional for
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    for i := 0; i < 5;\
+      \ i++ {\n        fmt.Println(i)\n    }\n}\n"
+  - title: While-like for
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    i := 0\n    for i\
+      \ < 5 {\n        fmt.Println(i)\n        i++\n    }\n}\n"
+  - title: Range over slice
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    names := []string{\"\
+      Bob\", \"Carol\"}\n    for idx, name := range names {\n        fmt.Printf(\"\
+      %d: %s\\n\", idx, name)\n    }\n}\n"
+  pitfalls:
+  - Forgetting the loop initialization, condition, or post statement.
+  - Using range on a map without the comma to ignore the key when not needed.
+- id: function-decl
+  title: Function Declaration
+  explanation: Declares functions with optional return values and named parameters.
+  tags:
+  - functions
+  - declaration
+  when_to_use: When encapsulating reusable logic.
+  examples:
+  - title: Simple function
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc greet(name string) string {\n  \
+      \  return \"Hello, \" + name\n}\n\nfunc main() {\n    fmt.Println(greet(\"Alice\"\
+      ))\n}\n"
+  - title: Multiple returns
+    language: go
+    code: "package main\n\nimport (\n    \"fmt\"\n    \"errors\"\n)\n\nfunc divide(a,\
+      \ b float64) (float64, error) {\n    if b == 0 {\n        return 0, errors.New(\"\
+      division by zero\")\n    }\n    return a / b, nil\n}\n\nfunc main() {\n    result,\
+      \ err := divide(10, 2)\n    if err != nil {\n        fmt.Println(\"Error:\"\
+      , err)\n    } else {\n        fmt.Println(\"Result:\", result)\n    }\n}\n"
+  pitfalls:
+  - Forgetting to return all declared values.
+  - Using a receiver name that conflicts with imported package names.
+- id: defer-usage
+  title: Defer Statements
+  explanation: Schedules a function call to run after the surrounding function completes,
+    often used for cleanup.
+  tags:
+  - defer
+  - cleanup
+  when_to_use: When you need to ensure resources are released.
+  examples:
+  - title: File closing
+    language: go
+    code: "package main\n\nimport (\n    \"fmt\"\n    \"os\"\n)\n\nfunc main() {\n\
+      \    file, err := os.Open(\"data.txt\")\n    if err != nil {\n        fmt.Println(\"\
+      Error opening file:\", err)\n        return\n    }\n    defer file.Close()\n\
+      \    fmt.Println(\"File opened successfully\")\n}\n"
+  pitfalls:
+  - Deferring inside a loop leading to many pending calls.
+  - Assuming defer runs in reverse order of declaration without understanding stack
+    behavior.
+- id: error-handling
+  title: Error Handling
+  explanation: Go uses error values returned from functions; check and handle them
+    explicitly.
+  tags:
+  - error
+  - handling
+  when_to_use: When a function can fail and you need to respond.
+  examples:
+  - title: Basic error check
+    language: go
+    code: "package main\n\nimport (\n    \"fmt\"\n    \"os\"\n)\n\nfunc main() {\n\
+      \    data, err := os.ReadFile(\"input.txt\")\n    if err != nil {\n        fmt.Println(\"\
+      Error:\", err)\n        return\n    }\n    fmt.Println(string(data))\n}\n"
+  pitfalls:
+  - Ignoring the error return value.
+  - Panicking instead of returning an error in library code.

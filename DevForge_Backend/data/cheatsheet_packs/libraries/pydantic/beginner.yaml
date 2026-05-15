@@ -1,0 +1,110 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: pydantic
+  library_version_floor: 2.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-model
+  title: Basic Model Definition
+  explanation: Define a simple Pydantic model by subclassing BaseModel and declaring
+    attributes.
+  tags:
+  - model
+  - definition
+  when_to_use: When you need a lightweight data structure with automatic type checking.
+  examples:
+  - title: Simple User Model
+    language: python
+    code: "from pydantic import BaseModel\n\nclass User(BaseModel):\n    id: int\n\
+      \    name: str\n    email: str\n\nuser = User(id=1, name=\"Alice\", email=\"\
+      alice@example.com\")\nprint(user)\n"
+  pitfalls:
+  - Forgetting to subclass BaseModel; the attributes will not be validated.
+  - Using mutable default values like lists directly; use Field(default_factory=list).
+- id: field-validation
+  title: Field Validation
+  explanation: Apply constraints to fields using validators and constr types.
+  tags:
+  - validation
+  - constraints
+  when_to_use: When you need to enforce data rules (e.g., string length, regex).
+  examples:
+  - title: Email Validation
+    language: python
+    code: "from pydantic import BaseModel, EmailStr\n\nclass Contact(BaseModel):\n\
+      \    email: EmailStr\n\ncontact = Contact(email=\"user@example.com\")\nprint(contact.email)\n"
+  pitfalls:
+  - Using the wrong type hint (e.g., str instead of EmailStr) and missing validation.
+  - Neglecting to import the specific field type (like PositiveInt) when needed.
+- id: alias-usage
+  title: Field Aliases
+  explanation: Map external field names to internal attribute names using alias.
+  tags:
+  - alias
+  - mapping
+  when_to_use: When parsing data with keys that differ from your attribute names.
+  examples:
+  - title: Alias Example
+    language: python
+    code: "from pydantic import BaseModel, Field\n\nclass Product(BaseModel):\n  \
+      \  product_id: int = Field(..., alias=\"id\")\n    name: str\n\ndata = {\"id\"\
+      : 42, \"name\": \"Widget\"}\nproduct = Product(**data)\nprint(product.product_id)\n"
+  pitfalls:
+  - Forgetting to set allow_population_by_field_name = True if you want to instantiate
+    via attribute names.
+  - Using the same name for alias and field, causing confusion.
+- id: nested-models
+  title: Nested Models
+  explanation: Compose complex data structures by embedding models as fields.
+  tags:
+  - nested
+  - composition
+  when_to_use: When your data naturally contains hierarchical structures.
+  examples:
+  - title: Address in User Model
+    language: python
+    code: "from pydantic import BaseModel\n\nclass Address(BaseModel):\n    street:\
+      \ str\n    city: str\n\nclass User(BaseModel):\n    id: int\n    address: Address\n\
+      \nuser = User(id=1, address={\"street\": \"Main St\", \"city\": \"Metropolis\"\
+      })\nprint(user.address.city)\n"
+  pitfalls:
+  - Not importing the nested model before using it; leads to NameError.
+  - Forgetting to pass a dict instead of an Address instance, causing validation errors.
+- id: custom-validator
+  title: Custom Validators
+  explanation: Create domain-specific checks using the @validator decorator.
+  tags:
+  - validator
+  - custom
+  when_to_use: When built-in validators are insufficient for your logic.
+  examples:
+  - title: Age Must Be Positive
+    language: python
+    code: "from pydantic import BaseModel, validator\n\nclass Person(BaseModel):\n\
+      \    age: int\n\n    @validator(\"age\")\n    def age_must_be_positive(cls,\
+      \ v):\n        if v <= 0:\n            raise ValueError(\"age must be positive\"\
+      )\n        return v\n\nperson = Person(age=30)\nprint(person.age)\n"
+  pitfalls:
+  - Returning None from a validator; the field value will become None unexpectedly.
+  - Forgetting the @validator signature (e.g., missing cls parameter) and causing
+    runtime errors.
+- id: serialization
+  title: Serialization & Parsing
+  explanation: Convert models to dicts, JSON, or parse raw data with pydantic methods.
+  tags:
+  - serialization
+  - parsing
+  when_to_use: When you need to send or receive data in JSON or other formats.
+  examples:
+  - title: JSON Roundtrip
+    language: python
+    code: "from pydantic import BaseModel\n\nclass Point(BaseModel):\n    x: float\n\
+      \    y: float\n\np = Point(x=1.5, y=2.5)\njson_str = p.json()\nprint(json_str)\n\
+      p2 = Point.parse_raw(json_str)\nprint(p2)\n"
+  pitfalls:
+  - Relying on dict() instead of .dict(exclude_unset=True) and unintentionally including
+    defaults.
+  - Forgetting to handle validation errors when parsing raw data; they raise ValidationError.

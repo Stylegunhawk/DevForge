@@ -1,0 +1,138 @@
+pack:
+  language: go
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: goroutine-channel
+  title: Goroutine & Channel Basics
+  explanation: Demonstrates lightweight threads and communication between them via
+    channels.
+  tags:
+  - concurrency
+  - goroutine
+  - channel
+  when_to_use: When you need to perform parallel work or coordinate concurrent tasks.
+  examples:
+  - title: Producer-Consumer
+    language: go
+    code: "package main\n\nimport (\n    \"fmt\"\n    \"time\"\n)\n\nfunc producer(ch\
+      \ chan<- int) {\n    for i := 0; i < 5; i++ {\n        ch <- i\n        time.Sleep(100\
+      \ * time.Millisecond)\n    }\n    close(ch)\n}\n\nfunc consumer(ch <-chan int)\
+      \ {\n    for v := range ch {\n        fmt.Println(\"got:\", v)\n    }\n}\n\n\
+      func main() {\n    ch := make(chan int)\n    go producer(ch)\n    consumer(ch)\n\
+      }\n"
+  pitfalls:
+  - Forgetting to close channels, causing deadlocks.
+  - Using unbuffered channels for high-volume data without a consumer ready.
+- id: context-cancellation
+  title: Using Context for Cancellation
+  explanation: Shows how to propagate cancellation and deadlines across goroutines.
+  tags:
+  - context
+  - cancellation
+  - deadline
+  when_to_use: When you need to stop background work or limit request lifetimes.
+  examples:
+  - title: Timeout Example
+    language: go
+    code: "package main\n\nimport (\n    \"context\"\n    \"fmt\"\n    \"time\"\n\
+      )\n\nfunc work(ctx context.Context) {\n    for {\n        select {\n       \
+      \ case <-ctx.Done():\n            fmt.Println(\"work canceled:\", ctx.Err())\n\
+      \            return\n        default:\n            fmt.Println(\"working...\"\
+      )\n            time.Sleep(200 * time.Millisecond)\n        }\n    }\n}\n\nfunc\
+      \ main() {\n    ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)\n\
+      \    defer cancel()\n    go work(ctx)\n    time.Sleep(2 * time.Second)\n}\n"
+  pitfalls:
+  - Ignoring ctx.Err() in downstream functions, leading to wasted resources.
+  - Using context values for passing non-dependency data; prefer explicit parameters.
+- id: error-creation
+  title: Error Handling Idioms
+  explanation: Covers errors.New, fmt.Errorf, and wrapping with %w for context.
+  tags:
+  - error
+  - fmt
+  - fmt.Errorf
+  when_to_use: When you need descriptive error messages or propagate errors.
+  examples:
+  - title: Error Wrapping
+    language: go
+    code: "package main\n\nimport (\n    \"errors\"\n    \"fmt\"\n)\n\nvar ErrNotFound\
+      \ = errors.New(\"resource not found\")\n\nfunc find(id int) error {\n    if\
+      \ id != 42 {\n        return fmt.Errorf(\"lookup failed: %w\", ErrNotFound)\n\
+      \    }\n    return nil\n}\n\nfunc main() {\n    err := find(1)\n    if errors.Is(err,\
+      \ ErrNotFound) {\n        fmt.Println(\"handled not found:\", err)\n    } else\
+      \ if err != nil {\n        fmt.Println(\"other error:\", err)\n    }\n}\n"
+  pitfalls:
+  - Using fmt.Errorf without %w when you need error unwrapping.
+  - Returning nil error while the function signature expects *error; always check
+    nil.
+- id: interface-type-assertion
+  title: Interfaces & Type Assertions
+  explanation: Demonstrates defining interfaces and performing safe type assertions.
+  tags:
+  - interface
+  - type-assertion
+  - polymorphism
+  when_to_use: When you need to write flexible code that supports multiple implementations.
+  examples:
+  - title: Shape Area
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\ntype Shape interface{ Area() float64\
+      \ }\n\ntype Circle struct{ Radius float64 }\nfunc (c Circle) Area() float64\
+      \ { return 3.14159 * c.Radius * c.Radius }\n\ntype Square struct{ Side float64\
+      \ }\nfunc (s Square) Area() float64 { return s.Side * s.Side }\n\nfunc describe(s\
+      \ Shape) {\n    fmt.Printf(\"Area: %.2f\\n\", s.Area())\n    if c, ok := s.(Circle);\
+      \ ok {\n        fmt.Println(\"Circle radius:\", c.Radius)\n    } else if sq,\
+      \ ok := s.(Square); ok {\n        fmt.Println(\"Square side:\", sq.Side)\n \
+      \   }\n}\n\nfunc main() {\n    shapes := []Shape{Circle{Radius: 3}, Square{Side:\
+      \ 4}}\n    for _, sh := range shapes {\n        describe(sh)\n    }\n}\n"
+  pitfalls:
+  - Using type assertions with wrong type, causing panic; always check the ok value.
+  - Forgetting that interfaces are satisfied implicitly; explicit struct tags are
+    unnecessary.
+- id: slice-map-ops
+  title: Slice & Map Manipulation
+  explanation: Highlights append, copy, delete, and map iteration patterns.
+  tags:
+  - slice
+  - map
+  - collection
+  when_to_use: When handling dynamic arrays or key-value stores.
+  examples:
+  - title: Slice Copy & Append
+    language: go
+    code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    a := []int{1, 2, 3}\n\
+      \    b := make([]int, len(a))\n    copy(b, a)        // duplicate\n    a = append(a,\
+      \ 4)  // extend\n    fmt.Println(\"a:\", a, \"b:\", b)\n    \n    m := map[string]int{\"\
+      one\": 1, \"two\": 2}\n    delete(m, \"one\")\n    for k, v := range m {\n \
+      \       fmt.Println(k, v)\n    }\n}\n"
+  pitfalls:
+  - Modifying a slice after copying without understanding underlying array sharing.
+  - Deleting from a map while iterating over it; it's safe in Go but can lead to unintended
+    side effects if logic depends on order.
+- id: struct-embedding-json
+  title: Struct Embedding & JSON Marshaling
+  explanation: Shows how embedding promotes fields and how struct tags control JSON
+    output.
+  tags:
+  - struct
+  - embedding
+  - json
+  when_to_use: When designing data models that need to be serialized to/from JSON.
+  examples:
+  - title: Embedded Auth
+    language: go
+    code: "package main\n\nimport (\n    \"encoding/json\"\n    \"fmt\"\n)\n\ntype\
+      \ Credentials struct {\n    Username string `json:\"username\"`\n    Password\
+      \ string `json:\"password\"`\n}\n\ntype User struct {\n    Credentials\n   \
+      \ ID int `json:\"id\"`\n}\n\nfunc main() {\n    u := User{Credentials: Credentials{Username:\
+      \ \"alice\", Password: \"secret\"}, ID: 1}\n    data, _ := json.Marshal(u)\n\
+      \    fmt.Println(string(data))\n}\n"
+  pitfalls:
+  - Forgetting JSON tags, leading to undesired field names or omission of private
+    fields.
+  - Embedding causes field name collisions; ensure unique field names or use tags.

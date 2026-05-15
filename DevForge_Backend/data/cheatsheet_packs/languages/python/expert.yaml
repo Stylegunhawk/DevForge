@@ -1,0 +1,701 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 2
+  library: null
+  library_version_floor: null
+  last_reviewed: 2026-05-15
+  reviewer: sid
+
+entries:
+  - id: py.expert.metaclasses
+    title: "Metaclasses"
+    explanation: "A metaclass is the class of a class — it controls class creation. `type` is the default metaclass. Use them for class registration, attribute injection, or API constraints. Prefer `__init_subclass__` or class decorators when they suffice."
+    tags: [metaclass, metaprogramming, type, class-creation, init-subclass, advanced]
+    when_to_use: "Framework code that enforces patterns at class definition time — ORM models, plugin registries, ABC-style interfaces. Rarely needed in app code."
+    examples:
+      - title: "Singleton metaclass"
+        language: python
+        code: |
+          class SingletonMeta(type):
+              _instances: dict = {}
+
+              def __call__(cls, *args, **kwargs):
+                  if cls not in cls._instances:
+                      cls._instances[cls] = super().__call__(*args, **kwargs)
+                  return cls._instances[cls]
+
+          class Logger(metaclass=SingletonMeta):
+              def log(self, msg):
+                  print(msg)
+
+          assert Logger() is Logger()
+      - title: "Subclass registry with __init_subclass__ (preferred)"
+        language: python
+        code: |
+          class Plugin:
+              registry: dict = {}
+
+              def __init_subclass__(cls, *, name: str, **kwargs):
+                  super().__init_subclass__(**kwargs)
+                  cls.registry[name] = cls
+
+          class CSVPlugin(Plugin, name="csv"):
+              pass
+
+          class JSONPlugin(Plugin, name="json"):
+              pass
+
+          print(Plugin.registry)
+      - title: "Attribute injection via metaclass"
+        language: python
+        code: |
+          class AutoAttrs(type):
+              def __new__(mcs, name, bases, namespace):
+                  namespace["created_by"] = "AutoAttrs"
+                  return super().__new__(mcs, name, bases, namespace)
+
+          class Foo(metaclass=AutoAttrs):
+              pass
+
+          print(Foo.created_by)
+    pitfalls:
+      - "Multiple metaclasses in a class hierarchy → TypeError. The metaclass of a derived class must be a subclass of all base metaclasses."
+      - "Metaclasses are powerful but obscure — 90% of cases are better served by class decorators or __init_subclass__."
+      - "Overriding `__call__` on the metaclass intercepts instance creation, NOT class creation. Override `__new__` or `__init__` of the metaclass for the latter."
+      - "Don't store mutable state on the metaclass without thinking about shared-state implications across all subclasses."
+
+  - id: py.expert.descriptors
+    title: "Descriptors"
+    explanation: "Objects that customize attribute access via __get__, __set__, __delete__. `property` is a descriptor. Use them for validated attributes, lazy loading, ORM fields, or computed properties shared across many classes."
+    tags: [descriptor, property, get, set, delete, set-name, advanced]
+    when_to_use: "Reusable attribute behavior across many classes — validation, lazy computation, type coercion, framework-style fields."
+    examples:
+      - title: "Validated attribute descriptor"
+        language: python
+        code: |
+          class Positive:
+              def __set_name__(self, owner, name):
+                  self.name = name
+
+              def __get__(self, instance, owner=None):
+                  return instance.__dict__[self.name]
+
+              def __set__(self, instance, value):
+                  if value <= 0:
+                      raise ValueError(f"{self.name} must be positive, got {value}")
+                  instance.__dict__[self.name] = value
+
+          class Order:
+              quantity = Positive()
+              price = Positive()
+
+              def __init__(self, quantity, price):
+                  self.quantity = quantity
+                  self.price = price
+
+          o = Order(2, 19.99)
+          print(o.quantity, o.price)
+      - title: "Lazy / cached property"
+        language: python
+        code: |
+          from functools import cached_property
+
+          class Dataset:
+              def __init__(self, path):
+                  self.path = path
+
+              @cached_property
+              def lines(self):
+                  print("loading...")
+                  with open(self.path) as f:
+                      return f.read().splitlines()
+
+          d = Dataset("file.txt")
+      - title: "Class-level descriptor for SQL-like fields"
+        language: python
+        code: |
+          class Field:
+              def __init__(self, type_):
+                  self.type_ = type_
+
+              def __set_name__(self, owner, name):
+                  self.name = name
+
+              def __get__(self, instance, owner=None):
+                  if instance is None:
+                      return self
+                  return instance.__dict__.get(self.name)
+
+              def __set__(self, instance, value):
+                  if not isinstance(value, self.type_):
+                      raise TypeError(f"{self.name} expects {self.type_}")
+                  instance.__dict__[self.name] = value
+
+          class User:
+              name = Field(str)
+              age = Field(int)
+
+          u = User()
+          u.name = "Alice"
+          u.age = 25
+    pitfalls:
+      - "Data descriptors (those with __set__) take precedence over instance __dict__. Non-data descriptors do not."
+      - "Storing state on the descriptor (`self.value = ...`) is shared across all instances. Store on the instance via `instance.__dict__`."
+      - "`__set_name__` runs at class definition; use it to capture the attribute name automatically."
+      - "`property` is implemented as a descriptor — knowing this demystifies it."
+
+  - id: py.expert.async_await
+    title: "asyncio: async/await, gather, TaskGroup"
+    explanation: "Cooperative concurrency via an event loop. `async def` defines a coroutine; `await` suspends it. `asyncio.gather` runs many in parallel; `TaskGroup` (3.11+) is the structured-concurrency replacement."
+    tags: [asyncio, async, await, gather, task-group, coroutines, concurrency, advanced]
+    when_to_use: "I/O-bound concurrency — HTTP clients, DB drivers, websockets, file watchers. Wrong tool for CPU-bound work."
+    examples:
+      - title: "Basic async/await with gather"
+        language: python
+        code: |
+          import asyncio
+
+          async def fetch(name: str, delay: float) -> str:
+              await asyncio.sleep(delay)
+              return f"{name} done"
+
+          async def main():
+              results = await asyncio.gather(
+                  fetch("a", 0.2),
+                  fetch("b", 0.1),
+                  fetch("c", 0.3),
+              )
+              print(results)
+
+          asyncio.run(main())
+      - title: "TaskGroup (3.11+) for structured concurrency"
+        language: python
+        code: |
+          import asyncio
+
+          async def work(i: int) -> int:
+              await asyncio.sleep(0.01)
+              return i * i
+
+          async def main():
+              async with asyncio.TaskGroup() as tg:
+                  tasks = [tg.create_task(work(i)) for i in range(5)]
+              results = [t.result() for t in tasks]
+              print(results)
+
+          asyncio.run(main())
+      - title: "Cancellation and timeouts"
+        language: python
+        code: |
+          import asyncio
+
+          async def slow():
+              try:
+                  await asyncio.sleep(10)
+              except asyncio.CancelledError:
+                  print("cancelled, cleaning up")
+                  raise
+
+          async def main():
+              try:
+                  async with asyncio.timeout(0.5):
+                      await slow()
+              except TimeoutError:
+                  print("timed out")
+
+          asyncio.run(main())
+    pitfalls:
+      - "Calling `time.sleep(x)` inside a coroutine blocks the whole event loop. Always `await asyncio.sleep(x)`."
+      - "`gather(return_exceptions=False)` (default) cancels siblings on first error; set True to collect results+exceptions."
+      - "Forgetting `await` returns the coroutine object (not the result) — RuntimeWarning at exit. Type checkers catch this."
+      - "TaskGroup cancels remaining tasks if one raises. Use return_exceptions=True with gather if you want to keep going."
+      - "Mixing sync I/O (requests, sqlite3) inside async code blocks the loop. Use httpx/aiohttp/asyncpg instead."
+
+  - id: py.expert.concurrency_models
+    title: "Concurrency Models: threading vs asyncio vs multiprocessing"
+    explanation: "Three concurrency tools, different sweet spots. Threading: I/O-bound, shared memory, GIL serializes Python bytecode. asyncio: I/O-bound, single-threaded, explicit await points. multiprocessing: CPU-bound, separate processes, IPC overhead."
+    tags: [concurrency, threading, asyncio, multiprocessing, gil, parallelism, advanced]
+    when_to_use: "Picking the right tool: I/O concurrency → asyncio (preferred) or threading. CPU parallelism → multiprocessing or a C-extension lib like numpy."
+    examples:
+      - title: "ThreadPoolExecutor for blocking I/O"
+        language: python
+        code: |
+          from concurrent.futures import ThreadPoolExecutor
+          import urllib.request
+
+          def fetch(url):
+              with urllib.request.urlopen(url, timeout=5) as r:
+                  return r.status
+
+          urls = ["http://example.com"] * 4
+          with ThreadPoolExecutor(max_workers=4) as pool:
+              results = list(pool.map(fetch, urls))
+          print(results)
+      - title: "ProcessPoolExecutor for CPU work"
+        language: python
+        code: |
+          from concurrent.futures import ProcessPoolExecutor
+
+          def heavy(n: int) -> int:
+              total = 0
+              for i in range(n):
+                  total += i * i
+              return total
+
+          if __name__ == "__main__":
+              with ProcessPoolExecutor() as pool:
+                  results = list(pool.map(heavy, [10_000_000] * 4))
+              print(results[0])
+      - title: "Running blocking code inside async with to_thread"
+        language: python
+        code: |
+          import asyncio
+          import time
+
+          def blocking_io():
+              time.sleep(0.1)
+              return 42
+
+          async def main():
+              result = await asyncio.to_thread(blocking_io)
+              print(result)
+
+          asyncio.run(main())
+    pitfalls:
+      - "GIL serializes Python bytecode but releases for most C-implemented blocking I/O — threading IS useful for I/O."
+      - "ProcessPool requires pickleable inputs and outputs. Lambdas, locals, and unpickleable objects fail."
+      - "Don't share mutable state across threads without a Lock — race conditions are silent and hard to reproduce."
+      - "asyncio + threading mixing: use `loop.run_in_executor` or `asyncio.to_thread` — don't call sync code directly inside coroutines."
+      - "PEP 703 / `free-threading` Python (3.13+) is experimental — production code still assumes the GIL."
+
+  - id: py.expert.advanced_typing
+    title: "Advanced Typing: Protocol, TypeVar, ParamSpec, overload"
+    explanation: "Beyond basic hints: `Protocol` for structural typing, `TypeVar` for generics, `ParamSpec` for decorator typing, `@overload` for variant signatures, `TypeGuard` for narrowing."
+    tags: [typing, protocol, typevar, paramspec, overload, type-guard, generic, advanced]
+    when_to_use: "Library code, complex APIs, framework internals — anywhere mypy/pyright should give callers strong feedback without runtime checks."
+    examples:
+      - title: "Protocol for structural typing"
+        language: python
+        code: |
+          from typing import Protocol
+
+          class HasName(Protocol):
+              name: str
+
+              def greet(self) -> str: ...
+
+          class User:
+              def __init__(self, name: str):
+                  self.name = name
+
+              def greet(self) -> str:
+                  return f"hi {self.name}"
+
+          def greet_all(items: list[HasName]) -> None:
+              for it in items:
+                  print(it.greet())
+
+          greet_all([User("Alice")])
+      - title: "Generic TypeVar with bound"
+        language: python
+        code: |
+          from typing import TypeVar, Protocol
+
+          class Comparable(Protocol):
+              def __lt__(self, other) -> bool: ...
+
+          T = TypeVar("T", bound=Comparable)
+
+          def maximum(items: list[T]) -> T:
+              if not items:
+                  raise ValueError("empty")
+              best = items[0]
+              for it in items[1:]:
+                  if best < it:
+                      best = it
+              return best
+
+          print(maximum([3, 1, 4, 1, 5]))
+      - title: "ParamSpec for typed decorators"
+        language: python
+        code: |
+          from typing import ParamSpec, TypeVar, Callable
+          import functools
+
+          P = ParamSpec("P")
+          R = TypeVar("R")
+
+          def timed(fn: Callable[P, R]) -> Callable[P, R]:
+              @functools.wraps(fn)
+              def inner(*args: P.args, **kwargs: P.kwargs) -> R:
+                  return fn(*args, **kwargs)
+              return inner
+
+          @timed
+          def add(a: int, b: int) -> int:
+              return a + b
+    pitfalls:
+      - "`Protocol` classes shouldn't be instantiated. They define a shape, not an implementation."
+      - "Without ParamSpec, decorators that change `*args, **kwargs` types lose precise typing — callers see `(*Any, **Any)`."
+      - "`@overload` declarations are for type checkers only. They have no runtime effect — the last `def` is the real implementation."
+      - "TypeGuard narrows for the True branch only. Use `TypeGuard[T]` to tell the checker the type after a runtime check."
+
+  - id: py.expert.performance_profiling
+    title: "Performance & Profiling"
+    explanation: "Measure before optimizing. timeit for micro-benchmarks; cProfile for whole-program; line_profiler / py-spy for hot path analysis; tracemalloc for memory."
+    tags: [performance, profiling, timeit, cprofile, line-profiler, py-spy, tracemalloc, optimization, advanced]
+    when_to_use: "Anywhere you suspect a hot path — never optimize blind. Pick the smallest tool for the question."
+    examples:
+      - title: "timeit for micro-benchmarks"
+        language: python
+        code: |
+          import timeit
+
+          loop_time = timeit.timeit(
+              "[x*x for x in range(1000)]",
+              number=10_000,
+          )
+          map_time = timeit.timeit(
+              "list(map(lambda x: x*x, range(1000)))",
+              number=10_000,
+          )
+          print(f"comp={loop_time:.3f}s map={map_time:.3f}s")
+      - title: "cProfile + pstats"
+        language: python
+        code: |
+          import cProfile
+          import pstats
+
+          def heavy():
+              return sum(i * i for i in range(1_000_000))
+
+          profiler = cProfile.Profile()
+          profiler.enable()
+          heavy()
+          profiler.disable()
+          stats = pstats.Stats(profiler).sort_stats("cumulative")
+          stats.print_stats(5)
+      - title: "tracemalloc for memory hotspots"
+        language: python
+        code: |
+          import tracemalloc
+
+          tracemalloc.start()
+          big = [i for i in range(100_000)]
+          snapshot = tracemalloc.take_snapshot()
+          for stat in snapshot.statistics("lineno")[:3]:
+              print(stat)
+    pitfalls:
+      - "Premature optimization is the root of all evil — measure first, optimize the actual hotspot, then re-measure."
+      - "cProfile adds overhead that distorts very fast functions. Use line_profiler for fine-grained timing inside one function."
+      - "`timeit` runs `number` iterations — divide by `number` for per-call cost. Use `repeat` to bound variance."
+      - "Python-level loops are 10-100x slower than vectorized numpy / pandas for numeric work. The right algorithm or library beats every micro-optimization."
+
+  - id: py.expert.memory_model
+    title: "Memory Model: GC, refcounts, weakref, __slots__"
+    explanation: "CPython uses reference counting + a cycle collector. `__slots__` saves memory by skipping __dict__. `weakref` lets you reference objects without preventing GC."
+    tags: [memory, gc, refcount, slots, weakref, garbage-collection, advanced]
+    when_to_use: "Optimizing many-instance object overhead, breaking reference cycles, building caches that don't pin objects."
+    examples:
+      - title: "__slots__ for compact instances"
+        language: python
+        code: |
+          class Point:
+              __slots__ = ("x", "y")
+
+              def __init__(self, x: float, y: float):
+                  self.x = x
+                  self.y = y
+
+          p = Point(1.0, 2.0)
+          try:
+              p.z = 3.0
+          except AttributeError as e:
+              print(f"blocked: {e}")
+      - title: "weakref for non-owning references"
+        language: python
+        code: |
+          import weakref
+
+          class Node:
+              def __init__(self, name: str):
+                  self.name = name
+
+          n = Node("alice")
+          ref = weakref.ref(n)
+          print(ref() is n)
+          del n
+          print(ref())
+      - title: "Inspecting the GC and breaking cycles"
+        language: python
+        code: |
+          import gc
+
+          class A:
+              pass
+
+          x, y = A(), A()
+          x.partner = y
+          y.partner = x
+          del x, y
+          collected = gc.collect()
+          print(f"collected {collected} cycle objects")
+    pitfalls:
+      - "`__slots__` saves ~50% memory per instance but blocks dynamic attributes and complicates multiple inheritance."
+      - "Reference cycles delay garbage collection until the cycle collector runs. Prefer weakref for parent pointers / observers."
+      - "`gc.disable()` for short-lived performance-critical code is sometimes worth it — re-enable when done."
+      - "Common leak source: holding references in module-level lists/dicts. Use weakref containers (WeakValueDictionary) for caches."
+
+  - id: py.expert.pattern_matching
+    title: "Structural Pattern Matching (match/case, 3.10+)"
+    explanation: "More than a switch — match against literal, type, class shape, sequence, or mapping. Patterns can bind names. Guards add conditions."
+    tags: [pattern-matching, match, case, structural, guard, switch, "py310", advanced]
+    when_to_use: "Dispatching on AST nodes, parsed messages, command objects, JSON shapes. Cleaner than nested isinstance chains."
+    examples:
+      - title: "Literal + variable + wildcard"
+        language: python
+        code: |
+          def describe(value):
+              match value:
+                  case 0:
+                      return "zero"
+                  case int() if value < 0:
+                      return f"negative {value}"
+                  case int(n):
+                      return f"positive {n}"
+                  case _:
+                      return "not an int"
+
+          print(describe(-1), describe(42), describe("hi"))
+      - title: "Sequence and mapping patterns"
+        language: python
+        code: |
+          def handle(msg):
+              match msg:
+                  case []:
+                      return "empty"
+                  case [head, *tail]:
+                      return f"head={head} tail={tail}"
+                  case {"type": "ping", "id": id_}:
+                      return f"ping id={id_}"
+                  case {"type": "data", "payload": dict(p)}:
+                      return f"data keys={list(p)}"
+                  case _:
+                      return "unknown"
+
+          print(handle([1, 2, 3]))
+          print(handle({"type": "ping", "id": 7}))
+      - title: "Class pattern with positional fields"
+        language: python
+        code: |
+          from dataclasses import dataclass
+
+          @dataclass
+          class Point:
+              x: float
+              y: float
+
+          def quadrant(p: Point) -> str:
+              match p:
+                  case Point(0, 0):
+                      return "origin"
+                  case Point(x, y) if x > 0 and y > 0:
+                      return "Q1"
+                  case Point(x, _) if x == 0:
+                      return "y-axis"
+                  case _:
+                      return "elsewhere"
+
+          print(quadrant(Point(1, 1)))
+    pitfalls:
+      - "`case [a, b]` matches sequences of length 2, NOT lists specifically — strings/tuples match too. Guard with `case list() as lst:` if needed."
+      - "Bare names in patterns capture variables, dotted names match. `case Color.RED` matches the constant; `case red` binds a new variable named `red`."
+      - "Class patterns need `__match_args__` for positional fields, or use keyword form: `Point(x=1, y=2)`. dataclass auto-defines `__match_args__`."
+      - "`match` isn't dispatch — order matters, first match wins. Use guards (`if cond`) instead of trying to reorder for specificity."
+
+  - id: py.expert.async_streams
+    title: "Async Generators, Streams, Queues"
+    explanation: "Async iteration with `async for`. Async generators yield in async functions. `asyncio.Queue` for producer-consumer; semaphores for bounded concurrency."
+    tags: [async, async-generator, async-for, async-with, queue, streaming, asyncio, advanced]
+    when_to_use: "Streaming results from a websocket/SSE, paginated APIs, processing pipelines, backpressure handling."
+    examples:
+      - title: "Async generator"
+        language: python
+        code: |
+          import asyncio
+
+          async def ticks(n: int, interval: float):
+              for i in range(n):
+                  await asyncio.sleep(interval)
+                  yield i
+
+          async def main():
+              async for tick in ticks(5, 0.05):
+                  print(tick)
+
+          asyncio.run(main())
+      - title: "Producer-consumer with asyncio.Queue"
+        language: python
+        code: |
+          import asyncio
+
+          async def producer(q: asyncio.Queue, n: int):
+              for i in range(n):
+                  await q.put(i)
+              await q.put(None)
+
+          async def consumer(q: asyncio.Queue):
+              while True:
+                  item = await q.get()
+                  if item is None:
+                      return
+                  print(f"got {item}")
+
+          async def main():
+              q: asyncio.Queue = asyncio.Queue(maxsize=2)
+              await asyncio.gather(producer(q, 5), consumer(q))
+
+          asyncio.run(main())
+      - title: "Bounded concurrent fetches via Semaphore"
+        language: python
+        code: |
+          import asyncio
+
+          async def fetch(sem: asyncio.Semaphore, i: int) -> int:
+              async with sem:
+                  await asyncio.sleep(0.05)
+                  return i * 2
+
+          async def main():
+              sem = asyncio.Semaphore(3)
+              results = await asyncio.gather(*[fetch(sem, i) for i in range(10)])
+              print(results)
+
+          asyncio.run(main())
+    pitfalls:
+      - "`yield` inside an `async def` makes it an async generator — but `return value` is forbidden (use `return` only)."
+      - "Async generators don't support `aclose()` automatically on GC — use `async with aclosing(gen)` or call .aclose() explicitly."
+      - "`asyncio.Queue` is single-event-loop only — don't share across threads. Use queue.Queue or janus for cross-thread."
+      - "Forgetting `async for` and using `for` on an async iterator raises TypeError."
+
+  - id: py.expert.advanced_decorators
+    title: "Advanced Decorators: parameterized, class-level, typed"
+    explanation: "Decorators that take arguments need an extra wrapping layer. Class-based decorators can hold state. `functools.wraps` preserves identity. `ParamSpec` keeps types accurate."
+    tags: [decorators, parameterized, class-decorator, functools, wraps, paramspec, advanced]
+    when_to_use: "Reusable cross-cutting concerns — retry, cache, validate, rate-limit, instrument — and library code that needs preserved typing."
+    examples:
+      - title: "Parameterized retry with exponential backoff"
+        language: python
+        code: |
+          import functools
+          import time
+
+          def retry(*, attempts: int = 3, base_delay: float = 0.1):
+              def deco(fn):
+                  @functools.wraps(fn)
+                  def inner(*args, **kwargs):
+                      delay = base_delay
+                      for i in range(1, attempts + 1):
+                          try:
+                              return fn(*args, **kwargs)
+                          except Exception:
+                              if i == attempts:
+                                  raise
+                              time.sleep(delay)
+                              delay *= 2
+                  return inner
+              return deco
+
+          @retry(attempts=4, base_delay=0.05)
+          def call_api():
+              raise ConnectionError("nope")
+      - title: "Class-based decorator with state"
+        language: python
+        code: |
+          import functools
+
+          class CountCalls:
+              def __init__(self, fn):
+                  functools.update_wrapper(self, fn)
+                  self.fn = fn
+                  self.count = 0
+
+              def __call__(self, *args, **kwargs):
+                  self.count += 1
+                  return self.fn(*args, **kwargs)
+
+          @CountCalls
+          def hello():
+              return "hi"
+
+          hello(); hello(); hello()
+          print(hello.count)
+      - title: "Decorating with preserved types"
+        language: python
+        code: |
+          from typing import ParamSpec, TypeVar, Callable
+          import functools
+
+          P = ParamSpec("P")
+          R = TypeVar("R")
+
+          def log_calls(fn: Callable[P, R]) -> Callable[P, R]:
+              @functools.wraps(fn)
+              def inner(*args: P.args, **kwargs: P.kwargs) -> R:
+                  print(f"call {fn.__name__}({args}, {kwargs})")
+                  return fn(*args, **kwargs)
+              return inner
+
+          class API:
+              @log_calls
+              def get(self, path: str) -> int:
+                  return len(path)
+
+          print(API().get("/users"))
+    pitfalls:
+      - "Without functools.wraps / update_wrapper, decorated callables lose __name__, __doc__, signature, and module — confusing tracebacks and broken pickle."
+      - "Class-based decorators on methods lose `self` binding semantics. Use a descriptor protocol or a wrapping function instead."
+      - "Decorator with @ syntax + arguments → call site is `@deco(arg)` which means `deco(arg)(fn)`. Easy to confuse with `@deco`."
+      - "Decorators on async functions need to handle awaitables — return `async def inner(...)` and `await fn(...)`, not a plain function."
+
+  - id: py.expert.packaging
+    title: "Packaging: pyproject.toml, entry points, wheels"
+    explanation: "pyproject.toml is the modern config (PEP 518/621). `build` produces wheels (.whl) and sdists. Entry points expose CLI commands and plugins. Editable installs (`pip install -e .`) for development."
+    tags: [packaging, pyproject, wheel, sdist, entry-points, console-scripts, build, advanced]
+    when_to_use: "Shipping a library to PyPI, defining a CLI tool, or making a plugin discoverable across packages."
+    examples:
+      - title: "Read pyproject.toml in code"
+        language: python
+        code: |
+          import tomllib
+          from pathlib import Path
+
+          with open("pyproject.toml", "rb") as f:
+              cfg = tomllib.load(f)
+          print(cfg["project"]["name"], cfg["project"]["version"])
+      - title: "Discovering plugins via entry points"
+        language: python
+        code: |
+          from importlib.metadata import entry_points
+
+          for ep in entry_points(group="mypkg.plugins"):
+              plugin_cls = ep.load()
+              print(f"loaded {ep.name} -> {plugin_cls}")
+      - title: "Triggering a build programmatically"
+        language: python
+        code: |
+          import subprocess
+
+          def build_wheel(project_dir: str) -> int:
+              return subprocess.call(
+                  ["python", "-m", "build"],
+                  cwd=project_dir,
+              )
+
+          print(build_wheel.__name__)
+    pitfalls:
+      - "Don't ship `setup.py` for new projects — use pyproject.toml. `setup.py` for source distributions is being phased out."
+      - "Entry points run on Python import — keep them lightweight. Heavy imports slow `mypkg-cli --help`."
+      - "Pure-Python wheels are universal (`py3-none-any`); C extensions need a wheel per platform — use cibuildwheel."
+      - "Pin minimum versions (`>=2.31`), not exact versions, unless you have a strong reason. Exact pins break dependency resolution downstream."

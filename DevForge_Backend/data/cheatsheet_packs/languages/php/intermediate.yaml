@@ -1,0 +1,114 @@
+pack:
+  language: php
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: array-flatten
+  title: Flatten a multidimensional array
+  explanation: Recursively combine nested arrays into a single-level array.
+  tags:
+  - array
+  - recursion
+  when_to_use: When you need a flat list from nested arrays, e.g., processing CSV
+    rows.
+  examples:
+  - title: Recursive flatten
+    language: php
+    code: "<?php\nfunction flatten(array $array): array {\n    $result = [];\n   \
+      \ foreach ($array as $value) {\n        if (is_array($value)) {\n          \
+      \  $result = array_merge($result, flatten($value));\n        } else {\n    \
+      \        $result[] = $value;\n        }\n    }\n    return $result;\n}\n$nested\
+      \ = [1, [2, [3, 4], 5], 6];\nprint_r(flatten($nested));\n"
+  pitfalls:
+  - Using array_merge on very large arrays can cause memory exhaustion.
+  - Forgetting to handle non-array values leads to unexpected types in the result.
+- id: array-map-filter
+  title: Combine array_map and array_filter
+  explanation: Apply a transformation and filter in one pass for performance.
+  tags:
+  - array
+  - functional
+  when_to_use: When you need to both transform and filter a collection without creating
+    intermediate arrays.
+  examples:
+  - title: Map and filter in one pass
+    language: php
+    code: "<?php\n$numbers = [1, 2, 3, 4, 5, 6];\n$result = array_map(\n    fn(int\
+      \ $n) => $n * 2,\n    array_filter(\n        $numbers,\n        fn(int $n) =>\
+      \ $n % 2 === 0\n    )\n);\nprint_r($result); // [4, 8, 12]\n"
+  pitfalls:
+  - Overusing callbacks can make the code harder to read.
+  - Forgetting to declare strict types may lead to unexpected type conversions.
+- id: namespaced-classes
+  title: Working with namespaces
+  explanation: Organize code and avoid class name conflicts by using namespaces.
+  tags:
+  - namespaces
+  - OOP
+  when_to_use: When creating libraries or modular applications that may share class
+    names.
+  examples:
+  - title: Defining a namespaced class
+    language: php
+    code: "<?php\nnamespace MyApp\\Models;\nclass User {\n    public function __construct(public\
+      \ string $name) {}\n}\n// Usage\nuse MyApp\\Models\\User;\n$user = new User('Alice');\n\
+      echo $user->name;\n"
+  pitfalls:
+  - Using incorrect use statements can cause class not found errors.
+  - Forgetting the leading backslash for global functions results in unresolved symbols.
+- id: type-hints
+  title: Scalar and return type hints
+  explanation: Enforce parameter and return types for better reliability and documentation.
+  tags:
+  - type-hints
+  - OOP
+  when_to_use: When you want to catch type errors early and improve code clarity.
+  examples:
+  - title: Function with type hints
+    language: php
+    code: "<?php\ndeclare(strict_types=1);\nfunction add(int $a, int $b): int {\n\
+      \    return $a + $b;\n}\necho add(2, 3); // 5\n"
+  pitfalls:
+  - Not enabling strict_types leads to implicit casts that silently change values.
+  - Using type hints with null before PHP 7.1 requires nullable syntax (e.g., ?int).
+- id: spl-iterator
+  title: Using SPL iterators
+  explanation: Iterate over complex data structures efficiently with built-in iterators.
+  tags:
+  - SPL
+  - iterator
+  when_to_use: When you need to traverse arrays, files, or custom data sources with
+    minimal boilerplate.
+  examples:
+  - title: Iterate with ArrayIterator
+    language: php
+    code: "<?php\n$array = ['a', 'b', 'c'];\n$iterator = new ArrayIterator($array);\n\
+      foreach ($iterator as $key => $value) {\n    echo \"$key: $value\\n\";\n}\n"
+  pitfalls:
+  - Forgetting to call rewind() on an iterator that has been exhausted.
+  - Assuming that iterators always return values in insertion order when this may
+    vary (e.g., ArrayObject with flags).
+- id: exception-handling
+  title: Custom exception hierarchy
+  explanation: Create domain-specific exceptions for clearer error handling and better
+    debugging.
+  tags:
+  - exceptions
+  - OOP
+  when_to_use: When building libraries or applications that benefit from specific
+    error types.
+  examples:
+  - title: Custom ValidationException
+    language: php
+    code: "<?php\nclass ValidationException extends Exception {}\nfunction validate(int\
+      \ $value) {\n    if ($value < 0) {\n        throw new ValidationException('Value\
+      \ cannot be negative');\n    }\n    return true;\n}\ntry {\n    validate(-5);\n\
+      } catch (ValidationException $e) {\n    echo $e->getMessage(); // Value cannot\
+      \ be negative\n}\n"
+  pitfalls:
+  - Swallowing exceptions without logging leads to silent failures.
+  - Using generic Exception instead of a specific subclass reduces error granularity.

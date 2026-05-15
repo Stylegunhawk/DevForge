@@ -1,0 +1,110 @@
+pack:
+  language: java
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: java-stream-filter-collect
+  title: Stream Filter & Collect
+  explanation: Demonstrates filtering a collection and collecting the results into
+    a List using the Stream API.
+  tags:
+  - streams
+  - collections
+  when_to_use: When you need to transform a collection based on a condition.
+  examples:
+  - title: Filtering even numbers
+    language: java
+    code: "List<Integer> numbers = List.of(1, 2, 3, 4, 5, 6);\nList<Integer> evens\
+      \ = numbers.stream()\n                             .filter(n -> n % 2 == 0)\n\
+      \                             .collect(Collectors.toList());\n"
+  pitfalls:
+  - Forgetting to import java.util.stream.* and java.util.stream.Collectors
+  - Using a stream without closing resources when working with IO streams
+- id: java-optional-usage
+  title: Optional Usage
+  explanation: Shows how to safely handle nullable values using Optional.
+  tags:
+  - optional
+  - null-safety
+  when_to_use: When a method may return null and you want to avoid NullPointerExceptions.
+  examples:
+  - title: Mapping Optional
+    language: java
+    code: "Optional<String> maybeName = Optional.ofNullable(getName());\nString greeting\
+      \ = maybeName.map(name -> \"Hello \" + name)\n                          .orElse(\"\
+      Hello Guest\");\n"
+  pitfalls:
+  - Using Optional.of(null) instead of Optional.ofNullable
+  - Overusing Optional in method signatures where null is acceptable
+- id: java-method-references
+  title: Method References
+  explanation: Replaces lambda expressions with method references for improved readability.
+  tags:
+  - lambda
+  - method-reference
+  when_to_use: When the lambda body simply calls a method.
+  examples:
+  - title: Consumer method reference
+    language: java
+    code: 'List<String> names = List.of("Alice", "Bob");
+
+      names.forEach(System.out::println);
+
+      '
+  pitfalls:
+  - Using a method reference that doesn't match the functional interface signature
+  - Forgetting that method references cannot capture local variables
+- id: java-lambda-functional-interface
+  title: Lambda with Functional Interface
+  explanation: Creates a custom functional interface and implements it with a lambda.
+  tags:
+  - lambda
+  - functional-interface
+  when_to_use: When you need a concise implementation of a single-method interface.
+  examples:
+  - title: Comparator lambda
+    language: java
+    code: 'List<String> words = List.of("pear", "apple", "banana");
+
+      words.sort((a, b) -> Integer.compare(a.length(), b.length()));
+
+      '
+  pitfalls:
+  - Declaring the functional interface as non-public when used across packages
+  - Mixing lambda syntax with anonymous class syntax inadvertently
+- id: java-completablefuture-async
+  title: CompletableFuture Async
+  explanation: Runs tasks asynchronously and composes results with CompletableFuture.
+  tags:
+  - async
+  - completablefuture
+  when_to_use: When you need non-blocking asynchronous operations.
+  examples:
+  - title: Chaining async tasks
+    language: java
+    code: "CompletableFuture<String> future = CompletableFuture.supplyAsync(() ->\
+      \ {\n    try { Thread.sleep(1000); } catch (InterruptedException e) {}\n   \
+      \ return \"Result\";\n}).thenApply(result -> result + \" processed\");\nfuture.thenAccept(System.out::println);\n"
+  pitfalls:
+  - Not handling exceptions thrown in async tasks
+  - Blocking on CompletableFuture.get() in the main thread
+- id: java-regex-pattern-matcher
+  title: Regex with Pattern & Matcher
+  explanation: Compiles a regex pattern and uses Matcher to find matches.
+  tags:
+  - regex
+  - pattern
+  when_to_use: When you need complex string matching or extraction.
+  examples:
+  - title: Email validation
+    language: java
+    code: "Pattern emailPattern = Pattern.compile(\n    \"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\\
+      \\.[A-Z]{2,6}$\",\n    Pattern.CASE_INSENSITIVE);\nMatcher matcher = emailPattern.matcher(\"\
+      user@example.com\");\nboolean isValid = matcher.matches();\n"
+  pitfalls:
+  - Forgetting to escape backslashes in regex strings
+  - Using Pattern.compile inside a loop instead of reusing the Pattern

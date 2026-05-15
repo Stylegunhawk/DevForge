@@ -1,0 +1,110 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: django
+  library_version_floor: 4.2.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: django-basic-model
+  title: Simple Model
+  explanation: Define a data model with fields and Django ORM.
+  tags:
+  - models
+  - orm
+  when_to_use: When you need to store structured data in the database.
+  examples:
+  - title: Person model
+    language: python
+    code: "from django.db import models\n\nclass Person(models.Model):\n    name =\
+      \ models.CharField(max_length=100)\n    age = models.IntegerField()\n"
+  pitfalls:
+  - Forgetting to add the app to INSTALLED_APPS.
+  - Not running makemigrations after model changes.
+- id: django-basic-view
+  title: Basic View
+  explanation: Return an HTTP response from a view function.
+  tags:
+  - views
+  - http
+  when_to_use: When you need a simple response without template rendering.
+  examples:
+  - title: Hello view
+    language: python
+    code: "from django.http import HttpResponse\n\ndef hello(request):\n    return\
+      \ HttpResponse(\"Hello, world!\")\n"
+  pitfalls:
+  - Forgetting to accept the request parameter.
+  - Returning plain text without HttpResponse.
+- id: django-basic-url
+  title: URL Routing
+  explanation: Map URLs to view functions using path().
+  tags:
+  - urls
+  - routing
+  when_to_use: When you want to expose a view at a specific URL.
+  examples:
+  - title: URL pattern for hello
+    language: python
+    code: "from django.urls import path\nfrom .views import hello\n\nurlpatterns =\
+      \ [\n    path('hello/', hello),\n]\n"
+  pitfalls:
+  - Not importing the view correctly.
+  - Using the wrong path syntax (e.g., missing trailing slash).
+- id: django-basic-admin
+  title: Admin Registration
+  explanation: Register a model so it appears in Django's admin site.
+  tags:
+  - admin
+  - models
+  when_to_use: When you want quick CRUD for a model via the admin interface.
+  examples:
+  - title: Register Person
+    language: python
+    code: 'from django.contrib import admin
+
+      from .models import Person
+
+
+      admin.site.register(Person)
+
+      '
+  pitfalls:
+  - Forgetting to import admin.site.
+  - Registering the same model twice.
+- id: django-basic-template
+  title: Template Rendering
+  explanation: Render an HTML template with context data.
+  tags:
+  - templates
+  - rendering
+  when_to_use: When you need dynamic HTML output.
+  examples:
+  - title: Render greeting template
+    language: python
+    code: "from django.template import loader\nfrom django.http import HttpResponse\n\
+      \ndef greet(request):\n    template = loader.get_template('greeting.html')\n\
+      \    context = {'name': 'Alice'}\n    return HttpResponse(template.render(context,\
+      \ request))\n"
+  pitfalls:
+  - Not placing the template in the correct templates directory.
+  - Forgetting to pass the request to template.render().
+- id: django-basic-migration
+  title: Create Migration
+  explanation: Define a migration that creates a new model table.
+  tags:
+  - migrations
+  - db
+  when_to_use: When you need to apply a new model to the database.
+  examples:
+  - title: Person migration
+    language: python
+    code: "from django.db import migrations, models\n\nclass Migration(migrations.Migration):\n\
+      \    dependencies = []\n\n    operations = [\n        migrations.CreateModel(\n\
+      \            name='Person',\n            fields=[\n                ('id', models.AutoField(primary_key=True)),\n\
+      \                ('name', models.CharField(max_length=100)),\n             \
+      \   ('age', models.IntegerField()),\n            ],\n        ),\n    ]\n"
+  pitfalls:
+  - Forgetting to run python manage.py migrate after creating the migration.
+  - Incorrect field definitions causing migration errors.

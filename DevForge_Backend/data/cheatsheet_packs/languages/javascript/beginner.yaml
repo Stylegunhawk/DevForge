@@ -1,0 +1,112 @@
+pack:
+  language: javascript
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-variables
+  title: Variable Declarations
+  explanation: Declare variables using let, const, or var. const is preferred for
+    constants.
+  tags:
+  - variables
+  - basics
+  when_to_use: When defining data that may change or stay constant.
+  examples:
+  - title: Using let and const
+    language: javascript
+    code: 'let mutable = 5;
+
+      const immutable = 10;
+
+      '
+  pitfalls:
+  - Using var instead of let/const can lead to unexpected scope.
+  - Reassigning a const variable causes a runtime error.
+- id: string-concatenation
+  title: String Concatenation
+  explanation: Use template literals for readable string interpolation.
+  tags:
+  - strings
+  - interpolation
+  when_to_use: When combining variables with strings.
+  examples:
+  - title: Template Literals
+    language: javascript
+    code: 'const name = "Alice";
+
+      const greeting = `Hello, ${name}!`;
+
+      '
+  pitfalls:
+  - Using single quotes with ${} does not interpolate.
+  - Neglecting to escape backticks inside template literals.
+- id: array-map
+  title: Array Mapping
+  explanation: Transform arrays by applying a function to each element.
+  tags:
+  - arrays
+  - map
+  when_to_use: When producing a new array from an existing one.
+  examples:
+  - title: Map to squares
+    language: javascript
+    code: 'const numbers = [1, 2, 3];
+
+      const squares = numbers.map(n => n * n);
+
+      '
+  pitfalls:
+  - Using forEach instead of map when expecting a new array.
+  - Modifying the original array inside map can lead to side effects.
+- id: object-destructuring
+  title: Object Destructuring
+  explanation: Extract properties into variables with concise syntax.
+  tags:
+  - objects
+  - destructuring
+  when_to_use: When you need multiple properties from an object.
+  examples:
+  - title: Destructuring a user object
+    language: javascript
+    code: 'const user = { firstName: ''Bob'', age: 30 };
+
+      const { firstName, age } = user;
+
+      '
+  pitfalls:
+  - Using a variable name that clashes with an existing property.
+  - Omitting default values can result in undefined when property is missing.
+- id: if-else
+  title: Conditional Statements
+  explanation: Use if-else for branching logic based on conditions.
+  tags:
+  - control-flow
+  - conditionals
+  when_to_use: When deciding between two or more code paths.
+  examples:
+  - title: Simple if-else
+    language: javascript
+    code: "const score = 85;\nif (score >= 90) {\n  console.log('Excellent');\n} else\
+      \ if (score >= 70) {\n  console.log('Good');\n} else {\n  console.log('Needs\
+      \ Improvement');\n}\n"
+  pitfalls:
+  - Using == instead of === can cause type coercion bugs.
+  - Missing braces can lead to unintended else association.
+- id: function-declaration
+  title: Function Declaration
+  explanation: Define reusable blocks of code with function syntax.
+  tags:
+  - functions
+  - basics
+  when_to_use: When you need a named function that can be called multiple times.
+  examples:
+  - title: Simple function
+    language: javascript
+    code: "function add(a, b) {\n  return a + b;\n}\nconst sum = add(3, 4);\n"
+  pitfalls:
+  - Using function expressions when hoisting is required.
+  - Mutating arguments inside the function without copying.

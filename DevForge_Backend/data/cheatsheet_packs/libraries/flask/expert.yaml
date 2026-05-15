@@ -1,0 +1,138 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: flask
+  library_version_floor: 3.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: blueprints-advanced
+  title: Advanced Blueprint Registration
+  explanation: Demonstrates modular routing with multiple blueprints and shared url_prefixes.
+  tags:
+  - blueprint
+  - routing
+  - modularity
+  when_to_use: When building a large application with separate feature modules.
+  examples:
+  - title: Registering multiple blueprints
+    language: python
+    code: "from flask import Flask, Blueprint, jsonify\n\napp = Flask(__name__)\n\n\
+      api_bp = Blueprint('api', __name__, url_prefix='/api')\nauth_bp = Blueprint('auth',\
+      \ __name__, url_prefix='/auth')\n\n@api_bp.route('/items')\ndef list_items():\n\
+      \    return jsonify(items=['item1', 'item2'])\n\n@auth_bp.route('/login', methods=['POST'])\n\
+      def login():\n    return jsonify(message='Logged in')\n\napp.register_blueprint(api_bp)\n\
+      app.register_blueprint(auth_bp)\n\nif __name__ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Forgetting to call `app.register_blueprint` for each blueprint.
+  - Using identical endpoint names across blueprints without a unique name prefix,
+    causing route collisions.
+- id: async-views
+  title: Async View Functions
+  explanation: Uses async def to perform I/O-bound operations without blocking the
+    event loop.
+  tags:
+  - asyncio
+  - view
+  - performance
+  when_to_use: When integrating with external APIs or databases asynchronously.
+  examples:
+  - title: Async route with await
+    language: python
+    code: "import asyncio\nfrom flask import Flask, jsonify\n\napp = Flask(__name__)\n\
+      \n@app.route('/data')\nasync def get_data():\n    data = await fetch_data_from_api()\n\
+      \    return jsonify(data=data)\n\nasync def fetch_data_from_api():\n    await\
+      \ asyncio.sleep(1)\n    return {'key': 'value'}\n\nif __name__ == '__main__':\n\
+      \    app.run()\n"
+  pitfalls:
+  - Mixing sync and async code without proper await, leading to blocking.
+  - Forgetting to use `await` on async helper functions, causing coroutine objects
+    to be returned.
+- id: request-context
+  title: Request Context Globals
+  explanation: Leverages flask.g, request, and session to share data across a single
+    request lifecycle.
+  tags:
+  - context
+  - globals
+  - thread-safety
+  when_to_use: When you need per-request storage across multiple functions.
+  examples:
+  - title: Using g for user context
+    language: python
+    code: "from flask import Flask, g, request\n\napp = Flask(__name__)\n\n@app.before_request\n\
+      def load_user():\n    g.user = get_user_from_token(request.headers.get('Authorization'))\n\
+      \n@app.route('/profile')\ndef profile():\n    return f\"Hello, {g.user['name']}\"\
+      \n\ndef get_user_from_token(token):\n    return {'name': 'Alice'}  # placeholder\n\
+      \nif __name__ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Modifying global objects outside the request context, leading to data leakage
+    between requests.
+  - Relying on request globals without validating their presence, causing AttributeError
+    in edge cases.
+- id: error-handling
+  title: Custom Error Handlers
+  explanation: Registers handlers for HTTP status codes and custom exceptions to return
+    JSON responses.
+  tags:
+  - error
+  - exception
+  - response
+  when_to_use: When building APIs that need consistent JSON error outputs.
+  examples:
+  - title: JSON error responses for 404 and custom exception
+    language: python
+    code: "from flask import Flask, jsonify\n\napp = Flask(__name__)\n\nclass NotFoundException(Exception):\n\
+      \    pass\n\n@app.errorhandler(404)\ndef not_found(e):\n    return jsonify(error='Resource\
+      \ not found'), 404\n\n@app.errorhandler(NotFoundException)\ndef handle_notfound(e):\n\
+      \    return jsonify(error=str(e)), 404\n\n@app.route('/item/<int:id>')\ndef\
+      \ get_item(id):\n    if id != 1:\n        raise NotFoundException(f'Item {id}\
+      \ does not exist')\n    return jsonify(item={'id': 1, 'name': 'Item 1'})\n\n\
+      if __name__ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Returning plain strings instead of JSON, breaking API contract.
+  - Forgetting to pass the exception instance to the handler, losing error details.
+- id: session-management
+  title: Secure Session Configuration
+  explanation: Configures secret_key, secure cookies, and session handling for authenticated
+    users.
+  tags:
+  - session
+  - security
+  - auth
+  when_to_use: When storing user data across requests securely.
+  examples:
+  - title: Enabling secure session cookie
+    language: python
+    code: "from flask import Flask, session, redirect, url_for\n\napp = Flask(__name__)\n\
+      app.secret_key = 'super-secret-key'\napp.config['SESSION_COOKIE_HTTPONLY'] =\
+      \ True\napp.config['SESSION_COOKIE_SECURE'] = True\n\n@app.route('/login')\n\
+      def login():\n    session['user'] = 'alice'\n    return redirect(url_for('profile'))\n\
+      \n@app.route('/profile')\ndef profile():\n    user = session.get('user')\n \
+      \   if not user:\n        return redirect(url_for('login'))\n    return f'Logged\
+      \ in as {user}'\n\nif __name__ == '__main__':\n    app.run(ssl_context='adhoc')\n"
+  pitfalls:
+  - Using a weak or hardcoded secret_key in production.
+  - Neglecting to set `SESSION_COOKIE_HTTPONLY` or `SESSION_COOKIE_SECURE`, exposing
+    session data.
+- id: cli-commands
+  title: Flask CLI Custom Commands
+  explanation: Defines custom commands using Flask CLI to automate repetitive tasks.
+  tags:
+  - cli
+  - management
+  - automation
+  when_to_use: When you need to create administrative scripts or maintenance tasks.
+  examples:
+  - title: Creating an admin user via CLI
+    language: python
+    code: "from flask import Flask\nfrom werkzeug.security import generate_password_hash\n\
+      \napp = Flask(__name__)\n\n@app.cli.command('create-admin')\ndef create_admin():\n\
+      \    \"\"\"Create an admin user.\"\"\"\n    admin = {'username': 'admin', 'password':\
+      \ generate_password_hash('admin')}\n    print(f\"Created admin: {admin['username']}\"\
+      )\n\nif __name__ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Forgetting to import the Flask application context before defining the command.
+  - Not decorating the function with `@app.cli.command`, causing the command not to
+    register.
