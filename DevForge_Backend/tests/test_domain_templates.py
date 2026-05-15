@@ -190,10 +190,12 @@ class TestTemplateRegistry:
     def test_list_domains(self):
         """Test listing available domains."""
         domains = list_domains()
-        
-        assert len(domains) == 2
+
+        # v0.8.4 added iot_devices; v0.9 keeps the 3-domain registry
+        assert len(domains) == 3
         assert "ecommerce" in domains
         assert "saas" in domains
+        assert "iot_devices" in domains
 
 
 class TestSchemaValidation:

@@ -4,7 +4,7 @@ Phase 1: Value generation is always done by Faker/catalogs, never by LLM.
 Invariant Enforced: Constraint-First Generation.
 """
 
-from typing import Any, Callable
+from typing import Any, Callable, List, Optional
 from faker import Faker
 import random
 import uuid
@@ -29,6 +29,7 @@ class SemanticRouter:
         entity_name: str = "",
         constraints: dict = None,
         field_name: str = "",
+        field_catalog: Optional[List[str]] = None,
     ) -> Any:
         """
         Generate a value for a semantic type.
@@ -41,6 +42,14 @@ class SemanticRouter:
                 routing field-aware — e.g. ``instrument_name`` → product-like
                 value rather than lorem ipsum). Optional; falls back to the
                 old behaviour when empty.
+            field_catalog: v0.9 — optional list of domain-realistic values
+                supplied by ``CatalogFactory.get_entity_catalogs``. When
+                present AND the classifier landed on a loose semantic type
+                (``free_text`` / ``unknown`` / ``enum_value`` without enum
+                values), we sample from this catalog instead of falling
+                through to Faker heuristics. Known semantic types
+                (``email_address``, ``person_full_name`` etc.) ignore the
+                catalog — the classifier already pinned them confidently.
 
         Returns:
             Generated value (never LLM text!)
@@ -65,6 +74,16 @@ class SemanticRouter:
         # 3. Constraint-First: Pattern overrides semantic type
         if "pattern" in constraints and constraints["pattern"]:
             return self._generate_pattern(constraints["pattern"])
+
+        # 3a. v0.9 catalog-sandbox: if a field-specific catalog was supplied
+        # AND the classifier landed on a loose semantic type (free_text,
+        # unknown, or enum_value-without-values), sample from the catalog
+        # rather than falling through to the heuristic Faker generators.
+        # Known semantic types (email_address, person_full_name, etc.) are
+        # NOT affected — they keep using their dedicated generators because
+        # the classifier has already pinned the type with high confidence.
+        if field_catalog and semantic_type in {"free_text", "unknown", "enum_value"}:
+            return random.choice(field_catalog)
 
         # Get generator (registry signature: (entity, constraints, field_name))
         generator_func = self.generators.get(semantic_type, self._fallback_generator)

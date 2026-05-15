@@ -54,10 +54,14 @@ Rules:
 1. Use snake_case for all names
 2. Allowed types: string, int, float, date, datetime, boolean, uuid
 3. faker_provider options: name, email, phone_number, address, company, job, city, country, url, text, uuid4, date, date_time
-4. Use "constraints" for enums, numeric ranges (min/max), and regex patterns
-4. For relationships: from_entity is the child (has FK), to_entity is the parent
-5. Add appropriate primary keys (default: "id" with uuid type)
-6. Be realistic with counts (10-1000 typical, max 10000)
+4. Mark `nullable: true` for fields that represent optional or often-missing information in real production data.
+   Always nullable: middle_name, address_line_2, description, comment, last_login, deleted_at, deactivation_reason, suffix, extension, error_message, notes
+   Often nullable (mark true if the domain suggests it): phone, alternate_email, referral_code, promo_code, attachment_url, cancellation_reason
+   Never nullable: id, primary_key, the primary email when it is the contact key, created_at, foreign keys
+5. Use "constraints" for enums, numeric ranges (min/max), and regex patterns
+6. For relationships: from_entity is the child (has FK), to_entity is the parent
+7. Add appropriate primary keys (default: "id" with uuid type)
+8. Be realistic with counts (10-1000 typical, max 10000)
 
 Now design a schema for this request:
 """

@@ -78,13 +78,24 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 
 ### Agent modules
 
-- `datagen/` — mock data generation (CSV/JSON, uses Faker + rstr)
+- `datagen/` — mock data generation (CSV/JSON, uses Faker + rstr). **v0.9 (2026-05-15)** adds catalog-sandbox (per-entity LLM-generated value catalogs cached L1/L2), SchemaValidator (post-LLM enum-swap fix + range inference), and consolidated realism through `realism_engine`. See [docs/tools/generate_data.md](docs/tools/generate_data.md) and [v0.9 spec](../docs/superpowers/specs/2026-05-15-generate-data-production-grade-design.md).
 - `supervisor.py` — intent classification & routing (LangGraph)
 - `rag/` — document retrieval with hybrid search, reranking, query cache, intent-aware expansion
 - `github/` — GitOps automation with fuzzy repo matching & LLM-generated commits
-- `prompt_refiner/` — domain-aware prompt optimization
+- `prompt_refiner/` — domain-aware prompt optimization. **v0.10 (2026-05-14)** adds polyglot manifest coverage (8 ecosystems), typed `chosen_stack` lists, deterministic `quality` block, and anti-hallucination guard for vague code prompts. See [docs/tools/refine_prompt.md](docs/tools/refine_prompt.md) and [v0.10 spec](../docs/superpowers/specs/2026-05-14-refine-prompt-robustness-design.md).
 - `cheatsheet/` — code documentation generation
 - `rag/reranking/cross_encoder_reranker.py` — cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`), internal stage of `retrieve_docs`
+
+### Current tool versions
+
+| Tool | Version | Manifest version | Highlights |
+|------|---------|------------------|------------|
+| `generate_data` | 0.9.0 | 0.10.0 | Catalog-sandbox + realism consolidation |
+| `refine_prompt` | 0.10.0 | (rolled into manifest) | Polyglot + quality block + anti-hallucination |
+| `github_operation` | 0.8.0 | (rolled into manifest) | Risk-tiered ops + per-user PAT |
+| `generate_cheatsheet` | (unchanged) | (rolled into manifest) | — |
+
+The MCP `tools/list` description for `generate_data` and `refine_prompt` now teaches calling agents the iterative call pattern + cold/warm cache latency expectations. When adding new tools or updating an existing one, follow the same agent-instructive style — see `src/api/routers/__init__.py:TOOL_DESCRIPTIONS`.
 
 ### Middleware order
 

@@ -530,5 +530,12 @@ pytest tests/test_sanitizer.py -v
 
 ---
 
-**Last Updated:** 2026-05-08  
+## See also
+
+- [`generate_data` v0.9](./generate_data.md) — sibling tool that adopted the same agent-instructive MCP-description pattern this tool introduced in v0.10, plus the catalog-sandbox concept for LLM-generated value catalogs.
+- [v0.10 design spec](../../../docs/superpowers/specs/2026-05-14-refine-prompt-robustness-design.md) — full architectural rationale.
+
+---
+
+**Last Updated:** 2026-05-15
 **Maintainer:** DevForge Team

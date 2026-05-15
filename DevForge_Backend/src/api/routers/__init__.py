@@ -56,11 +56,35 @@ SUPPORTED_TOOLS = {
 # Factual tool descriptions (Sync with devforge.json manifest)
 TOOL_DESCRIPTIONS = {
     "generate_data": (
-        "Context-aware test data generator with validation and graceful error handling. "
-        "V1 (Simple): Faker-based mock data. "
-        "V2 (Advanced): Multi-entity generation with semantic analysis, constraint enforcement, and relationship integrity. "
-        "Features: Input validation (rows: 1-100000, formats: json/csv), schema design error handling, constraint violation detection, "
-        "foreign key integrity validation, and detailed error reporting with graceful degradation."
+        "Synthetic data generator with three modes: "
+
+        "V1 (Faker, fast): no prompt, no domain — returns CSV/JSON Faker rows in "
+        "under 1s. Use for quick mock users in unit tests. "
+
+        "V2 DOMAIN TEMPLATE: domain='ecommerce'|'saas'|'iot_devices' — pre-built "
+        "multi-entity schema with FK integrity (no schema-design LLM call). "
+        "~5-10s warm-cache / 15-25s cold-cache. Use for realistic ecommerce / saas / "
+        "iot-devices data with valid foreign-key linkage. "
+
+        "V2 PROMPT MODE: prompt='...' — LLM designs the schema, SchemaValidator "
+        "fixes enum-swap + range inference, per-entity LLM catalog generates "
+        "domain-realistic values for every string field (cached L1/L2 with 1h TTL). "
+        "~15-30s cold-cache / ~5-10s warm. Use for novel domains the templates "
+        "don't cover (e.g. 'vintage motorcycles', 'scientific instruments'). "
+        "Pass the user's prompt verbatim. "
+
+        "ARGS: rows (1-10000), format ('json'|'csv'), realism_level "
+        "('basic'|'medium'|'high'). realism_level='high' injects ~10% nulls into "
+        "nullable business fields (phone, address, last_login, description, "
+        "cancellation_reason, error_message, last_seen, error_code) and ~2% "
+        "duplicates / ~1% outliers; critical fields (id, email, created_at, "
+        "uuid, *_id foreign keys) NEVER get nulls. Default 'basic' = no injection. "
+
+        "OUTPUT: data.entities (entity names), data.data (per-entity row arrays "
+        "for JSON or CSV strings for CSV), data.fk_integrity (per-relationship "
+        "orphan counts), data.constraint_violations (empty on success), "
+        "data._internal_success (boolean). Constraint violations clear data "
+        "and set success=false."
     ),
     "github_operation": (
         "Unified GitHub automation tool for repo analysis, branch management, "
