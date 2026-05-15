@@ -8,10 +8,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import TypedDict, Literal, Optional, Dict, Any
+from typing import TypedDict, Literal, Optional, Dict, Any, NotRequired
 from github import GithubException
 from pydantic import ValidationError
 
@@ -43,6 +44,10 @@ from src.workers.tasks.usage_tasks import log_llm_usage
 
 logger = logging.getLogger(__name__)
 
+# Regex that matches an exact "owner/repo" string (one slash, non-empty on both sides).
+# Used by enhance_with_intelligence to skip fuzzy repo lookup on structured calls.
+_EXACT_REPO_RE = re.compile(r"^[^/]+/[^/]+$")
+
 
 class GitHubState(TypedDict):
     """Enhanced state for GitHub agent workflow."""
@@ -63,6 +68,9 @@ class GitHubState(TypedDict):
     tenant_id: Optional[str]           # Phase 2: per-tenant tracking
     integration_name: Optional[str]    # Phase 2: integration identifier
     user_id: Optional[str]             # NEW: Phase 4 analytics support
+
+    # NEW: structured-call support — defaults to "natural_language" if absent
+    entry_method: NotRequired[Literal["natural_language", "structured"]]
 
 
 @dataclass
@@ -146,10 +154,29 @@ async def parse_github_request(state: GitHubState) -> GitHubState:
     # Initialize audit tracking
     audit_id = generate_audit_id()
     timeline = Timeline(audit_id, "github_operation")
-    timeline.add_event(EventType.OPERATION_START, f"Parsing: {query[:50]}")
+    _entry_method = state.get("entry_method", "natural_language")
+    _parse_desc = f"Parsing: {query[:60] if query else state.get('operation', '')}"
+    timeline.add_event(EventType.OPERATION_START, _parse_desc, entry_method=_entry_method)
     
     logger.info(f"[{audit_id}] Parsing GitHub request: {query[:100]}...")
-    
+
+    # NEW: structured-call early return — skip LLM classification entirely
+    if state.get("entry_method") == "structured":
+        # operation and parameters were pre-populated by github_agent_invoke
+        state["intent_confidence"] = 1.0
+        state["audit_id"] = audit_id
+        state["timeline"] = timeline
+        # Emit a step_complete event recording the LLM skip
+        timeline.add_event(
+            EventType.STEP_COMPLETE,
+            "Skipped LLM intent classification — structured call",
+            step="llm_classify",
+            skipped=True,
+            reason="structured_call",
+            entry_method="structured",
+        )
+        return state
+
     try:
         # Use model router to get appropriate model
         router = ModelRouter()
@@ -342,56 +369,95 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
 
     best_match = None
     try:
+        # === Structured-call repo key normalization ===
+        # If the caller used the shorthand "repo" key (structured-call convention),
+        # promote it to "repo_name" so the rest of the pipeline sees the canonical key.
+        # We do this BEFORE the fuzzy block so the skip-guard logic below works correctly.
+        if state.get("entry_method") == "structured" and "repo" in parameters:
+            repo_shorthand = parameters.pop("repo")
+            # Only set repo_name if it hasn't already been provided explicitly
+            if not parameters.get("repo_name"):
+                parameters["repo_name"] = repo_shorthand
+
         # 1. Fuzzy repo matching (if repo_name provided but might be ambiguous)
         # delete_repo is intentionally excluded: it requires an exact name match, never fuzzy.
         if (operation != "delete_repo" and FeatureFlags.is_enabled(Feature.FUZZY_SEARCH)):
             repo_name = parameters.get("repo_name")
-            
-            # Agentic Discovery Fallback: If repo_name missing from parameters, search full query text
-            if not repo_name:
-                best_match = await repo_discovery.discover_from_text(query)
+
+            # === Fuzzy skip guard ===
+            # When entry_method is "structured" AND the repo is already in exact
+            # "owner/repo" form, there is nothing for fuzzy search to resolve.
+            # Skip it entirely and record the skip in the audit timeline.
+            skip_fuzzy = (
+                state.get("entry_method") == "structured"
+                and isinstance(repo_name, str)
+                and bool(_EXACT_REPO_RE.match(repo_name))
+            )
+
+            if skip_fuzzy:
+                logger.info(
+                    f"[{audit_id}] Skipping fuzzy repo lookup — structured call with exact repo: {repo_name}"
+                )
+                if timeline:
+                    timeline.add_event(
+                        EventType.STEP_COMPLETE,
+                        "Skipped fuzzy repo lookup — exact owner/repo provided",
+                        step="fuzzy_repo",
+                        skipped=True,
+                        reason="exact_repo",
+                        entry_method="structured",
+                    )
+                # repo_name is already the canonical form; nothing more to do here.
+            else:
+                # Agentic Discovery Fallback: If repo_name missing from parameters, search full query text
+                if not repo_name:
+                    best_match = await repo_discovery.discover_from_text(query)
+                    if best_match:
+                        logger.info(f"[{audit_id}] Proactive repo discovery: {best_match.full_name}")
+                        parameters["repo_name"] = best_match.full_name
+                        state["repo_confidence"] = best_match.confidence
+                        repo_name = best_match.full_name
+
+                if repo_name:
+                    timeline.start_step("repo_discovery", "Fuzzy matching repository name")
+
+                    # Try fuzzy search (if we already found a high-confidence match above, this will confirm it)
+                    best_match = await repo_discovery.get_best_match(
+                        query=repo_name,
+                        confidence_threshold=0.85
+                    )
+
                 if best_match:
-                    logger.info(f"[{audit_id}] Proactive repo discovery: {best_match.full_name}")
+                    logger.info(
+                        f"[{audit_id}] Fuzzy matched repo: {repo_name} → {best_match.full_name} "
+                        f"(confidence: {best_match.confidence})"
+                    )
                     parameters["repo_name"] = best_match.full_name
                     state["repo_confidence"] = best_match.confidence
-                    repo_name = best_match.full_name
-
-            if repo_name:
-                timeline.start_step("repo_discovery", "Fuzzy matching repository name")
-                
-                # Try fuzzy search (if we already found a high-confidence match above, this will confirm it)
-                best_match = await repo_discovery.get_best_match(
-                    query=repo_name,
-                    confidence_threshold=0.85
-                )
-            
-            if best_match:
-                logger.info(
-                    f"[{audit_id}] Fuzzy matched repo: {repo_name} → {best_match.full_name} "
-                    f"(confidence: {best_match.confidence})"
-                )
-                parameters["repo_name"] = best_match.full_name
-                state["repo_confidence"] = best_match.confidence
-                timeline.complete_step("repo_discovery", f"Matched to {best_match.full_name}")
-            else:
-                # Ambiguous - need clarification
-                matches = await repo_discovery.fuzzy_search(repo_name, max_results=3)
-                if matches and matches[0].confidence < 0.85:
-                    timeline.add_event(EventType.OPERATION_COMPLETE, "Repo ambiguous - needs clarification")
-                    return {
-                        **state,
-                        "result": repo_discovery.format_disambiguation_response(matches),
-                        "timeline": timeline
-                    }
-                timeline.complete_step("repo_discovery", "Using original repo name")
+                    timeline.complete_step("repo_discovery", f"Matched to {best_match.full_name}")
+                elif repo_name:
+                    # Ambiguous - need clarification (only when repo_name was actually provided)
+                    matches = await repo_discovery.fuzzy_search(repo_name, max_results=3)
+                    if matches and matches[0].confidence < 0.85:
+                        timeline.add_event(EventType.OPERATION_COMPLETE, "Repo ambiguous - needs clarification")
+                        return {
+                            **state,
+                            "result": repo_discovery.format_disambiguation_response(matches),
+                            "timeline": timeline
+                        }
+                    timeline.complete_step("repo_discovery", "Using original repo name")
         
         # 2. Auto-generate commit message (if message not present)
-        if (operation == "commit_file" and 
-            not parameters.get("commit_message") and
-            FeatureFlags.is_enabled(Feature.COMMIT_GENERATION)):
-            
-            diff = context.get("diff")
-            
+        # === Commit message generation ===
+        diff = (state.get("context") or {}).get("diff")
+        explicit_msg = parameters.get("commit_message")
+        skip_commit_gen = (
+            state.get("entry_method") == "structured" and bool(explicit_msg)
+        )
+        if (operation == "commit_file" and
+                not explicit_msg and
+                FeatureFlags.is_enabled(Feature.COMMIT_GENERATION)):
+
             if diff:
                 timeline.start_step("commit_gen", "Generating commit message from diff")
                 commit_msg = await commit_generator.generate(
@@ -413,41 +479,79 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                     integration_name=state.get("integration_name"),
                     user_id=state.get("user_id")  # NEW: Pass user_id to commit_generator
                 )
-            
+
             parameters["commit_message"] = commit_msg.text
             state["commit_confidence"] = commit_msg.confidence
-            
+
             logger.info(
                 f"[{audit_id}] Generated commit: {commit_msg.text} "
                 f"(confidence: {commit_msg.confidence})"
             )
-            
+
             timeline.complete_step("commit_gen", f"Generated: {commit_msg.text[:50]}")
-            
+
             # Check if should create draft PR instead (medium confidence)
             if 0.85 <= commit_msg.confidence < 0.90:
                 parameters["draft"] = True
                 state["_create_draft_reason"] = "Medium commit confidence - creating draft PR"
+
+        elif operation == "commit_file" and diff and skip_commit_gen:
+            # Structured call with explicit commit_message — skip commit generator
+            # and record the skip in the audit timeline (mirrors Task 5/6 skip pattern).
+            logger.info(
+                f"[{audit_id}] Skipping commit_generator — structured call with explicit commit_message"
+            )
+            if timeline is not None:
+                timeline.add_event(
+                    EventType.STEP_COMPLETE,
+                    "Skipped commit_generator — explicit commit_message provided",
+                    step="commit_generator",
+                    skipped=True,
+                    reason="explicit_message",
+                    entry_method="structured",
+                )
         
         # 3. Parse error log to issue (if error_log provided)
-        if (operation == "create_issue" and 
-            context.get("error_log") and
-            FeatureFlags.is_enabled(Feature.LOG_PARSING)):
-            
+        # === Log parsing for issue creation ===
+        error_log = (state.get("context") or {}).get("error_log")
+        explicit_title = (state.get("parameters") or {}).get("title")
+        skip_log_parser = (
+            state.get("entry_method") == "structured" and bool(explicit_title)
+        )
+        if (operation == "create_issue" and
+                error_log and
+                not skip_log_parser and
+                FeatureFlags.is_enabled(Feature.LOG_PARSING)):
+
             timeline.start_step("log_parse", "Parsing error log")
-            
+
             parsed_issue = await log_parser.parse(
-                log=context["error_log"],
+                log=error_log,
                 language=context.get("language")
             )
-            
+
             # Override/enhance parameters with parsed data
             parameters["title"] = parsed_issue.title
             parameters["body"] = parsed_issue.body
             parameters["labels"] = parsed_issue.labels
-            
+
             logger.info(f"[{audit_id}] Parsed error log to issue: {parsed_issue.title}")
             timeline.complete_step("log_parse", f"Created issue: {parsed_issue.title[:50]}")
+
+        elif operation == "create_issue" and error_log and skip_log_parser:
+            # Structured call with explicit title — skip log parser and record in audit timeline
+            logger.info(
+                f"[{audit_id}] Skipping log_parser — structured call with explicit title"
+            )
+            if timeline is not None:
+                timeline.add_event(
+                    EventType.STEP_COMPLETE,
+                    "Skipped log_parser — explicit title provided",
+                    step="log_parser",
+                    skipped=True,
+                    reason="explicit_title",
+                    entry_method="structured",
+                )
         
         # 4. Commit file context injection (before validation)
         if (operation == "commit_file" and 
@@ -520,10 +624,10 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
 
 async def risk_gate_check(state: GitHubState) -> GitHubState:
     """Enforce risk requirements for the operation.
-    
+
     Args:
         state: Current state with operation and context
-        
+
     Returns:
         State with error if risk requirements not met, or passes through
     """
@@ -532,14 +636,16 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
     context = state.get("context", {})
     audit_id = state.get("audit_id")
     timeline = state.get("timeline")
-    
+    _entry_method = state.get("entry_method", "natural_language")
+
     if not operation:
         return state
-    
+
     try:
         if timeline:
-            timeline.start_step("risk_gate", f"Risk check for {operation}")
-        
+            timeline.start_step("risk_gate", f"Risk check for {operation}",
+                                entry_method=_entry_method)
+
         # Extract risk confirmation from context if present
         risk_context = {}
         if "risk_confirmed" in context:
@@ -550,14 +656,14 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
         # Check risk requirements with contextual awareness
         # Parameters are passed so branch-level overrides (e.g., commit to main → HIGH) apply
         violation = RiskGate.check_contextual(operation, parameters, risk_context)
-        
+
         if violation:
             error_msg = f"Risk gate blocked: {violation.message}"
             logger.warning(f"[{audit_id}] {error_msg}")
-            
+
             if timeline:
-                timeline.fail_step("risk_gate", error_msg)
-            
+                timeline.fail_step("risk_gate", error_msg, entry_method=_entry_method)
+
             return {
                 **state,
                 "error": error_msg,
@@ -568,20 +674,21 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
                     "missing_requirements": violation.missing_requirements
                 }
             }
-        
+
         if timeline:
-            timeline.complete_step("risk_gate", f"Risk check passed ({violation.risk_level.value if violation else 'LOW'})")
-        
+            timeline.complete_step("risk_gate", f"Risk check passed ({violation.risk_level.value if violation else 'LOW'})",
+                                   entry_method=_entry_method)
+
         logger.info(f"[{audit_id}] Risk gate passed for {operation}")
         return state
-        
+
     except Exception as e:
         error_msg = f"Risk gate error: {str(e)}"
         logger.error(f"[{audit_id}] {error_msg}")
-        
+
         if timeline:
-            timeline.fail_step("risk_gate", error_msg)
-        
+            timeline.fail_step("risk_gate", error_msg, entry_method=_entry_method)
+
         return {
             **state,
             "error": error_msg,
@@ -600,13 +707,15 @@ async def policy_gate_check(state: GitHubState) -> GitHubState:
     context = state.get("context", {})
     audit_id = state.get("audit_id")
     timeline = state.get("timeline")
+    _entry_method = state.get("entry_method", "natural_language")
 
     if not operation:
         return state
 
     try:
         if timeline:
-            timeline.start_step("policy_gate", f"Policy check for {operation}")
+            timeline.start_step("policy_gate", f"Policy check for {operation}",
+                                entry_method=_entry_method)
 
         violation = PolicyGate.check(operation, parameters, context)
 
@@ -616,7 +725,7 @@ async def policy_gate_check(state: GitHubState) -> GitHubState:
                 f"[{audit_id}] Policy gate blocked: {operation} — {violation.policy}"
             )
             if timeline:
-                timeline.fail_step("policy_gate", error_msg)
+                timeline.fail_step("policy_gate", error_msg, entry_method=_entry_method)
 
             return {
                 **state,
@@ -630,7 +739,8 @@ async def policy_gate_check(state: GitHubState) -> GitHubState:
             }
 
         if timeline:
-            timeline.complete_step("policy_gate", "Policy check passed")
+            timeline.complete_step("policy_gate", "Policy check passed",
+                                   entry_method=_entry_method)
 
         logger.info(f"[{audit_id}] Policy gate passed for {operation}")
         return state
@@ -639,7 +749,7 @@ async def policy_gate_check(state: GitHubState) -> GitHubState:
         error_msg = f"Policy gate error: {str(e)}"
         logger.error(f"[{audit_id}] {error_msg}")
         if timeline:
-            timeline.fail_step("policy_gate", error_msg)
+            timeline.fail_step("policy_gate", error_msg, entry_method=_entry_method)
         return {
             **state,
             "error": error_msg,
@@ -660,19 +770,22 @@ def validate_parameters(state: GitHubState) -> GitHubState:
     parameters = state.get("parameters", {})
     audit_id = state.get("audit_id")
     timeline = state.get("timeline")
-    
+    _entry_method = state.get("entry_method", "natural_language")
+
     if not operation:
         return state
-        
+
     try:
         if timeline:
-            timeline.start_step("validation", f"Validating parameters for {operation}")
-        
+            timeline.start_step("validation", f"Validating parameters for {operation}",
+                                entry_method=_entry_method)
+
         # Phase 4: Strict Pydantic validation
         validated = validate_op_params(operation, parameters)
-        
+
         if timeline:
-            timeline.complete_step("validation", "Validation passed")
+            timeline.complete_step("validation", "Validation passed",
+                                   entry_method=_entry_method)
         return {
             **state,
             "parameters": validated,
@@ -680,11 +793,11 @@ def validate_parameters(state: GitHubState) -> GitHubState:
         }
     except ValidationError as e:
         friendly_error = _friendly_validation_message(str(e), operation)
-        
+
         logger.warning(f"[{audit_id}] Validation failed: {friendly_error}")
         if timeline:
-            timeline.fail_step("validation", friendly_error)
-        
+            timeline.fail_step("validation", friendly_error, entry_method=_entry_method)
+
         return {
             **state,
             "error": friendly_error,
@@ -701,10 +814,10 @@ def validate_parameters(state: GitHubState) -> GitHubState:
 
 async def execute_github_operation(state: GitHubState) -> GitHubState:
     """Execute the determined GitHub operation.
-    
+
     Args:
         state: Current state with operation and parameters
-        
+
     Returns:
         Updated state with result or error
     """
@@ -713,6 +826,7 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
     timeline = state.get("timeline")
     audit_id = state.get("audit_id")
     token = state.get("github_token")  # transient field — never log this
+    _entry_method = state.get("entry_method", "natural_language")
 
     # Get the bundle for this token so we use the correct authenticated client
     bundle = _get_intelligence_bundle(token)
@@ -730,7 +844,8 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
     )
 
     if timeline:
-        timeline.start_step(f"execute_{operation}", f"Executing {operation}")
+        timeline.start_step(f"execute_{operation}", f"Executing {operation}",
+                            entry_method=_entry_method)
 
     try:
         loop = asyncio.get_event_loop()
@@ -813,10 +928,12 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 raise ValueError(f"Unknown GitHub operation: {operation}")
 
         result = await asyncio.wait_for(run_operation(), timeout=15.0)
-        
+
         if timeline:
-            timeline.complete_step(f"execute_{operation}", f"Completed successfully")
-            timeline.add_event(EventType.OPERATION_COMPLETE, f"{operation} completed")
+            timeline.complete_step(f"execute_{operation}", f"Completed successfully",
+                                   entry_method=_entry_method)
+            timeline.add_event(EventType.OPERATION_COMPLETE, f"{operation} completed",
+                               entry_method=_entry_method)
         
         executed_at = time.time()
         logger.info(
@@ -847,7 +964,8 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
     except asyncio.TimeoutError:
         logger.error(f"[{audit_id}] GitHub operation {operation} timed out after 15s")
         if timeline:
-            timeline.fail_step(f"execute_{operation}", "GitHub API Timeout")
+            timeline.fail_step(f"execute_{operation}", "GitHub API Timeout",
+                               entry_method=_entry_method)
         return {
             **state,
             "error": f"The GitHub operation '{operation}' timed out. The API is responding slowly.",
@@ -861,11 +979,11 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
     except GithubException as e:
         status = getattr(e, "status", 500)
         error_msg = str(e.data.get("message", e)) if hasattr(e, "data") else str(e)
-        
+
         # Categorize error
         category = "GitHub API Error"
         friendly_msg = f"GitHub operation failed: {error_msg}"
-        
+
         if status == 404:
             category = "Not Found"
             repo_name = parameters.get("repo_name", "unknown")
@@ -879,11 +997,12 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 friendly_msg = "GitHub API rate limit exceeded. Please try again later."
             else:
                 friendly_msg = "Access forbidden. You don't have permission to perform this action on the repository."
-        
+
         logger.error(f"[{audit_id}] {category} ({status}): {error_msg}")
         if timeline:
-            timeline.fail_step(f"execute_{operation}", friendly_msg)
-        
+            timeline.fail_step(f"execute_{operation}", friendly_msg,
+                               entry_method=_entry_method)
+
         return {
             **state,
             "error": friendly_msg,
@@ -897,8 +1016,9 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
         }
     except Exception as e:
         if timeline:
-            timeline.fail_step(f"execute_{operation}", str(e))
-            timeline.add_event(EventType.OPERATION_FAILED, f"{operation} failed: {e}")
+            timeline.fail_step(f"execute_{operation}", str(e), entry_method=_entry_method)
+            timeline.add_event(EventType.OPERATION_FAILED, f"{operation} failed: {e}",
+                               entry_method=_entry_method)
         
         logger.error(
             f"[{audit_id}] GitHub operation failed: {e}",
@@ -1075,7 +1195,11 @@ async def handle_error(state: GitHubState) -> GitHubState:
     logger.error(f"[{audit_id}] GitHub agent error: {error}")
 
     if timeline:
-        timeline.add_event(EventType.OPERATION_FAILED, error)
+        timeline.add_event(
+            EventType.OPERATION_FAILED,
+            error,
+            entry_method=state.get("entry_method"),
+        )
 
     # Convert validation errors into friendly messages
     friendly_error = error
@@ -1168,26 +1292,49 @@ github_graph = workflow.compile()
 
 # Enhanced convenience function for invocation
 async def github_agent_invoke(
-    query: str,
+    query: Optional[str] = None,
     context: Optional[Dict[str, Any]] = None,
     github_token: Optional[str] = None,
     tenant_id: str = "unknown",
     integration_name: str = "github",
-    user_id: str = None  # NEW: Phase 4 analytics support
+    user_id: str = None,  # NEW: Phase 4 analytics support
+    # NEW: structured-call kwargs
+    operation: Optional[str] = None,
+    parameters: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Invoke enhanced GitHub agent with a user query.
+    """Main entry point for github_operation tool.
+
+    Two valid call shapes:
+      1. Natural-language: pass `query="..."`. The supervisor LLM extracts operation+params.
+      2. Structured:       pass `operation="..."` and `parameters={...}`. The LLM step is skipped.
+
+    Exactly one of `query` and `operation` must be provided (non-empty).
 
     Args:
-        query: User query describing GitHub operation
+        query: User query describing GitHub operation (natural-language path)
         context: Optional context (session_id, diff, error_log, files, etc.)
                  Must NOT contain 'github_token' — strip it at the router layer.
         github_token: Optional per-connection GitHub PAT. Treated as transient;
                       never logged, audited, or serialized into response.
+        operation: Pre-resolved operation name (structured-call path)
+        parameters: Pre-resolved parameters dict (structured-call path)
 
     Returns:
         Result dictionary with success status, data/error, and audit info
     """
-    logger.info(f"Invoking GitHub agent with query: {query[:100]}...")
+    # Exactly-one-of validation (assertion fires AssertionError; the MCP handler
+    # catches this earlier via the GithubOperationArgs Pydantic validator in Task 9)
+    has_query = bool(query)
+    has_operation = bool(operation)
+    assert has_query != has_operation, (
+        "github_agent_invoke: exactly one of (query, operation) must be provided. "
+        f"Got query={query!r}, operation={operation!r}"
+    )
+
+    # Determine entry method
+    entry_method = "structured" if has_operation else "natural_language"
+
+    logger.info(f"Invoking GitHub agent with query: {(query or '')[:100]}...")
 
     # Defensive guard: if caller forgot to strip the token from context, pop it here
     safe_context = dict(context or {})
@@ -1196,9 +1343,9 @@ async def github_agent_invoke(
         github_token = github_token or safe_context.pop("github_token")
 
     initial_state: GitHubState = {
-        "query": query,
-        "operation": None,
-        "parameters": None,
+        "query": query or "",
+        "operation": operation,           # NEW: pre-populated on structured calls (None for NL)
+        "parameters": parameters,         # NEW: pre-populated on structured calls (None for NL)
         "result": None,
         "error": None,
         "context": safe_context,
@@ -1211,6 +1358,7 @@ async def github_agent_invoke(
         "tenant_id": tenant_id,
         "integration_name": integration_name,
         "user_id": user_id,  # NEW: Phase 4 analytics support
+        "entry_method": entry_method,     # NEW
     }
     
     try:

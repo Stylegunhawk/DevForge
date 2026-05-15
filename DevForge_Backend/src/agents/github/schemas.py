@@ -146,6 +146,28 @@ SCHEMA_MAP = {
     "delete_repo": DeleteRepoParams,
 }
 
+# Module-level lookup: operation string -> Pydantic model class.
+# Contains the 12 core structured-call operations.
+# Used by:
+#   - validate_op_params (this file)
+#   - GithubOperationArgs validator (src/api/routers/__init__.py) — Task 9
+#   - tools/list inputSchema oneOf builder (src/api/routers/__init__.py) — Task 12
+OPERATION_SCHEMAS: dict[str, type[BaseModel]] = {
+    "list_repos": ListReposParams,
+    "create_repo": CreateRepoParams,
+    "create_issue": CreateIssueParams,
+    "commit_file": CommitFileParams,
+    "create_pull_request": CreatePullRequestParams,
+    "browse_files": BrowseFilesParams,
+    "read_file": ReadFileParams,
+    "search_code": SearchCodeParams,
+    "list_branches": ListBranchesParams,
+    "create_branch": CreateBranchParams,
+    "delete_branch": DeleteBranchParams,
+    "delete_repo": DeleteRepoParams,
+}
+
+
 def validate_op_params(operation: str, params: dict) -> dict:
     """Validate parameters for a specific operation.
     Returns validated dict or raises ValidationError.

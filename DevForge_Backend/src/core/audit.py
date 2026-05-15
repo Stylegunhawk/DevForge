@@ -77,18 +77,20 @@ class Timeline:
             metadata=metadata
         ))
     
-    def start_step(self, step_name: str, description: str = None):
+    def start_step(self, step_name: str, description: str = None, **metadata):
         """Mark step start and begin timing
-        
+
         Args:
             step_name: Step identifier
             description: Optional description
+            **metadata: Additional metadata (e.g. entry_method)
         """
         self._step_timers[step_name] = time.time()
         self.add_event(
             EventType.STEP_START,
             description or f"Starting {step_name}",
-            step=step_name
+            step=step_name,
+            **metadata
         )
     
     def complete_step(self, step_name: str, description: str = None, **metadata):
@@ -114,25 +116,26 @@ class Timeline:
         )
         self.events.append(event)
     
-    def fail_step(self, step_name: str, error: str):
+    def fail_step(self, step_name: str, error: str, **metadata):
         """Mark step failure
-        
+
         Args:
             step_name: Step identifier
             error: Error message
+            **metadata: Additional metadata (e.g. entry_method)
         """
         start_time = self._step_timers.pop(step_name, None)
         duration_ms = None
-        
+
         if start_time:
             duration_ms = (time.time() - start_time) * 1000
-        
+
         event = TimelineEvent(
             event_type=EventType.STEP_FAILED,
             timestamp=time.time(),
             description=f"Failed {step_name}: {error}",
             duration_ms=duration_ms,
-            metadata={"step": step_name, "error": error}
+            metadata={"step": step_name, "error": error, **metadata}
         )
         self.events.append(event)
     

@@ -7,13 +7,120 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ValidationError, model_validator
 
 from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
 from src.core.rate_limiter import rate_limiter
+from src.agents.github.schemas import OPERATION_SCHEMAS
+
+# Build the enum list and human-readable string once at import time
+_GH_OP_NAMES = sorted(OPERATION_SCHEMAS.keys())
+_GH_OP_LIST_STR = ", ".join(_GH_OP_NAMES)
+
+# JSON Schema for github_operation tool — exposed via tools/list.
+# oneOf union: Branch 1 = NL query, Branch 2 = typed structured call.
+GITHUB_OPERATION_INPUT_SCHEMA = {
+    "type": "object",
+    "oneOf": [
+        {
+            "title": "Natural-language",
+            "description": "Free-form English query — the LLM extracts intent and parameters.",
+            "required": ["query"],
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language description of the GitHub action to perform.",
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Optional context (github_token, diff, error_log, files, risk_confirmed, risk_reason, session_id).",
+                    "additionalProperties": True,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "title": "Structured",
+            "description": (
+                "Typed operation + parameters — skips the LLM intent step (~1-2s faster per call). "
+                "Per-operation parameter validation runs at the gateway."
+            ),
+            "required": ["operation"],
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": _GH_OP_NAMES,
+                    "description": "GitHub operation to execute. Per-op parameters are validated at runtime.",
+                },
+                "context": {
+                    "type": "object",
+                    "description": "github_token (required), risk_confirmed/risk_reason (for HIGH/CRITICAL ops), diff, error_log, etc.",
+                    "additionalProperties": True,
+                },
+            },
+            "additionalProperties": True,  # per-op params vary; enforced at runtime by OPERATION_SCHEMAS
+        },
+    ],
+}
+
+
+class GithubOperationArgs(BaseModel):
+    """MCP-only validator for github_operation arguments.
+
+    Enforces:
+      - Exactly one of (query, operation) must be set.
+      - operation, when set, must be in OPERATION_SCHEMAS.
+      - When operation is set, all required fields for that op must be present and well-typed
+        (validated via the per-op Pydantic model from OPERATION_SCHEMAS).
+    """
+    query: Optional[str] = None
+    operation: Optional[str] = None
+    context: Optional[dict] = None
+    # Catch-all for per-op parameter fields (e.g., repo, title, body) — validated below
+    model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def _validate_exactly_one_and_op_schema(self) -> "GithubOperationArgs":
+        has_query = bool(self.query)
+        has_op = bool(self.operation)
+
+        if has_query and has_op:
+            raise ValueError("Cannot specify both 'query' and 'operation' — pick one")
+        if not has_query and not has_op:
+            raise ValueError("Must specify either 'query' or 'operation' in arguments")
+
+        if has_op:
+            if self.operation not in OPERATION_SCHEMAS:
+                raise ValueError(
+                    f"Unknown operation '{self.operation}'. Valid operations: [{_GH_OP_LIST_STR}]"
+                )
+            # Validate per-op params using OPERATION_SCHEMAS
+            op_model_cls = OPERATION_SCHEMAS[self.operation]
+            op_params = self.model_dump(exclude={"query", "operation", "context"})
+            # Filter out None values so missing-required fields are correctly flagged
+            op_params = {k: v for k, v in op_params.items() if v is not None}
+            # Normalize shorthand "repo" → "repo_name" so MCP callers can use the
+            # compact key without triggering a validation error.  The agent layer
+            # performs the same normalization during enhance_with_intelligence, but
+            # the schema check here runs first, so we pre-promote it.
+            if "repo" in op_params and "repo_name" not in op_params:
+                op_params["repo_name"] = op_params.pop("repo")
+            try:
+                op_model_cls(**op_params)
+            except ValidationError as e:
+                # Collect all missing/invalid fields so the message is comprehensive
+                field_msgs = []
+                for err in e.errors():
+                    field = ".".join(str(p) for p in err["loc"])
+                    msg = err["msg"]
+                    field_msgs.append(f"'{field}': {msg}")
+                combined = "; ".join(field_msgs)
+                raise ValueError(f"Operation '{self.operation}' validation errors: {combined}") from e
+        return self
 
 # Import agents
 from src.agents.datagen.agent import datagen_agent
@@ -1175,32 +1282,59 @@ async def mcp_endpoint(request: Request):
 
                 # Special handling for github_operation
                 if tool_name == "github_operation":
-                    query = arguments.get("query")
-                    if not query:
-                        return JSONResponse(
-                            content={
-                                "jsonrpc": "2.0",
-                                "id": req_id,
-                                "error": {
-                                    "code": -32602,
-                                    "message": "github_operation requires 'query'",
-                                },
-                            }
-                        )
+                    try:
+                        validated_args = GithubOperationArgs(**arguments)
+                    except ValidationError as e:
+                        # Collect all errors for a comprehensive message
+                        msgs = []
+                        for err in e.errors():
+                            msg = err.get("msg", "Invalid params")
+                            # Pydantic v2 prefixes ValueError messages with "Value error, " — strip it
+                            if isinstance(msg, str) and msg.startswith("Value error, "):
+                                msg = msg[len("Value error, "):]
+                            msgs.append(msg)
+                        combined_msg = "; ".join(msgs)
+                        return JSONResponse(content={
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {
+                                "code": -32602,
+                                "message": combined_msg,
+                            },
+                        })
 
-                    context = arguments.get("context", {})
                     # Strip token from context BEFORE any logging — never log raw tokens
+                    context = dict(validated_args.context or {})
                     github_token = context.pop("github_token", None)
 
                     start_time = time.time()
-                    result = await agent_func(
-                        query=query, 
-                        context=context, 
-                        github_token=github_token,
-                        tenant_id=tenant_id,
-                        integration_name=integration_name,
-                        user_id=user_id  # NEW: Pass user_id to agent
-                    )
+                    # Dispatch on entry method
+                    if validated_args.query:
+                        # Natural-language path (existing behavior)
+                        result = await agent_func(
+                            query=validated_args.query,
+                            context=context,
+                            github_token=github_token,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name,
+                            user_id=user_id
+                        )
+                    else:
+                        # NEW: structured path
+                        op_params = validated_args.model_dump(
+                            exclude={"query", "operation", "context"}
+                        )
+                        # Filter None values so kwargs to github_agent_invoke don't carry stale Nones
+                        op_params = {k: v for k, v in op_params.items() if v is not None}
+                        result = await agent_func(
+                            operation=validated_args.operation,
+                            parameters=op_params,
+                            context=context,
+                            github_token=github_token,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name,
+                            user_id=user_id
+                        )
 
                 else:
                     start_time = time.time()
@@ -1433,65 +1567,7 @@ def _get_tool_schema(tool_name: str) -> dict:
             },
             "required": ["rows"],
         },
-        "github_operation": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": (
-                        "Natural language GitHub operation. "
-                        "For file commits, just name the file — DO NOT include RAG retrieval instructions. "
-                        "The system auto-provides file context. "
-                        "Examples: "
-                        "'commit verify_tree_sitter.py to dev branch of owner/repo', "
-                        "'create issue about login bug in owner/repo', "
-                        "'list branches of owner/repo', "
-                        "'delete branch feature-x from owner/repo'"
-                    ),
-                },
-                "context": {
-                    "type": "object",
-                    "description": "Risk enforcement and intelligence context",
-                    "properties": {
-                        "session_id": {
-                            "type": "string",
-                            "description": "Session identifier for tracking.",
-                        },
-                        "diff": {"type": "string", "description": "Git diff for commit generation fallback."},
-                        "error_log": {
-                            "type": "string",
-                            "description": "System error log for diagnostic operations.",
-                        },
-                        "files": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of related files for scoping operations.",
-                        },
-                        "github_token": {
-                            "type": "string",
-                            "description": (
-                                "Optional GitHub Personal Access Token (PAT). "
-                                "Overrides the server-level GITHUB_TOKEN env var. "
-                                "Stripped from context before any logging or auditing."
-                            ),
-                        },
-                        "confirmed": {
-                            "type": "boolean",
-                            "description": "Required for HIGH risk (create_repo, delete_branch) and CRITICAL risk (delete_repo) operations.",
-                        },
-                        "reason": {
-                            "type": "string",
-                            "description": "MANDATORY for CRITICAL operations (e.g. delete_repo). Provide a clear justification.",
-                        },
-                        "file_url": {
-                            "type": "string",
-                            "description": "Direct URL to fetch binary/remote file content. Alternative to raw 'content' for uploads (e.g. images, PDFs).",
-                        },
-                    },
-                },
-            },
-            "required": ["query"],
-        },
+        "github_operation": GITHUB_OPERATION_INPUT_SCHEMA,
         "refine_prompt": {
             "type": "object",
             "properties": {
