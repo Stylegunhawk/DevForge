@@ -614,7 +614,7 @@ class TestStructuredCallMode:
         """github_agent_invoke must reject the case where both query and operation are non-empty."""
         from src.agents.github.agent import github_agent_invoke
 
-        with pytest.raises(AssertionError, match="exactly one"):
+        with pytest.raises(ValueError, match="exactly one"):
             await github_agent_invoke(
                 query="list repos",
                 operation="list_repos",
@@ -627,7 +627,7 @@ class TestStructuredCallMode:
         """github_agent_invoke must reject the case where both query and operation are absent."""
         from src.agents.github.agent import github_agent_invoke
 
-        with pytest.raises(AssertionError, match="exactly one"):
+        with pytest.raises(ValueError, match="exactly one"):
             await github_agent_invoke(
                 query=None,
                 operation=None,
@@ -946,6 +946,129 @@ class TestStructuredCallMode:
         # Title should appear in the kwargs or positional args
         call_str = repr(mock_create.call_args)
         assert "structured probe" in call_str, f"title not in call_args: {call_str}"
+
+    # All 12 structured-call operations sweeping the MCP handler end-to-end.
+    # Each row mocks the corresponding GitHubTools method, asserts a clean
+    # success envelope, and confirms the audit timeline records entry_method=structured.
+    @pytest.mark.parametrize("operation,parameters,context_extras,mock_attr,mock_return", [
+        ("list_repos",
+         {"visibility": "public", "limit": 3},
+         {},
+         "list_repos",
+         [{"name": "r1", "full_name": "u/r1", "url": "x", "private": False, "stars": 0,
+           "forks": 0, "description": None, "language": None, "clone_url": "x",
+           "updated_at": "2026-01-01T00:00:00Z", "created_at": "2026-01-01T00:00:00Z"}]),
+        ("create_repo",
+         {"name": "demo-probe"},
+         {"confirmed": True},
+         "create_repo",
+         {"name": "demo-probe", "full_name": "u/demo-probe", "url": "x", "private": False}),
+        ("create_issue",
+         {"repo": "owner/r", "title": "probe", "body": "b"},
+         {},
+         "create_issue",
+         {"number": 1, "title": "probe", "url": "x", "state": "open", "labels": [], "assignees": []}),
+        # commit_file to a non-protected branch stays MEDIUM (no confirmation needed).
+        # Contextual rule in src/core/risk.py:218-220 escalates main/master/production to HIGH.
+        ("commit_file",
+         {"repo": "owner/r", "file_path": "x.py", "content": "print(1)",
+          "commit_message": "feat: probe", "branch": "feat-probe"},
+         {},
+         "commit_file",
+         {"action": "created", "file_path": "x.py", "commit_sha": "abc", "commit_message": "feat: probe"}),
+        ("create_pull_request",
+         {"repo": "owner/r", "title": "probe", "head": "feat", "base": "main"},
+         {},
+         "create_pull_request",
+         {"number": 1, "title": "probe", "url": "x", "state": "open", "draft": False}),
+        ("browse_files",
+         {"repo": "owner/r", "path": "/"},
+         {},
+         "browse_files",
+         [{"name": "README.md", "path": "README.md", "type": "file", "size": 100, "url": "x"}]),
+        ("read_file",
+         {"repo": "owner/r", "file_path": "README.md"},
+         {},
+         "read_file",
+         {"path": "README.md", "content": "# probe", "size": 8}),
+        ("search_code",
+         {"query": "TODO", "repo": "owner/r"},
+         {},
+         "search_code",
+         [{"path": "x.py", "repository": "owner/r", "url": "x"}]),
+        ("list_branches",
+         {"repo": "owner/r"},
+         {},
+         "list_branches",
+         [{"name": "main", "sha": "abc", "protected": False}]),
+        ("create_branch",
+         {"repo": "owner/r", "branch_name": "feat-probe", "from_branch": "main"},
+         {},
+         "create_branch",
+         {"name": "feat-probe", "sha": "abc"}),
+        ("delete_branch",
+         {"repo": "owner/r", "branch_name": "feat-probe"},
+         {"confirmed": True},
+         "delete_branch",
+         {"deleted": "feat-probe"}),
+        ("delete_repo",
+         {"repo": "owner/probe-repo"},
+         {"confirmed": True, "reason": "test cleanup"},
+         "delete_repo",
+         {"deleted": "owner/probe-repo"}),
+    ])
+    def test_mcp_structured_each_operation_end_to_end(
+        self, operation, parameters, context_extras, mock_attr, mock_return
+    ):
+        """End-to-end MCP smoke for every structured-call operation.
+
+        Each parametrized case patches the corresponding GitHubTools method, sends
+        an MCP tools/call with the structured envelope, and verifies a clean success
+        response with entry_method=structured propagated through the audit timeline.
+        """
+        from unittest.mock import patch as _patch
+        mock_target = f"src.tools.github.tools.GitHubTools.{mock_attr}"
+        ctx = {"github_token": "ghp_test", **context_extras}
+        args = {"operation": operation, **parameters, "context": ctx}
+
+        with _patch(mock_target) as mock_fn:
+            mock_fn.return_value = mock_return
+            response = client.post(
+                "/mcp",
+                headers={"x-api-key": "df_test"},
+                json={
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": {"name": "github_operation", "arguments": args},
+                },
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert "error" not in body, (
+            f"Unexpected JSON-RPC error for {operation}: {body.get('error')}"
+        )
+        payload = parse_mcp_payload(body)
+        assert payload.get("success") is True, (
+            f"Expected success=True for {operation}. Got: {payload}"
+        )
+        assert payload.get("operation") == operation
+
+        events = payload["timeline"]["events"]
+        entry_methods = {e.get("metadata", {}).get("entry_method") for e in events}
+        assert entry_methods == {"structured"}, (
+            f"For {operation}, expected all entry_method='structured', got: {entry_methods}"
+        )
+
+        classify = next(
+            (e for e in events if e.get("metadata", {}).get("step") == "llm_classify"),
+            None,
+        )
+        assert classify is not None, f"No llm_classify event for {operation}"
+        assert classify["metadata"].get("skipped") is True, (
+            f"llm_classify event for {operation} did not record skipped=True"
+        )
+
+        mock_fn.assert_called_once()
 
     def test_structured_create_repo_blocked_without_confirmed(self):
         """HIGH-risk create_repo via structured path must hit the risk gate just like NL."""

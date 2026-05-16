@@ -146,25 +146,19 @@ SCHEMA_MAP = {
     "delete_repo": DeleteRepoParams,
 }
 
-# Module-level lookup: operation string -> Pydantic model class.
-# Contains the 12 core structured-call operations.
-# Used by:
-#   - validate_op_params (this file)
-#   - GithubOperationArgs validator (src/api/routers/__init__.py) — Task 9
-#   - tools/list inputSchema oneOf builder (src/api/routers/__init__.py) — Task 12
+# Subset of SCHEMA_MAP exposed via structured-call mode on /mcp.
+# The 3 extended ops (scaffold_repo, generate_changelog, analyze_ci_failure) stay
+# accessible only via natural-language routing — they're not in this set.
+_STRUCTURED_CALL_OPERATIONS = frozenset({
+    "list_repos", "create_repo", "create_issue", "commit_file",
+    "create_pull_request", "browse_files", "read_file", "search_code",
+    "list_branches", "create_branch", "delete_branch", "delete_repo",
+})
+
+# Derived from SCHEMA_MAP to keep a single source of truth.
+# Consumers: GithubOperationArgs validator and tools/list oneOf builder.
 OPERATION_SCHEMAS: dict[str, type[BaseModel]] = {
-    "list_repos": ListReposParams,
-    "create_repo": CreateRepoParams,
-    "create_issue": CreateIssueParams,
-    "commit_file": CommitFileParams,
-    "create_pull_request": CreatePullRequestParams,
-    "browse_files": BrowseFilesParams,
-    "read_file": ReadFileParams,
-    "search_code": SearchCodeParams,
-    "list_branches": ListBranchesParams,
-    "create_branch": CreateBranchParams,
-    "delete_branch": DeleteBranchParams,
-    "delete_repo": DeleteRepoParams,
+    op: SCHEMA_MAP[op] for op in sorted(_STRUCTURED_CALL_OPERATIONS)
 }
 
 

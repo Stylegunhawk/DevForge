@@ -90,7 +90,13 @@ class GitHubTools:
             return
             
         auth = Auth.Token(self.token)
-        self._client = Github(auth=auth)
+        # Bound the underlying socket timeout so a stalled GitHub API call cannot
+        # hang the executor thread indefinitely. The agent layer wraps each call
+        # in asyncio.wait_for(..., timeout=15.0), but that does not cancel the
+        # synchronous PyGithub call running in run_in_executor — we need a real
+        # socket-level cap here too. Configurable via GITHUB_HTTP_TIMEOUT env.
+        http_timeout = int(os.getenv("GITHUB_HTTP_TIMEOUT", "10"))
+        self._client = Github(auth=auth, timeout=http_timeout)
         self._user = self._client.get_user()
         
         logger.info(
@@ -631,19 +637,22 @@ class GitHubTools:
                     repo_name = f"{self.user.login}/{repo_name}"
                 full_query = f"{query} repo:{repo_name}"
             
-            # Code search specifically
+            # Code search specifically. PyGithub's PaginatedList raises IndexError
+            # when sliced on empty results (the lazy buffer has nothing to index),
+            # so iterate with an explicit cap instead of using `results[:20]`.
             results = self.client.search_code(query=full_query)
-            
+
             result_list = []
-            # Limit to top 20 results for performance
-            for item in list(results[:20]):
+            for item in results:
+                if len(result_list) >= 20:
+                    break
                 result_list.append({
                     "name": item.name,
                     "path": item.path,
                     "repo": item.repository.full_name,
-                    "url": item.html_url
+                    "url": item.html_url,
                 })
-                
+
             return result_list
         except Exception as e:
             if "404" in str(e):

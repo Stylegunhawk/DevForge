@@ -72,10 +72,12 @@ class GithubOperationArgs(BaseModel):
     """MCP-only validator for github_operation arguments.
 
     Enforces:
-      - Exactly one of (query, operation) must be set.
-      - operation, when set, must be in OPERATION_SCHEMAS.
-      - When operation is set, all required fields for that op must be present and well-typed
-        (validated via the per-op Pydantic model from OPERATION_SCHEMAS).
+      - When `operation` is absent, `query` is required (natural-language path).
+      - When `operation` is set, it must be in `OPERATION_SCHEMAS` and all required
+        fields for that op must be present and well-typed (validated via the per-op
+        Pydantic model). The top-level `query` field is interpreted as a per-op
+        parameter when the operation's schema defines its own `query` field
+        (e.g. `search_code.query`); otherwise specifying both is rejected.
     """
     query: Optional[str] = None
     operation: Optional[str] = None
@@ -88,38 +90,50 @@ class GithubOperationArgs(BaseModel):
         has_query = bool(self.query)
         has_op = bool(self.operation)
 
-        if has_query and has_op:
-            raise ValueError("Cannot specify both 'query' and 'operation' — pick one")
-        if not has_query and not has_op:
-            raise ValueError("Must specify either 'query' or 'operation' in arguments")
+        if not has_op:
+            if not has_query:
+                raise ValueError("Must specify either 'query' or 'operation' in arguments")
+            return self  # Natural-language path — no further checks
 
-        if has_op:
-            if self.operation not in OPERATION_SCHEMAS:
-                raise ValueError(
-                    f"Unknown operation '{self.operation}'. Valid operations: [{_GH_OP_LIST_STR}]"
-                )
-            # Validate per-op params using OPERATION_SCHEMAS
-            op_model_cls = OPERATION_SCHEMAS[self.operation]
-            op_params = self.model_dump(exclude={"query", "operation", "context"})
-            # Filter out None values so missing-required fields are correctly flagged
-            op_params = {k: v for k, v in op_params.items() if v is not None}
-            # Normalize shorthand "repo" → "repo_name" so MCP callers can use the
-            # compact key without triggering a validation error.  The agent layer
-            # performs the same normalization during enhance_with_intelligence, but
-            # the schema check here runs first, so we pre-promote it.
-            if "repo" in op_params and "repo_name" not in op_params:
-                op_params["repo_name"] = op_params.pop("repo")
-            try:
-                op_model_cls(**op_params)
-            except ValidationError as e:
-                # Collect all missing/invalid fields so the message is comprehensive
-                field_msgs = []
-                for err in e.errors():
-                    field = ".".join(str(p) for p in err["loc"])
-                    msg = err["msg"]
-                    field_msgs.append(f"'{field}': {msg}")
-                combined = "; ".join(field_msgs)
-                raise ValueError(f"Operation '{self.operation}' validation errors: {combined}") from e
+        # Structured path
+        if self.operation not in OPERATION_SCHEMAS:
+            raise ValueError(
+                f"Unknown operation '{self.operation}'. Valid operations: [{_GH_OP_LIST_STR}]"
+            )
+        op_model_cls = OPERATION_SCHEMAS[self.operation]
+        op_field_names = set(op_model_cls.model_fields.keys())
+
+        # If the op's schema does not define its own `query` field, specifying both
+        # `query` and `operation` is almost certainly a caller mistake.
+        if has_query and "query" not in op_field_names:
+            raise ValueError(
+                f"Cannot specify both 'query' and 'operation' — operation "
+                f"'{self.operation}' does not accept a 'query' parameter"
+            )
+
+        # Build the per-op params payload — keep `query` when it's a valid op field
+        excluded = {"operation", "context"}
+        if "query" not in op_field_names:
+            excluded.add("query")
+        op_params = self.model_dump(exclude=excluded)
+        # Filter out None values so missing-required fields are correctly flagged
+        op_params = {k: v for k, v in op_params.items() if v is not None}
+        # Normalize shorthand "repo" → "repo_name" so MCP callers can use the
+        # compact key without triggering a validation error. The agent layer
+        # performs the same normalization during enhance_with_intelligence, but
+        # the schema check here runs first, so we pre-promote it.
+        if "repo" in op_params and "repo_name" not in op_params:
+            op_params["repo_name"] = op_params.pop("repo")
+        try:
+            op_model_cls(**op_params)
+        except ValidationError as e:
+            field_msgs = []
+            for err in e.errors():
+                field = ".".join(str(p) for p in err["loc"])
+                msg = err["msg"]
+                field_msgs.append(f"'{field}': {msg}")
+            combined = "; ".join(field_msgs)
+            raise ValueError(f"Operation '{self.operation}' validation errors: {combined}") from e
         return self
 
 # Import agents
@@ -883,7 +897,14 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
             query = args.get("query")
             if not query:
                 error_msg = "github_operation requires 'query' parameter"
-                logging.error(error_msg, extra={"tool": tool_name, "args": args})
+                # Scrub the github_token from args before logging — it's nested in `context`
+                # and would otherwise leak into log handlers attached to the root logger.
+                _safe_args = {
+                    k: ({kk: vv for kk, vv in v.items() if kk != "github_token"}
+                        if k == "context" and isinstance(v, dict) else v)
+                    for k, v in (args or {}).items()
+                }
+                logging.error(error_msg, extra={"tool": tool_name, "args": _safe_args})
                 return JSONResponse(
                     status_code=400,
                     content={
@@ -1308,11 +1329,20 @@ async def mcp_endpoint(request: Request):
                     github_token = context.pop("github_token", None)
 
                     start_time = time.time()
-                    # Dispatch on entry method
-                    if validated_args.query:
-                        # Natural-language path (existing behavior)
+                    # Dispatch on operation: when set, route through the structured path
+                    # (the validator already enforced that `query` only coexists with
+                    # `operation` when the op schema accepts a `query` field, e.g. search_code).
+                    if validated_args.operation:
+                        op_params = validated_args.model_dump(
+                            exclude={"operation", "context"}
+                        )
+                        op_params = {k: v for k, v in op_params.items() if v is not None}
+                        # Normalize shorthand repo → repo_name to match per-op Pydantic schemas
+                        if "repo" in op_params and "repo_name" not in op_params:
+                            op_params["repo_name"] = op_params.pop("repo")
                         result = await agent_func(
-                            query=validated_args.query,
+                            operation=validated_args.operation,
+                            parameters=op_params,
                             context=context,
                             github_token=github_token,
                             tenant_id=tenant_id,
@@ -1320,15 +1350,9 @@ async def mcp_endpoint(request: Request):
                             user_id=user_id
                         )
                     else:
-                        # NEW: structured path
-                        op_params = validated_args.model_dump(
-                            exclude={"query", "operation", "context"}
-                        )
-                        # Filter None values so kwargs to github_agent_invoke don't carry stale Nones
-                        op_params = {k: v for k, v in op_params.items() if v is not None}
+                        # Natural-language path (existing behavior)
                         result = await agent_func(
-                            operation=validated_args.operation,
-                            parameters=op_params,
+                            query=validated_args.query,
                             context=context,
                             github_token=github_token,
                             tenant_id=tenant_id,

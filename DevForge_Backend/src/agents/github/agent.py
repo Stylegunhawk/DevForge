@@ -88,8 +88,11 @@ class IntelligenceBundle:
 
 # Per-token bundle cache: {sha256(token): IntelligenceBundle}
 # Max 128 entries to prevent memory growth from many ephemeral connections.
+# Lock guards check-and-construct so concurrent cold-cache requests for the
+# same token don't both build a bundle and race on dict mutation.
 _bundle_cache: OrderedDict[str, "IntelligenceBundle"] = OrderedDict()
 _BUNDLE_CACHE_MAX = 128
+_bundle_cache_lock = asyncio.Lock()
 
 
 def _get_token_hash(token: Optional[str]) -> str:
@@ -99,44 +102,47 @@ def _get_token_hash(token: Optional[str]) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _get_intelligence_bundle(token: Optional[str] = None) -> IntelligenceBundle:
+async def _get_intelligence_bundle(token: Optional[str] = None) -> IntelligenceBundle:
     """Get or create an IntelligenceBundle for the given token.
 
     Uses SHA256 hash of the token as cache key to avoid storing raw tokens
     in memory. Evicts oldest entry when cache reaches _BUNDLE_CACHE_MAX.
+    Async + lock-guarded to prevent duplicate construction under concurrent
+    cold-cache hits.
     """
     if not token:
         raise ValueError(
             "GitHub token required. Please provide a valid GitHub Personal Access Token from the frontend."
         )
-    
+
     token_hash = _get_token_hash(token)
 
-    if token_hash in _bundle_cache:
-        # Move to end (LRU behavior: mark as recently used)
-        _bundle_cache.move_to_end(token_hash)
+    async with _bundle_cache_lock:
+        if token_hash in _bundle_cache:
+            # Move to end (LRU behavior: mark as recently used)
+            _bundle_cache.move_to_end(token_hash)
+            return _bundle_cache[token_hash]
+
+        # Evict oldest entry if at capacity (FIFO portion of LRU)
+        if len(_bundle_cache) >= _BUNDLE_CACHE_MAX:
+            # Pop from left (least recently used)
+            _bundle_cache.popitem(last=False)
+            logger.info("IntelligenceBundle cache evicted oldest entry")
+
+        gh_tools = github_tools.GitHubTools(token=token)
+        repo_disc = RepoDiscovery(gh_tools)
+        commit_gen = CommitGenerator()
+        log_pars = LogParser()
+
+        _bundle_cache[token_hash] = IntelligenceBundle(
+            repo_discovery=repo_disc,
+            commit_generator=commit_gen,
+            log_parser=log_pars,
+            github_tools_instance=gh_tools,
+        )
+        logger.info("Created new IntelligenceBundle for token_hash=%s", token_hash[:8])
+
         return _bundle_cache[token_hash]
-
-    # Evict oldest entry if at capacity (FIFO portion of LRU)
-    if len(_bundle_cache) >= _BUNDLE_CACHE_MAX:
-        # Pop from left (least recently used)
-        _bundle_cache.popitem(last=False)
-        logger.info("IntelligenceBundle cache evicted oldest entry")
-
-    gh_tools = github_tools.GitHubTools(token=token)
-    repo_disc = RepoDiscovery(gh_tools)
-    commit_gen = CommitGenerator()
-    log_pars = LogParser()
-
-    _bundle_cache[token_hash] = IntelligenceBundle(
-        repo_discovery=repo_disc,
-        commit_generator=commit_gen,
-        log_parser=log_pars,
-        github_tools_instance=gh_tools,
-    )
-    logger.info("Created new IntelligenceBundle for token_hash=%s", token_hash[:8])
-
-    return _bundle_cache[token_hash]
 
 
 async def parse_github_request(state: GitHubState) -> GitHubState:
@@ -352,17 +358,27 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
     timeline = state.get("timeline")
     audit_id = state.get("audit_id")
     query = state.get("query")
-    
-    logger.info(f"[{audit_id}] [DEBUG] Starting enhancement. Operation: {operation}")
-    logger.info(f"[{audit_id}] [DEBUG] Current parameters: {parameters}")
-    logger.info(f"[{audit_id}] [DEBUG] Context keys: {list(context.keys())}")
+    _entry_method = state.get("entry_method", "natural_language")
+
+    logger.debug(f"[{audit_id}] Starting enhancement. Operation: {operation}")
+    logger.debug(f"[{audit_id}] Current parameters: {parameters}")
+    logger.debug(f"[{audit_id}] Context keys: {list(context.keys())}")
     if "available_files" in context:
-        logger.info(f"[{audit_id}] [DEBUG] available_files in context: {[f.get('filename') for f in context['available_files']]}")
+        logger.debug(f"[{audit_id}] available_files in context: {[f.get('filename') for f in context['available_files']]}")
     else:
-        logger.warning(f"[{audit_id}] [DEBUG] available_files NOT in context")
+        logger.debug(f"[{audit_id}] available_files NOT in context")
     token = state.get("github_token")  # transient field — never log this
 
-    bundle = _get_intelligence_bundle(token)
+    try:
+        bundle = await _get_intelligence_bundle(token)
+    except ValueError as e:
+        # Invalid / missing PAT — surface as a clean error instead of letting
+        # the outer except-Exception swallow it silently and leave the user
+        # wondering why intelligence enhancements were skipped.
+        logger.warning(f"[{audit_id}] enhance: intelligence bundle unavailable: {e}")
+        if timeline:
+            timeline.fail_step("enhance", str(e), entry_method=_entry_method)
+        return {**state, "error": str(e), "timeline": timeline}
     repo_discovery = bundle.repo_discovery
     commit_generator = bundle.commit_generator
     log_parser = bundle.log_parser
@@ -560,7 +576,7 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
             
             available_files = context.get("available_files", [])
             file_path = parameters.get("file_path", "").lower()
-            logger.info(f"[{audit_id}] [DEBUG] commit_file injection started. file_path: '{file_path}', available_files count: {len(available_files)}")
+            logger.debug(f"[{audit_id}] commit_file injection started. file_path: '{file_path}', available_files count: {len(available_files)}")
 
             # Clean path to handle Unicode ellipsis, underscores, hyphens, and parentheses
             file_path = file_path.replace("…", " ").replace("...", " ").replace("_", " ").replace("-", " ").replace("(", " ").replace(")", " ")
@@ -571,18 +587,18 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
             # Case 1: file_path provided - use fuzzy matching
             if file_path:
                 words = [w for w in file_path.split() if len(w) >= 3]
-                logger.info(f"[{audit_id}] [DEBUG] Split file_path words: {words}")
+                logger.debug(f"[{audit_id}] Split file_path words: {words}")
                 
                 for f in available_files:
                     fname = f["filename"].lower()
                     if any(word in fname for word in words):
                         matches.append(f)
                 
-                logger.info(f"[{audit_id}] [DEBUG] Fuzzy matches found: {[m['filename'] for m in matches]}")
+                logger.debug(f"[{audit_id}] Fuzzy matches found: {[m['filename'] for m in matches]}")
             
             # Case 2: No specific file mentioned or fuzzy match failed - if only one file exist, pick it!
             if not matches and len(available_files) == 1:
-                logger.info(f"[{audit_id}] [DEBUG] Single file fallback: {available_files[0]['filename']}")
+                logger.debug(f"[{audit_id}] Single file fallback: {available_files[0]['filename']}")
                 matches = [available_files[0]]
             
             # Disambiguation: Pick most recent if multiple matches
@@ -646,12 +662,16 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
             timeline.start_step("risk_gate", f"Risk check for {operation}",
                                 entry_method=_entry_method)
 
-        # Extract risk confirmation from context if present
+        # Extract risk confirmation from context. Accept both prefixed (risk_confirmed,
+        # risk_reason) and bare (confirmed, reason) key forms — mirrors the dual-key
+        # support documented in src/core/risk.py:128.
         risk_context = {}
-        if "risk_confirmed" in context:
-            risk_context["confirmed"] = context["risk_confirmed"]
-        if "risk_reason" in context:
-            risk_context["reason"] = context["risk_reason"]
+        risk_confirmed = context.get("risk_confirmed", context.get("confirmed"))
+        if risk_confirmed is not None:
+            risk_context["confirmed"] = risk_confirmed
+        risk_reason = context.get("risk_reason", context.get("reason"))
+        if risk_reason is not None:
+            risk_context["reason"] = risk_reason
 
         # Check risk requirements with contextual awareness
         # Parameters are passed so branch-level overrides (e.g., commit to main → HIGH) apply
@@ -829,7 +849,13 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
     _entry_method = state.get("entry_method", "natural_language")
 
     # Get the bundle for this token so we use the correct authenticated client
-    bundle = _get_intelligence_bundle(token)
+    try:
+        bundle = await _get_intelligence_bundle(token)
+    except ValueError as e:
+        logger.warning(f"[{audit_id}] execute: intelligence bundle unavailable: {e}")
+        if timeline:
+            timeline.fail_step("execute", str(e), entry_method=_entry_method)
+        return {**state, "error": str(e), "timeline": timeline}
     gh_tools = bundle.github_tools_instance
 
     if not operation:
@@ -1213,7 +1239,7 @@ async def handle_error(state: GitHubState) -> GitHubState:
             try:
                 # Fetch recent repositories from cache
                 github_token = state.get("github_token")
-                bundle = _get_intelligence_bundle(github_token)
+                bundle = await _get_intelligence_bundle(github_token)
                 repo_discovery = bundle.repo_discovery
                 suggestions = await repo_discovery.get_recent_suggestions(limit=3)
                 
@@ -1326,10 +1352,14 @@ async def github_agent_invoke(
     # catches this earlier via the GithubOperationArgs Pydantic validator in Task 9)
     has_query = bool(query)
     has_operation = bool(operation)
-    assert has_query != has_operation, (
-        "github_agent_invoke: exactly one of (query, operation) must be provided. "
-        f"Got query={query!r}, operation={operation!r}"
-    )
+    if has_query == has_operation:
+        # Either both set or both empty — caller contract violation.
+        # Raise ValueError (not AssertionError) so MCP/gateway handlers translate
+        # this into a clean 400/-32602 instead of surfacing a 500 traceback.
+        raise ValueError(
+            "github_agent_invoke: exactly one of (query, operation) must be provided. "
+            f"Got query={query!r}, operation={operation!r}"
+        )
 
     # Determine entry method
     entry_method = "structured" if has_operation else "natural_language"
