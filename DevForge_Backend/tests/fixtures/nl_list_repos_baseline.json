@@ -1,0 +1,36 @@
+{
+  "audit_id": "<scrubbed>",
+  "data": [
+    {
+      "clone_url": "https://github.com/user/repo1.git",
+      "created_at": "2026-01-01T00:00:00Z",
+      "description": null,
+      "forks": 0,
+      "full_name": "user/repo1",
+      "language": null,
+      "name": "repo1",
+      "private": false,
+      "stars": 0,
+      "updated_at": "2026-01-01T00:00:00Z",
+      "url": "https://github.com/user/repo1"
+    }
+  ],
+  "operation": "list_repos",
+  "success": true,
+  "timeline": {
+    "audit_id": "audit_test_baseline",
+    "event_count": 1,
+    "events": [
+      {
+        "description": "Parsing: list my repositories",
+        "duration_ms": null,
+        "event": "operation_start",
+        "metadata": {},
+        "timestamp": "<scrubbed>"
+      }
+    ],
+    "operation": "github_operation",
+    "start_time": "<scrubbed>",
+    "total_duration_ms": "<scrubbed>"
+  }
+}

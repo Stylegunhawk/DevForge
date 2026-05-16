@@ -43,6 +43,10 @@ class Sanitizer:
         
         # Query parameter tokens
         r"([?&]token=[a-zA-Z0-9_\-\.]{6,})",  # URL query param token
+
+        # Database connection strings with embedded credentials
+        # Matches postgresql://user:pass@host, mysql://, mongodb://, redis://
+        r"((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s]+:[^@\s]+@[^\s]+)",
     ]
 
     # Patterns for prompt injection - comprehensive variants

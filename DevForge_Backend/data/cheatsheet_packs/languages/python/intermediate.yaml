@@ -1,0 +1,666 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 2
+  library: null
+  library_version_floor: null
+  last_reviewed: 2026-05-15
+  reviewer: sid
+
+entries:
+  - id: py.intermediate.comprehensions_advanced
+    title: "Advanced Comprehensions and Generator Expressions"
+    explanation: "List/dict/set comprehensions, generator expressions, and when each is preferred. Generators are memory-efficient for large or infinite streams."
+    tags: [comprehensions, generators, filter, map, transform, memory, lazy, dict-comprehension, set-comprehension]
+    when_to_use: "Building collections from iterables. Pick generator expressions for big data, dict comprehensions for lookups, set comprehensions for deduplication."
+    examples:
+      - title: "Dict and set comprehensions"
+        language: python
+        code: |
+          words = ["apple", "banana", "cherry", "apricot"]
+          by_first = {w[0]: w for w in words}
+          unique_lengths = {len(w) for w in words}
+          print(by_first)
+          print(unique_lengths)
+      - title: "Generator expression for streaming"
+        language: python
+        code: |
+          numbers = range(10_000_000)
+          total = sum(n * n for n in numbers if n % 3 == 0)
+          print(total)
+      - title: "Nested comprehension — matrix transpose"
+        language: python
+        code: |
+          matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+          transposed = [[row[i] for row in matrix] for i in range(len(matrix[0]))]
+          print(transposed)
+    pitfalls:
+      - "Generator expressions can only be iterated once. Wrap in `list()` if you need to iterate multiple times."
+      - "Don't use a list comprehension just for side effects — use a `for` loop. `[print(x) for x in items]` is anti-pattern."
+      - "`{}` is an empty dict, not an empty set. Use `set()` for an empty set."
+      - "Deeply nested comprehensions are write-only. If logic spans more than 2 levels, refactor to a loop or function."
+
+  - id: py.intermediate.functions_advanced
+    title: "*args, **kwargs, Closures, lambda"
+    explanation: "Variable-argument signatures with `*args` and `**kwargs`. Closures capture enclosing scope. `lambda` is an inline anonymous function — use sparingly."
+    tags: [functions, args, kwargs, closures, lambda, scope, first-class, intermediate]
+    when_to_use: "Wrapping/forwarding functions, building higher-order utilities, callbacks for sort/filter/map."
+    examples:
+      - title: "*args and **kwargs forwarding"
+        language: python
+        code: |
+          def trace(fn):
+              def wrapper(*args, **kwargs):
+                  print(f"calling {fn.__name__} with {args} {kwargs}")
+                  return fn(*args, **kwargs)
+              return wrapper
+
+          @trace
+          def add(a, b):
+              return a + b
+
+          print(add(2, 3))
+      - title: "Closure capturing outer variable"
+        language: python
+        code: |
+          def make_counter():
+              count = 0
+              def increment():
+                  nonlocal count
+                  count += 1
+                  return count
+              return increment
+
+          c = make_counter()
+          print(c(), c(), c())
+      - title: "lambda for sorting and filtering"
+        language: python
+        code: |
+          users = [{"name": "Bob", "age": 30}, {"name": "Alice", "age": 25}]
+          by_age = sorted(users, key=lambda u: u["age"])
+          adults = list(filter(lambda u: u["age"] >= 18, users))
+          print(by_age, adults)
+    pitfalls:
+      - "Closures capture variables by reference, not by value. `for i in range(3): fns.append(lambda: i)` — all lambdas see i=2 at the end. Bind with default arg: `lambda i=i: i`."
+      - "`nonlocal` is required to write to an enclosing function's variable; `global` for module-level."
+      - "Don't overuse lambdas — name the function if it's longer than ~30 chars or used in multiple places."
+      - "`*args` unpacks positional, `**kwargs` unpacks keyword. The order in signatures is `def f(a, b, *args, c=1, **kwargs)`."
+
+  - id: py.intermediate.decorators
+    title: "Decorators"
+    explanation: "Functions that wrap other functions to add behavior — logging, timing, caching, auth, validation. Use `@functools.wraps` to preserve the wrapped function's metadata."
+    tags: [decorators, functions, metaprogramming, wrapping, functools, wraps, intermediate]
+    when_to_use: "Cross-cutting concerns like timing, retry, caching, validation, or auth — anywhere you'd otherwise copy-paste a try/log/profile block."
+    examples:
+      - title: "Simple timing decorator"
+        language: python
+        code: |
+          import functools
+          import time
+
+          def timed(fn):
+              @functools.wraps(fn)
+              def inner(*args, **kwargs):
+                  start = time.perf_counter()
+                  result = fn(*args, **kwargs)
+                  elapsed = time.perf_counter() - start
+                  print(f"{fn.__name__} took {elapsed:.3f}s")
+                  return result
+              return inner
+
+          @timed
+          def slow():
+              time.sleep(0.1)
+
+          slow()
+      - title: "Parameterized decorator"
+        language: python
+        code: |
+          import functools
+
+          def retry(max_attempts: int = 3):
+              def deco(fn):
+                  @functools.wraps(fn)
+                  def inner(*args, **kwargs):
+                      for attempt in range(1, max_attempts + 1):
+                          try:
+                              return fn(*args, **kwargs)
+                          except Exception:
+                              if attempt == max_attempts:
+                                  raise
+                  return inner
+              return deco
+
+          @retry(max_attempts=5)
+          def flaky():
+              raise ValueError("nope")
+      - title: "Caching with functools.lru_cache"
+        language: python
+        code: |
+          import functools
+
+          @functools.lru_cache(maxsize=128)
+          def fib(n: int) -> int:
+              if n < 2:
+                  return n
+              return fib(n - 1) + fib(n - 2)
+
+          print(fib(50))
+    pitfalls:
+      - "Forgetting `@functools.wraps(fn)` loses the wrapped function's __name__, __doc__, and signature."
+      - "Decorators are applied bottom-up: `@a @b def f` is `a(b(f))`."
+      - "`lru_cache` arguments must be hashable — lists/dicts won't work. Use tuples or frozenset."
+      - "Decorating a method? `self` is in *args. Decorating a classmethod or staticmethod? Apply @classmethod/@staticmethod outermost."
+
+  - id: py.intermediate.classes_oop
+    title: "Classes and Inheritance"
+    explanation: "Define types with `class`. `__init__` initializes; methods take `self` as first arg. Single inheritance is common; multiple inheritance uses MRO (Method Resolution Order)."
+    tags: [class, oop, inheritance, methods, self, init, super, intermediate]
+    when_to_use: "Modeling entities with state + behavior. Use dataclasses for plain data containers, full classes when you need methods and invariants."
+    examples:
+      - title: "Class with init and methods"
+        language: python
+        code: |
+          class User:
+              def __init__(self, name: str, age: int):
+                  self.name = name
+                  self.age = age
+
+              def greet(self) -> str:
+                  return f"Hi, I'm {self.name}"
+
+              def is_adult(self) -> bool:
+                  return self.age >= 18
+
+          u = User("Alice", 25)
+          print(u.greet(), u.is_adult())
+      - title: "Inheritance with super()"
+        language: python
+        code: |
+          class Animal:
+              def __init__(self, name: str):
+                  self.name = name
+
+              def speak(self) -> str:
+                  return "..."
+
+          class Dog(Animal):
+              def __init__(self, name: str, breed: str):
+                  super().__init__(name)
+                  self.breed = breed
+
+              def speak(self) -> str:
+                  return "Woof!"
+
+          d = Dog("Rex", "Lab")
+          print(d.name, d.breed, d.speak())
+      - title: "Class method and static method"
+        language: python
+        code: |
+          class Rectangle:
+              def __init__(self, w: float, h: float):
+                  self.w, self.h = w, h
+
+              @classmethod
+              def square(cls, side: float):
+                  return cls(side, side)
+
+              @staticmethod
+              def is_valid(w: float, h: float) -> bool:
+                  return w > 0 and h > 0
+
+          sq = Rectangle.square(5)
+          print(sq.w, sq.h)
+    pitfalls:
+      - "Forgetting `self` in method signatures — `def foo():` instead of `def foo(self):` raises TypeError on call."
+      - "Mutable class attributes are shared across instances. Initialize in `__init__`, not at class body, for per-instance state."
+      - "Don't override `__init__` without calling `super().__init__(...)` if the parent needs initialization."
+      - "Python is duck-typed — explicit inheritance isn't always needed. Consider `typing.Protocol` for structural typing."
+
+  - id: py.intermediate.dunder_methods
+    title: "Dunder (Magic) Methods"
+    explanation: "Methods like __str__, __repr__, __eq__, __hash__, __len__, __iter__ that integrate your class with Python's built-in operations (print, ==, in, len, for)."
+    tags: [dunder, magic-methods, operator-overloading, str, repr, eq, hash, iter, len, intermediate]
+    when_to_use: "Making your class behave like a built-in — printable, hashable, comparable, iterable, length-aware."
+    examples:
+      - title: "__str__, __repr__, __eq__"
+        language: python
+        code: |
+          class Point:
+              def __init__(self, x: float, y: float):
+                  self.x, self.y = x, y
+
+              def __repr__(self):
+                  return f"Point({self.x}, {self.y})"
+
+              def __str__(self):
+                  return f"({self.x}, {self.y})"
+
+              def __eq__(self, other):
+                  if not isinstance(other, Point):
+                      return NotImplemented
+                  return self.x == other.x and self.y == other.y
+
+              def __hash__(self):
+                  return hash((self.x, self.y))
+
+          p1, p2 = Point(1, 2), Point(1, 2)
+          print(p1, repr(p1), p1 == p2)
+      - title: "__len__, __getitem__, __iter__"
+        language: python
+        code: |
+          class Bag:
+              def __init__(self, items):
+                  self._items = list(items)
+
+              def __len__(self):
+                  return len(self._items)
+
+              def __getitem__(self, i):
+                  return self._items[i]
+
+              def __iter__(self):
+                  return iter(self._items)
+
+          b = Bag([1, 2, 3])
+          print(len(b), b[1], list(b))
+      - title: "__enter__, __exit__ for context manager"
+        language: python
+        code: |
+          class Timer:
+              def __enter__(self):
+                  import time
+                  self.start = time.perf_counter()
+                  return self
+
+              def __exit__(self, *exc):
+                  import time
+                  self.elapsed = time.perf_counter() - self.start
+                  print(f"Elapsed: {self.elapsed:.3f}s")
+
+          with Timer() as t:
+              sum(range(1_000_000))
+    pitfalls:
+      - "If you override `__eq__`, also override `__hash__` — otherwise the object becomes unhashable."
+      - "`__repr__` should return a string that's unambiguous (ideally re-creatable via eval); `__str__` is for users."
+      - "Return `NotImplemented` (not raise) from `__eq__` when types don't match — Python tries the reverse comparison."
+      - "`__getitem__` makes a class iterable even without `__iter__` — Python will call it with 0, 1, 2... until IndexError."
+
+  - id: py.intermediate.context_managers
+    title: "Context Managers and the with Statement"
+    explanation: "Resources like files, locks, DB connections need setup + cleanup. `with` ensures cleanup even on exception. Build one with __enter__/__exit__ or `@contextlib.contextmanager`."
+    tags: [context-manager, with, contextlib, resources, cleanup, raii, intermediate]
+    when_to_use: "Any resource that needs paired acquire/release — files, locks, DB transactions, timers, temp directories."
+    examples:
+      - title: "Built-in context managers"
+        language: python
+        code: |
+          import threading
+
+          lock = threading.Lock()
+          with lock:
+              shared = 42
+
+          with open("file.txt") as f:
+              data = f.read()
+      - title: "@contextlib.contextmanager"
+        language: python
+        code: |
+          from contextlib import contextmanager
+          import time
+
+          @contextmanager
+          def timed(label: str):
+              start = time.perf_counter()
+              try:
+                  yield
+              finally:
+                  print(f"{label}: {time.perf_counter() - start:.3f}s")
+
+          with timed("work"):
+              sum(range(1_000_000))
+      - title: "Suppressing exceptions and ExitStack"
+        language: python
+        code: |
+          from contextlib import suppress, ExitStack
+
+          with suppress(FileNotFoundError):
+              with open("maybe_missing.txt") as f:
+                  print(f.read())
+
+          with ExitStack() as stack:
+              files = [stack.enter_context(open(p)) for p in ["a.txt", "b.txt"]]
+    pitfalls:
+      - "`__exit__` returning True swallows the exception. Usually you want to return None (or False)."
+      - "`@contextmanager` functions must `yield` exactly once. More or fewer yields raises RuntimeError."
+      - "Don't put complex logic between `with` and the body — keep setup in __enter__ where it belongs."
+      - "`ExitStack` is the way to manage a dynamic number of context managers; nesting `with` 5-deep is unreadable."
+
+  - id: py.intermediate.iterators_generators
+    title: "Iterators and Generators"
+    explanation: "An iterator implements __iter__ and __next__. Generators are functions that use `yield` — Python builds the iterator for you. Both are lazy — values produced on demand."
+    tags: [iterators, generators, yield, lazy, streaming, memory, iter, next, intermediate]
+    when_to_use: "Processing large or infinite sequences, pipelines, lazy data loading, anywhere memory matters."
+    examples:
+      - title: "Generator function with yield"
+        language: python
+        code: |
+          def fibonacci(limit: int):
+              a, b = 0, 1
+              while a < limit:
+                  yield a
+                  a, b = b, a + b
+
+          for n in fibonacci(100):
+              print(n, end=" ")
+      - title: "Generator pipeline"
+        language: python
+        code: |
+          def read_lines(path):
+              with open(path) as f:
+                  for line in f:
+                      yield line.rstrip()
+
+          def non_empty(lines):
+              return (line for line in lines if line)
+
+          def upper(lines):
+              return (line.upper() for line in lines)
+
+          for line in upper(non_empty(read_lines("data.txt"))):
+              print(line)
+      - title: "yield from and itertools"
+        language: python
+        code: |
+          import itertools
+
+          def chained(*iterables):
+              for it in iterables:
+                  yield from it
+
+          result = list(chained([1, 2], [3, 4], [5]))
+          print(result)
+
+          first_5 = list(itertools.islice(itertools.count(), 5))
+          print(first_5)
+    pitfalls:
+      - "Generators are exhausted after one full iteration — you can't restart them."
+      - "Don't `return value` inside a generator unless you know how StopIteration carries it. Use `yield` for output."
+      - "Calling a generator function doesn't run code — it returns a generator object. Code runs on iteration."
+      - "`itertools.chain.from_iterable(...)` is faster than nested for-loops for flattening."
+
+  - id: py.intermediate.type_hints
+    title: "Type Hints (typing module)"
+    explanation: "PEP 484 type hints make code self-documenting and unlock static checking with mypy / pyright. Python doesn't enforce them at runtime."
+    tags: [typing, type-hints, mypy, pyright, optional, union, generic, intermediate]
+    when_to_use: "Any non-trivial codebase. Hints document intent, catch bugs early, and improve IDE autocomplete."
+    examples:
+      - title: "Basic hints, Optional, Union"
+        language: python
+        code: |
+          from typing import Optional
+
+          def find_user(user_id: int) -> Optional[dict]:
+              if user_id < 0:
+                  return None
+              return {"id": user_id, "name": "Alice"}
+
+          def normalize(value: int | float | str) -> str:
+              return str(value).strip()
+      - title: "Collections, callables, type aliases"
+        language: python
+        code: |
+          from typing import Callable
+
+          UserId = int
+          Handler = Callable[[UserId, str], bool]
+
+          def process(items: list[dict[str, int]], on_item: Handler) -> None:
+              for item in items:
+                  on_item(item["id"], item.get("name", ""))
+      - title: "Generic class with TypeVar"
+        language: python
+        code: |
+          from typing import TypeVar, Generic
+
+          T = TypeVar("T")
+
+          class Stack(Generic[T]):
+              def __init__(self) -> None:
+                  self._items: list[T] = []
+
+              def push(self, item: T) -> None:
+                  self._items.append(item)
+
+              def pop(self) -> T:
+                  return self._items.pop()
+
+          s: Stack[int] = Stack()
+          s.push(1)
+    pitfalls:
+      - "Type hints are NOT enforced at runtime. `def f(x: int)` will happily accept a string. Use mypy/pyright in CI to enforce."
+      - "Pre-3.9, you need `from __future__ import annotations` to use lowercase `list[int]` / `dict[str, int]`."
+      - "`Optional[X]` is shorthand for `X | None`. Don't write both."
+      - "Forward references (a class referencing itself) need string quotes: `def foo(self, other: 'Foo')` or `from __future__ import annotations`."
+
+  - id: py.intermediate.dataclasses
+    title: "Dataclasses"
+    explanation: "Auto-generated __init__, __repr__, __eq__ from class field declarations. Less boilerplate than plain classes for data-holding types. Use `frozen=True` for immutability, `slots=True` for memory."
+    tags: [dataclass, dataclasses, frozen, slots, repr, intermediate]
+    when_to_use: "Plain data containers — request/response models, value objects, DTOs. Skip if you need complex __init__ logic."
+    examples:
+      - title: "Basic dataclass"
+        language: python
+        code: |
+          from dataclasses import dataclass
+
+          @dataclass
+          class User:
+              name: str
+              age: int
+              email: str = ""
+
+          u = User("Alice", 25)
+          print(u)
+      - title: "Frozen + slots + default factory"
+        language: python
+        code: |
+          from dataclasses import dataclass, field
+
+          @dataclass(frozen=True, slots=True)
+          class Point:
+              x: float
+              y: float
+              metadata: dict = field(default_factory=dict)
+
+          p = Point(1.0, 2.0)
+          print(p)
+      - title: "Custom __post_init__"
+        language: python
+        code: |
+          from dataclasses import dataclass
+
+          @dataclass
+          class Range:
+              low: int
+              high: int
+
+              def __post_init__(self):
+                  if self.low > self.high:
+                      raise ValueError(f"low {self.low} > high {self.high}")
+
+          r = Range(1, 10)
+    pitfalls:
+      - "Mutable defaults — `tags: list = []` won't work, you need `field(default_factory=list)`."
+      - "`frozen=True` makes assignment raise FrozenInstanceError. Need mutation? Use a regular class or copy.replace()."
+      - "`slots=True` saves memory but breaks dynamic attribute assignment and multiple inheritance."
+      - "Dataclass `__eq__` compares all fields by default. Use `field(compare=False)` to exclude a field from equality."
+
+  - id: py.intermediate.exception_handling
+    title: "Advanced Exception Handling"
+    explanation: "Custom exception classes, exception chaining with `raise ... from ...`, else/finally semantics, ExceptionGroup for parallel errors (3.11+)."
+    tags: [exceptions, custom-exception, raise, chaining, finally, else, intermediate]
+    when_to_use: "Anywhere you want callers to distinguish error categories, preserve underlying causes, or report multiple failures."
+    examples:
+      - title: "Custom exception hierarchy"
+        language: python
+        code: |
+          class AppError(Exception):
+              """Base for all app errors."""
+
+          class NotFoundError(AppError):
+              pass
+
+          class ValidationError(AppError):
+              def __init__(self, field: str, message: str):
+                  super().__init__(f"{field}: {message}")
+                  self.field = field
+
+          try:
+              raise ValidationError("email", "missing @")
+          except ValidationError as e:
+              print(e.field, e)
+      - title: "Exception chaining"
+        language: python
+        code: |
+          class ConfigError(Exception):
+              pass
+
+          def load_config(path):
+              try:
+                  with open(path) as f:
+                      return f.read()
+              except FileNotFoundError as e:
+                  raise ConfigError(f"missing {path}") from e
+
+          try:
+              load_config("missing.cfg")
+          except ConfigError as e:
+              print(e, "caused by:", e.__cause__)
+      - title: "try/except/else/finally semantics"
+        language: python
+        code: |
+          def fetch(url):
+              try:
+                  data = _do_fetch(url)
+              except TimeoutError:
+                  return None
+              else:
+                  return data.decode()
+              finally:
+                  print("cleanup")
+
+          def _do_fetch(url):
+              return b"hello"
+
+          print(fetch("http://example.com"))
+    pitfalls:
+      - "`raise X` inside an `except` block sets `__context__` automatically. Use `raise X from Y` to set `__cause__` explicitly."
+      - "`raise X from None` suppresses the chained traceback — useful to hide internal exceptions from API consumers."
+      - "`finally` runs even if you `return` from try/except. If `finally` returns or raises, it overrides earlier."
+      - "Bare `except:` catches KeyboardInterrupt and SystemExit. Use `except Exception:` to avoid trapping these."
+
+  - id: py.intermediate.stdlib_essentials
+    title: "Standard Library Essentials (collections, itertools, pathlib, datetime)"
+    explanation: "The Python stdlib has powerful tools that beat hand-rolled code: collections.Counter/defaultdict/deque, itertools.chain/groupby, pathlib for filesystem, datetime/timezone for time."
+    tags: [stdlib, collections, itertools, pathlib, datetime, counter, defaultdict, deque, intermediate]
+    when_to_use: "Counting items, grouping, sliding windows, path manipulation, date arithmetic — almost always there's a stdlib tool."
+    examples:
+      - title: "collections — Counter, defaultdict, deque"
+        language: python
+        code: |
+          from collections import Counter, defaultdict, deque
+
+          words = ["the", "quick", "brown", "fox", "the", "fox"]
+          counts = Counter(words)
+          print(counts.most_common(2))
+
+          groups = defaultdict(list)
+          for word in words:
+              groups[word[0]].append(word)
+
+          recent = deque(maxlen=3)
+          for n in range(10):
+              recent.append(n)
+          print(list(recent))
+      - title: "pathlib for paths"
+        language: python
+        code: |
+          from pathlib import Path
+
+          here = Path(__file__).resolve().parent
+          for p in here.glob("*.py"):
+              print(p.name, p.stat().st_size)
+
+          out = here / "output" / "result.txt"
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text("hello")
+      - title: "datetime and timezone-aware"
+        language: python
+        code: |
+          from datetime import datetime, timedelta, timezone
+
+          now = datetime.now(timezone.utc)
+          future = now + timedelta(days=7)
+          iso = now.isoformat()
+          parsed = datetime.fromisoformat(iso)
+          print(now, future, parsed)
+    pitfalls:
+      - "Naive datetimes (no tzinfo) compared to aware datetimes raises TypeError. Always use timezone-aware in production."
+      - "`os.path.join` works, but `pathlib.Path` is more readable: `Path('a') / 'b' / 'c'`."
+      - "`Counter` arithmetic: `c1 + c2` adds counts, `c1 - c2` subtracts (drops zero/negative)."
+      - "`deque.appendleft` is O(1); `list.insert(0, x)` is O(n). Pick the right structure for the operation."
+
+  - id: py.intermediate.testing_pytest
+    title: "Testing with pytest"
+    explanation: "pytest is the de-facto standard. Tests are functions starting with `test_`. Use `assert` directly — pytest rewrites it for rich error messages. Fixtures inject reusable setup."
+    tags: [testing, pytest, fixtures, parametrize, assert, mock, intermediate]
+    when_to_use: "Anywhere you'd otherwise write `if x != y: print('FAIL')`. Tests run with `pytest` from the project root."
+    examples:
+      - title: "Basic tests + parametrize"
+        language: python
+        code: |
+          import pytest
+
+          def add(a, b):
+              return a + b
+
+          def test_add_positive():
+              assert add(2, 3) == 5
+
+          @pytest.mark.parametrize("a,b,expected", [
+              (1, 1, 2),
+              (0, 0, 0),
+              (-1, 1, 0),
+          ])
+          def test_add_table(a, b, expected):
+              assert add(a, b) == expected
+      - title: "Fixtures"
+        language: python
+        code: |
+          import pytest
+
+          @pytest.fixture
+          def sample_users():
+              return [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+
+          def test_find_user(sample_users):
+              assert sample_users[0]["name"] == "Alice"
+      - title: "Expecting exceptions"
+        language: python
+        code: |
+          import pytest
+
+          def divide(a, b):
+              if b == 0:
+                  raise ValueError("div by zero")
+              return a / b
+
+          def test_divide_by_zero():
+              with pytest.raises(ValueError, match="div by zero"):
+                  divide(1, 0)
+    pitfalls:
+      - "Don't import from a `test_*.py` file in your app code — tests should depend on app, never the reverse."
+      - "Fixtures default to function-scope. For expensive setup, use `@pytest.fixture(scope='session')`."
+      - "`assert x == y, 'msg'` is fine, but pytest's rewriter already gives great messages — usually skip the msg."
+      - "Mock with `unittest.mock` or `monkeypatch` fixture — don't reach into private attributes."

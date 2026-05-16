@@ -1,0 +1,122 @@
+pack:
+  language: ruby
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: memoization-||=
+  title: Memoization with ||=
+  explanation: Cache expensive method results in a class instance variable using the
+    ||= operator.
+  tags:
+  - memoization
+  - caching
+  when_to_use: When a method is pure and called repeatedly with the same arguments.
+  examples:
+  - title: Recursive Fibonacci
+    language: ruby
+    code: "class Fibonacci\n  def self.calc(n)\n    @cache ||= {}\n    @cache[n] ||=\
+      \ n <= 1 ? n : calc(n - 1) + calc(n - 2)\n  end\nend\n"
+  pitfalls:
+  - Failing to initialize the cache can raise NoMethodError.
+  - Using a global variable instead of an instance variable can lead to thread‑safety
+    issues.
+- id: each-with-index
+  title: Enumerable#each.with_index
+  explanation: Iterate over a collection while accessing the current index without
+    a manual counter.
+  tags:
+  - enumerable
+  - iteration
+  when_to_use: When you need the index while iterating, especially with a non‑zero
+    offset.
+  examples:
+  - title: Print items with 1‑based index
+    language: ruby
+    code: "[\"a\", \"b\", \"c\"].each.with_index(1) do |val, idx|\n  puts \"#{idx}:\
+      \ #{val}\"\nend\n"
+  pitfalls:
+  - Misplacing the offset argument can shift the index unexpectedly.
+  - Using `each_with_index` instead of `with_index` can produce a different result
+    when combined with other Enumerable methods.
+- id: pattern-matching-case
+  title: Pattern Matching with case
+  explanation: Deconstruct complex data structures using Ruby’s pattern matching syntax
+    introduced in Ruby 3.1.
+  tags:
+  - pattern-matching
+  - control-flow
+  when_to_use: When a method needs to branch on the shape of its argument rather than
+    its type.
+  examples:
+  - title: Decompose values
+    language: ruby
+    code: "def describe(value)\n  case value\n  in Integer => n\n    \"Integer #{n}\"\
+      \n  in String\n    \"String of length #{value.length}\"\n  in [first, *rest]\n\
+      \    \"Array starting with #{first}\"\n  else\n    \"Unknown\"\n  end\nend\n"
+  pitfalls:
+  - Using the old `case` syntax without `in` will not trigger pattern matching.
+  - Overly broad patterns can mask bugs by matching unintended structures.
+- id: open-struct
+  title: OpenStruct for Lightweight Objects
+  explanation: Create simple, mutable objects with arbitrary attributes without defining
+    a full class.
+  tags:
+  - data-structures
+  - convenience
+  when_to_use: When you need a quick, flexible container for data without boilerplate.
+  examples:
+  - title: Basic usage
+    language: ruby
+    code: 'require ''ostruct''
+
+      person = OpenStruct.new(name: "Alice", age: 30)
+
+      puts person.name
+
+      person.city = "Wonderland"
+
+      '
+  pitfalls:
+  - OpenStruct incurs runtime overhead due to method_missing; avoid in performance‑critical
+    code.
+  - Attribute names are not validated, which can lead to silent typos.
+- id: lazy-enumerator
+  title: Lazy Enumerators
+  explanation: Create or transform enumerations lazily, evaluating elements only when
+    required.
+  tags:
+  - enumerable
+  - lazy-evaluation
+  when_to_use: When working with potentially large or infinite sequences and you need
+    to process only a subset.
+  examples:
+  - title: Lazy map and take
+    language: ruby
+    code: '(1..10).lazy.map { |n| n * 2 }.first(3)
+
+      '
+  pitfalls:
+  - Terminal operations are required to trigger evaluation; forgetting them will produce
+    an empty result.
+  - Using lazy on already finite collections without a clear terminal operation can
+    lead to confusion.
+- id: struct-new
+  title: Struct.new for Value Objects
+  explanation: Define lightweight, immutable-like classes with predefined attributes
+    and optional methods.
+  tags:
+  - data-structures
+  - value-object
+  when_to_use: When you need a simple container with named fields and minimal boilerplate.
+  examples:
+  - title: Point with distance method
+    language: ruby
+    code: "Point = Struct.new(:x, :y) do\n  def distance\n    Math.sqrt(x**2 + y**2)\n\
+      \  end\nend\np = Point.new(3, 4)\nputs p.distance\n"
+  pitfalls:
+  - Struct instances are mutable; accidental modification can break invariants.
+  - Subclassing Struct can be unintuitive; prefer regular classes for complex behavior.

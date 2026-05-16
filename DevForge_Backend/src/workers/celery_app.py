@@ -14,7 +14,12 @@ def create_celery_app() -> Celery:
         "devforge",
         broker=settings.CELERY_BROKER_URL,
         backend=settings.CELERY_RESULT_BACKEND,
-        include=["src.workers.tasks.rag_tasks"],
+        include=[
+            "src.workers.tasks.rag_tasks",
+            "src.workers.tasks.auth_tasks",
+            "src.workers.tasks.usage_tasks",
+            "src.workers.tasks.analytics_tasks"  # NEW: Phase 4 analytics
+        ],
     )
 
     app.conf.update(
@@ -30,6 +35,9 @@ def create_celery_app() -> Celery:
         result_expires=3600,  # 1 hour
         result_extended=True,
         
+        # Broker connection settings
+        broker_connection_retry_on_startup=True,
+        
         # Serialization
         task_serializer="json",
         result_serializer="json",
@@ -42,14 +50,42 @@ def create_celery_app() -> Celery:
         # Worker settings
         worker_prefetch_multiplier=1,
         worker_concurrency=4,
+        
+        # Queue routing for Phase 4 analytics
+        task_routes={
+            'src.workers.tasks.analytics_tasks.log_request_call': {'queue': 'analytics'},
+            'src.workers.tasks.usage_tasks.log_llm_usage': {'queue': 'usage'},
+            'src.workers.tasks.auth_tasks.update_key_last_used': {'queue': 'default'},
+            'src.workers.tasks.rag_tasks.*': {'queue': 'rag'},
+        },
+        
+        # Queue definitions
+        task_queues={
+            'default': {
+                'exchange': 'default',
+                'routing_key': 'default',
+            },
+            'analytics': {
+                'exchange': 'analytics',
+                'routing_key': 'analytics',
+            },
+            'usage': {
+                'exchange': 'usage', 
+                'routing_key': 'usage',
+            },
+            'rag': {
+                'exchange': 'rag',
+                'routing_key': 'rag',
+            },
+        },
     )
 
     return app
 
 
 # Application instance
-app = create_celery_app()
+celery_app = create_celery_app()
 
 
 if __name__ == "__main__":
-    app.start()
+    celery_app.start()

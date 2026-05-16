@@ -1,0 +1,119 @@
+pack:
+  language: typescript
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: non-null-assertion
+  title: Non-Null Assertion
+  explanation: Use the ! operator to assert a value is not null or undefined when
+    the compiler cannot infer it.
+  tags:
+  - nullish
+  - assertion
+  when_to_use: Use when you are certain a value exists but its type is possibly null/undefined.
+  examples:
+  - title: Element Retrieval
+    language: typescript
+    code: 'const elem = document.getElementById(''app'')!;
+
+      elem.innerHTML = ''Hello'';
+
+      '
+  pitfalls:
+  - Overusing can mask runtime errors if the value is actually null or undefined.
+  - It bypasses type safety; use only when absolutely certain.
+- id: optional-chaining
+  title: Optional Chaining
+  explanation: Safely access nested properties or methods that may be undefined or
+    null.
+  tags:
+  - nullish
+  - chain
+  when_to_use: When a chain of property accesses might fail due to missing intermediate
+    values.
+  examples:
+  - title: Safe Property Access
+    language: typescript
+    code: 'const userName = user?.profile?.name ?? ''Guest'';
+
+      console.log(userName);
+
+      '
+  pitfalls:
+  - Misusing with function calls can lead to unexpected undefined results.
+  - Mixing with non-null assertion (!) can defeat the purpose of safety.
+- id: type-guard-typedef
+  title: Type Guards with typeof
+  explanation: Narrow a union type by checking the runtime type of a value.
+  tags:
+  - type-guard
+  - typeof
+  when_to_use: When handling values that may be multiple primitive types.
+  examples:
+  - title: Format Value
+    language: typescript
+    code: "function format(value: string | number) {\n  if (typeof value === 'string')\
+      \ {\n    return value.toUpperCase();\n  } else {\n    return value.toFixed(2);\n\
+      \  }\n}\n"
+  pitfalls:
+  - Using the wrong typeof check (e.g., 'object' for arrays) can misbehave.
+  - Forgetting an else branch leaves possible unhandled types.
+- id: discriminated-union
+  title: Discriminated Unions
+  explanation: Use a common literal property to distinguish between related types.
+  tags:
+  - union
+  - pattern
+  when_to_use: When modeling a set of types that share a common discriminant.
+  examples:
+  - title: Compute Area
+    language: typescript
+    code: "type Shape =\n  | { kind: 'circle'; radius: number }\n  | { kind: 'square';\
+      \ size: number };\n\nfunction area(shape: Shape) {\n  switch (shape.kind) {\n\
+      \    case 'circle':\n      return Math.PI * shape.radius * shape.radius;\n \
+      \   case 'square':\n      return shape.size * shape.size;\n  }\n}\n"
+  pitfalls:
+  - Forgetting to handle all cases causes compile errors or runtime bugs.
+  - Omitting the discriminant property leads to type mismatches.
+- id: generic-constraint
+  title: Generics with Constraints
+  explanation: Restrict a generic type parameter to an interface or type shape.
+  tags:
+  - generics
+  - constraint
+  when_to_use: When a generic function expects certain properties or methods on its
+    type argument.
+  examples:
+  - title: Identity Function
+    language: typescript
+    code: "function identity<T extends { id: number }>(arg: T): T {\n  return arg;\n\
+      }\nconst result = identity({ id: 5, name: 'Item' });\n"
+  pitfalls:
+  - Forgetting the extends clause can allow invalid types and break type safety.
+  - Overly restrictive constraints may limit useful type inferences.
+- id: mapped-types-readonly
+  title: Readonly Mapped Types
+  explanation: Create a type where all properties are immutable.
+  tags:
+  - mapped-type
+  - readonly
+  when_to_use: When you want to enforce immutability of object shape.
+  examples:
+  - title: Immutable Point
+    language: typescript
+    code: 'type Point = { x: number; y: number };
+
+      type ReadonlyPoint = Readonly<Point>;
+
+      const p: ReadonlyPoint = { x: 1, y: 2 };
+
+      // p.x = 3; // Error: cannot assign to ''x'' because it is a read-only property
+
+      '
+  pitfalls:
+  - Readonly only applies to top-level properties; nested objects remain mutable.
+  - Using Object.assign or spread to modify can bypass immutability if not careful.

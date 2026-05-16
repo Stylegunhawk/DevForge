@@ -1,21 +1,22 @@
 # DevForge RAG Architecture
 
-**Version:** 15.3 Complete (Sequential Support) ✅  
-**Phase:** Phase 15.3 Sequential Chunk Retrieval  
-**Date:** 2026-02-26  
+**Version:** 0.8.0  
+**Phase:** Phase 16 (Redis-Cached Graph Persistence). Note: phase numbering across the repo is inconsistent (sibling docs reference Phase 15.4); this doc pins to the highest active phase in `src/agents/rag/agent.py`.  
+**Last Updated:** 2026-05-08  
 **Status:** Production Ready - Backend Contract Frozen
 
 This document outlines the architecture of the Retrieval-Augmented Generation (RAG) system in DevForge Backend, covering ingestion, retrieval, reranking, and query intelligence.
 
 ---
 
-## ❄️ Final RAG API Contract
+## Final RAG API Contract
 
 To prevent regressions, the following endpoints are frozen with specific behavioral guarantees.
 
 ### 1. Common Requirements
-*   **Header:** `X-User-ID` (Required) - Used to derive the `tenant_id` and sandbox the collection (`user_{tenant_id}`).
-*   **Scope:** All operations are strictly isolated to the tenant provided in the header.
+*   **Header:** `Authorization: Bearer <tenant_jwt>` (Required) - Validated by `JWTAuthMiddleware` (`src/core/middleware.py:124-150`). The middleware reads `tenant_id` from the verified JWT payload and sets `request.state.tenant_id`, which derives the tenant-sandboxed collection (`user_{tenant_id}`). Missing or invalid tokens return `401` before the route runs.
+*   **JWT Payload Contract:** Token must include a `tenant_id` claim (string).
+*   **Scope:** All operations are strictly isolated to the tenant resolved from the JWT.
 
 ### 2. Endpoints
 
@@ -43,11 +44,11 @@ Polling endpoint for processing status.
 Batch endpoint for retrieving all files belonging to a tenant.
 *   **Response Schema:** `List[FileStatusResponse]`
 *   **Guaranteed Behavior:**
-    *   Returns all file metadata for the tenant specified in `X-User-ID` header.
+    *   Returns all file metadata for the tenant resolved from the `Authorization: Bearer <tenant_jwt>` header.
     *   Performs Redis SCAN to filter files by `tenant_id`.
     *   Returns empty array `[]` if tenant has no files.
     *   Full tenant isolation - no cross-tenant leakage.
-|
+
 #### `GET /api/v1/rag/file/{fileId}/chunks`
 Sequential chunk retrieval for navigation & summarization.
 *   **Response Schema:** `SemanticSearchResponse`
@@ -73,7 +74,7 @@ Tear-down endpoint.
 
 ---
 
-## 🔒 RAG API FREEZE – CANONICAL CURL SET
+## RAG API FREEZE – CANONICAL CURL SET
 
 These curls define **"what correct means"**. If any future change breaks one of these, it is a regression.
 
@@ -81,8 +82,8 @@ These curls define **"what correct means"**. If any future change breaks one of 
 **Purpose:** Create file record, persist tenant metadata, and trigger async ingestion. Return immediately with pending status.
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/rag/file/upload" \
-  -H "X-User-ID: dev_user_1" \
+curl -X POST "http://localhost:8001/api/v1/rag/file/upload" \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -F "collection=default" \
   -F "files=@/absolute/path/to/file.py"
 ```
@@ -90,15 +91,16 @@ curl -X POST "http://localhost:8000/api/v1/rag/file/upload" \
 **Expected Guarantees:**
 - `id` exists in response
 - `size` matches source file bytes
-- `tenant_id` saved as `dev_user_1`
-- `collection_name` saved as `user_dev_user_1`
+- `tenant_id` saved as the value of the `tenant_id` claim from the JWT
+- `collection_name` saved as `user_{tenant_id}`
 - `finishEmbedding: false`
 
 ### 2. File Status Polling
 **Purpose:** UI polls until embedding completes. Single source of truth is Redis.
 
 ```bash
-curl "http://localhost:8000/api/v1/rag/file/{file_id}"
+curl "http://localhost:8001/api/v1/rag/file/{file_id}" \
+  -H "Authorization: Bearer <tenant_jwt>"
 ```
 
 **Expected Guarantees:**
@@ -110,13 +112,13 @@ curl "http://localhost:8000/api/v1/rag/file/{file_id}"
 **Purpose:** Retrieve all file metadata for the current tenant.
 
 ```bash
-curl "http://localhost:8000/api/v1/rag/files" \
-  -H "X-User-ID: dev_user_1"
+curl "http://localhost:8001/api/v1/rag/files" \
+  -H "Authorization: Bearer <tenant_jwt>"
 ```
 
 **Expected Guarantees:**
 - Returns array of `FileStatusResponse` objects.
-- Only includes files belonging to `dev_user_1`.
+- Only includes files belonging to the JWT-resolved tenant.
 - Empty array `[]` if tenant has no files.
 - Strict tenant isolation (filtered via Redis SCAN).
 
@@ -124,8 +126,8 @@ curl "http://localhost:8000/api/v1/rag/files" \
 **Purpose:** Retrieve chunks in order for a specific file (summarization mode).
 
 ```bash
-curl "http://localhost:8000/api/v1/rag/file/{file_id}/chunks?limit=10" \
-  -H "X-User-ID: dev_user_1"
+curl "http://localhost:8001/api/v1/rag/file/{file_id}/chunks?limit=10" \
+  -H "Authorization: Bearer <tenant_jwt>"
 ```
 
 **Expected Guarantees:**
@@ -137,9 +139,9 @@ curl "http://localhost:8000/api/v1/rag/file/{file_id}/chunks?limit=10" \
 **Purpose:** Query tenant-scoped vector store, apply reranking, apply context shaper, and filter orphans.
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+curl -X POST "http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat" \
   -H "Content-Type: application/json" \
-  -H "X-User-ID: dev_user_1" \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -d '{
     "messageId": "msg_001",
     "userQuery": "How does the RAGAgent initialize?",
@@ -158,9 +160,9 @@ curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
 **Purpose:** Ensure `rewriteQuery` is honored for better vector matching.
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+curl -X POST "http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat" \
   -H "Content-Type: application/json" \
-  -H "X-User-ID: dev_user_1" \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -d '{
     "messageId": "msg_002",
     "userQuery": "graph rebuild",
@@ -177,9 +179,9 @@ curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
 **Purpose:** Prove no cross-tenant leakage.
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+curl -X POST "http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat" \
   -H "Content-Type: application/json" \
-  -H "X-User-ID: dev_user_2" \
+  -H "Authorization: Bearer <tenant_b_jwt>" \
   -d '{
     "messageId": "msg_iso_test",
     "userQuery": "How does the RAGAgent initialize?",
@@ -188,15 +190,15 @@ curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
 ```
 
 **Expected Guarantees:**
-- **Empty result set** (assuming `dev_user_2` has no files).
-- Zero leakage from `dev_user_1`.
+- **Empty result set** (assuming tenant B has no files).
+- Zero leakage from tenant A.
 
 ### 6. File Deletion (Hard Delete)
 **Purpose:** Wipe data and invalidate cache.
 
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/rag/file/{file_id}" \
-  -H "X-User-ID: dev_user_1"
+curl -X DELETE "http://localhost:8001/api/v1/rag/file/{file_id}" \
+  -H "Authorization: Bearer <tenant_jwt>"
 ```
 
 **Expected Guarantees:**
@@ -208,9 +210,9 @@ curl -X DELETE "http://localhost:8000/api/v1/rag/file/{file_id}" \
 **Purpose:** Ensure no ghost chunks survive in search results.
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/rag/chunk/semanticSearchForChat" \
+curl -X POST "http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat" \
   -H "Content-Type: application/json" \
-  -H "X-User-ID: dev_user_1" \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -d '{
     "messageId": "msg_verify_del",
     "userQuery": "What is the agent structure?",
@@ -241,8 +243,8 @@ DevForge RAG system provides code-aware document retrieval with:
 
 **Technology Stack:**
 - Async task processing (Celery + Redis optional)
-- Cross-encoder reranking (ms-marco-MiniLM-L-6-v2)
-- Vector store abstraction (ChromaDB/pgvector)
+- Cross-encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`)
+- Vector store abstraction: ChromaDB + Postgres (pgvector). Qdrant exists as a legacy/optional LangChain wrapper inside `tools.get_vector_store` and is **not** selectable via `VECTOR_BACKEND`.
 - Cloud LLM models (gpt-oss via Ollama)
 - Local embeddings (nomic-embed-text)
 
@@ -251,40 +253,57 @@ DevForge RAG system provides code-aware document retrieval with:
 ## Non-Negotiable Architecture Rules
 
 > [!CAUTION]
-> These rules are **mandatory** for all Phase 10.1 implementation.
+> These rules are **mandatory** across the active phase set (10.x through 16). Phase numbering is inconsistent across the repo; treat the rules — not the phase tag — as the contract.
 
 ### 1. Graph Rules
 
 | Rule | Enforcement |
 |------|-------------|
-| Graph is **derived state** | Rebuilt from chunk metadata on first access |
-| Graph is **scoped per RAGAgent** | Each instance has its own `self._code_graph` |
-| **No graph persistence** | No pickle, no database, no cache files |
-| **No graph API endpoints** | Graph expansion is internal only |
+| Graph is **derived state with a Redis warm-start cache** | Rebuilt from `iter_chunk_metadata()` on cache miss; on hit, hydrated from Redis (Phase 16). |
+| Graph is **scoped per RAGAgent** | Each instance owns `self._code_graph`; cache key is `rag_graph:v2:{collection_name}` with 1-hour TTL (`src/agents/rag/agent.py:436-509`). |
+| **No on-disk persistence** | No pickle files, no DB rows for the graph itself; Redis is the only persistence layer and is treated as a cache. |
+| **Cache invalidation hooks** | `ingest_document` and `delete_file_cascade` evict the Redis key (`agent.py:639-647, 695-708`). Legacy 2-segment QIDs detected on load also force a rebuild (`agent.py:454-456`). |
+| **No graph API endpoints** | Graph expansion is internal only. |
 
 **Implementation:**
 ```python
-@property
-def code_graph(self):
-    if self._code_graph is None:
-        self._code_graph = CodeGraph()
-        # Rebuild from vector store metadata
-        async for batch in self.vector_store.iter_chunk_metadata():
-            self._code_graph.add_chunks_batch(batch)
-    return self._code_graph
+async def init_graph(self) -> None:
+    # 1. Try Redis warm-start cache
+    cache_key = f"rag_graph:v2:{self.collection_name}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        graph_dict = json.loads(cached)
+        # Reject legacy 2-segment QIDs and fall through to rebuild
+        if all(len(qid.split("::")) >= 3 for qid in graph_dict):
+            self._code_graph = CodeGraph.from_dict(graph_dict)
+            return
+
+    # 2. Cache miss: rebuild from vector store metadata
+    self._code_graph = CodeGraph()
+    async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
+        self._code_graph.add_chunks_batch(batch, tenant_id=self.tenant_id)
+
+    # 3. Write back to Redis with 1-hour TTL
+    redis_client.set(cache_key, json.dumps(self._code_graph.to_dict()), ex=3600)
+
+# Note: `code_graph` is a property that REQUIRES `await agent.init_graph()`
+# first — it raises RuntimeError if accessed before initialization
+# (src/agents/rag/agent.py:403-418). It is not a lazy auto-init property.
 ```
 
 ### 2. Qualified ID Format
 
 ```
-file::entity
+tenant::file::entity
 ```
 
 - Separator: `::` (handles Windows paths like `C:\\src\\file.py`)
+- **Three segments are required.** `CodeGraph.add_node` warns and rejects QIDs with fewer than 3 segments (`src/agents/rag/graph/code_graph.py:44-47`). Anchor QIDs are built as `f"{tenant_id}::{source}::{name}"` (`src/agents/rag/agent.py:1299, 1312`).
+- **Legacy detection:** the cache load step rebuilds the graph if it finds 2-segment QIDs from older data (`agent.py:454-456`).
 - Examples:
-  - `auth.py::authenticate`
-  - `utils.py::User.login`
-  - `test_utils.py::test_add`
+  - `dev_user_1::auth.py::authenticate`
+  - `dev_user_1::utils.py::User.login`
+  - `dev_user_1::test_utils.py::test_add`
 
 **Why Double Colon?**
 - Avoids conflicts with Windows paths (`C:\path\file.py`)
@@ -295,9 +314,9 @@ file::entity
 
 ```
 ┌─────────────────┐
-│     Tools       │  ← LLM-facing, thin wrappers
+│     Agents      │  ← Business logic, orchestration (entry point)
 ├─────────────────┤
-│     Agents      │  ← Business logic, orchestration
+│     Tools       │  ← Reusable functions invoked by agents
 ├─────────────────┤
 │ BaseVectorStore │  ← Abstract interface
 ├─────────────────┤
@@ -305,29 +324,31 @@ file::entity
 └─────────────────┘
 ```
 
-**Call Rules:**
-- **Celery** → Agents (NEVER tools)
-- **Agents** → BaseVectorStore (NEVER backend internals)
-- **Tools** → Agents (NEVER storage)
+**Call Rules (production direction):**
+- **Celery** → Agents (entry into business logic)
+- **Agents** → Tools (`RAGAgent` imports `generate_response`, `ingest_documents`, `retrieve_docs` from `src/tools/rag/tools.py` — `agent.py:18-22`)
+- **Tools** → Storage via `BaseVectorStore` (NEVER backend internals)
 
 **Violations Result In:**
-- ❌ Tight coupling
-- ❌ Testing difficulties
-- ❌ Backend lock-in
+- Tight coupling
+- Testing difficulties
+- Backend lock-in
 
 ### 4. Forbidden Patterns
 
 ```python
-# ❌ NEVER DO THIS
+# NEVER DO THIS
 global code_graph
 from src.agents.rag.agent import code_graph
 vector_store._collection.get(...)  # Direct backend access
-"file:entity"  # Single colon
+"file:entity"           # Single colon
+"file::entity"          # 2-segment QID (legacy; rejected by add_node)
 
-# ✅ ALWAYS DO THIS
-self.code_graph  # Instance property
+# ALWAYS DO THIS
+await agent.init_graph()                # explicit initialization
+self.code_graph                         # instance property (post-init)
 await self.vector_store.get_chunk_by_qualified_id(qid)
-"file::entity"  # Double colon
+"tenant::file::entity"                  # 3-segment QID
 ```
 
 ---
@@ -347,7 +368,7 @@ tools.ingest_documents()
     ↓
 Code Detection (file extension)
     ↓
-├─ Code Files (.py, .js, .ts)
+├─ Code Files (.py, .js, .ts, .jsx, .tsx)
 │     ↓
 │  CodeChunker (Tree-sitter AST)
 │     ↓
@@ -371,9 +392,17 @@ User Query
     ↓
 RAGAgent.retrieve_with_context(query)
     ↓
-Generate Query Embedding
+── Phase 12A Query Intelligence (agent.py:881-1002) ──
+  Intent Classification (rule-based → LLM → default)
     ↓
-ChromaVectorStore.search(embedding, top_k=5)
+  Semantic Cache Check (cosine ≥ 0.92 → return cached)
+    ↓
+  Intent-aware Query Expansion (multi-query fan-out)
+    ↓
+  Hybrid (BM25 + Vector) OR Vector-only retrieval
+    ↓
+  Reciprocal Rank Fusion (RRF) across expanded queries
+─────────────────────────────────────────────────────
     ↓
 Initial Results (semantic similarity)
     ↓
@@ -387,7 +416,7 @@ Merge + Deduplicate
     ↓
 Cross-Encoder Reranking
     ↓
-Context Shaper (Deterministic)  <-- NEW
+Context Shaper (Deterministic)
     ↓
   1. Qualified ID Deduplication
   2. Role Assignment (Entry/Dependency/Supporting)
@@ -400,21 +429,28 @@ Return Shaped Context
 ### Graph Rebuild
 
 ```
-RAGAgent.code_graph (lazy property)
+await RAGAgent.init_graph()        # explicit; not a lazy auto-init
     ↓
-CodeGraph() initialization
+Redis lookup: rag_graph:v2:{collection_name}
     ↓
-ChromaVectorStore.iter_chunk_metadata(batch_size=500)
-    ↓
-For each batch:
-    ↓
-  Extract metadata (NO embeddings)
-    ↓
-  Build QID (file::entity)
-    ↓
-  Add edges (calls, imports)
-    ↓
-Graph Ready (in-memory, derived state)
+  ├─ HIT (and QIDs are 3-segment) → hydrate CodeGraph from JSON → done
+  └─ MISS or legacy 2-segment QIDs detected:
+        ↓
+     CodeGraph() initialization
+        ↓
+     vector_store.iter_chunk_metadata(batch_size=500)
+        ↓
+     For each batch:
+        ↓
+       Extract metadata (NO embeddings)
+        ↓
+       Build QID (tenant::file::entity)
+        ↓
+       Add edges (calls, imports)
+        ↓
+     redis_client.set(cache_key, json.dumps(graph), ex=3600)
+        ↓
+     Graph Ready (in-memory + Redis-cached, derived state)
 ```
 
 ---
@@ -446,15 +482,26 @@ Graph Ready (in-memory, derived state)
 | `agent.py` | RAGAgent class, graph ownership |
 | `context_shaper.py` | Deterministic context shaping & role assignment |
 | `graph/code_graph.py` | In-memory dependency graph |
+| `chunking/base_chunker.py` | Abstract chunker base class |
 | `chunking/code_chunker.py` | Tree-sitter AST parsing |
 | `chunking/text_chunker.py` | Fallback text chunking |
-| `linking/test_linker.py` | Test-source linking |
+| `linking/test_linker.py` | Test-source linking — **implemented but not wired into the production ingestion path**; only exercised in `tests/test_day6_validation.py`. |
+| `cache/query_cache.py` | Exact-match query cache |
+| `cache/semantic_cache.py` | Cosine-similarity (≥0.92) semantic cache |
+| `cache/query_normalizer.py` | Query normalization for cache keys |
+| `expansion/query_expander.py` | Intent-aware multi-query expansion |
+| `expansion/result_fusion.py` | Reciprocal Rank Fusion across expanded queries |
+| `retrieval/bm25_index.py` | BM25 lexical index |
+| `retrieval/hybrid_retriever.py` | BM25 + vector hybrid retrieval (`HYBRID_ALPHA`) |
+| `reranking/base_reranker.py` | Reranker abstract base |
+| `reranking/cross_encoder_reranker.py` | Cross-encoder reranker (ms-marco-MiniLM) |
+| `analytics/intent_classifier.py` | 3-tier intent classification (rule → LLM → default) |
 
 **Architecture:**
 - `RAGAgent` owns `self._code_graph` (instance-scoped)
 - `ContextShaper` is purely deterministic (logical ordering/dedup)
-- Graph is lazy-initialized from `iter_chunk_metadata()`
-- NO global state, NO persistence
+- Graph is initialized via explicit `await agent.init_graph()` from `iter_chunk_metadata()` with Redis warm-start cache
+- NO global state, NO on-disk persistence (Redis-only, with TTL + invalidation hooks)
 
 ### `/src/storage` - Vector Store Abstraction
 
@@ -464,7 +511,7 @@ Graph Ready (in-memory, derived state)
 |------|----------------|
 | `base_store.py` | BaseVectorStore interface |
 | `chroma_store.py` | ChromaDB implementation |
-| `pgvector_store.py` | pgvector implementation (Phase 10.2) |
+| `pgvector_store.py` | pgvector implementation (**production default** per `config.py:130`) |
 
 **Key Methods:**
 ```python
@@ -479,10 +526,31 @@ class BaseVectorStore(ABC):
 
 **Purpose:** HTTP API for RAG operations
 
+All routes are mounted under the `/api` prefix (`src/main.py:81`).
+
+**Lobe Chat canonical surface (`/api/v1/rag/*`):**
+
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/rag/ingest-async` | POST | Queue async ingestion |
-| `/rag/task/{task_id}` | GET | Get task status |
+| `/api/v1/rag/file/upload` | POST | Universal ingestion entry point |
+| `/api/v1/rag/file/{fileId}` | GET | File status polling |
+| `/api/v1/rag/file/{fileId}` | DELETE | Hard delete (file + vectors + cache) |
+| `/api/v1/rag/file/{fileId}/chunks` | GET | Sequential chunk retrieval (`limit=5, offset=0`) |
+| `/api/v1/rag/files` | GET | Batch file metadata for tenant |
+| `/api/v1/rag/chunk/semanticSearchForChat` | POST | Primary semantic search |
+
+**Async ingestion + ops surface (`/api/rag/*`):**
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/rag/ingest-async` | POST | Queue async ingestion (Celery) |
+| `/api/rag/task/{task_id}` | GET | Get Celery task status |
+| `/api/rag/metrics` | GET | RAG metrics |
+| `/api/rag/health` | GET | RAG health check |
+| `/api/rag/cache/clear` | POST | Clear query/semantic caches |
+| `/api/rag/bm25/rebuild` | POST | Rebuild BM25 index |
+
+**Analytics surface (`/api/rag/analytics/*`)** — see `src/api/routers/__init__.py:457-540` for the full list.
 
 ---
 
@@ -503,7 +571,7 @@ class BaseVectorStore(ABC):
         "imports": ["math"],              # Import dependencies
         "calls": ["validate"],            # Function calls
         "docstring": "Add two numbers",   # Extracted docstring
-        "test_files": ["test_utils.py"]   # Linked test files
+        "test_files": ["test_utils.py"]   # Linked test files (aspirational: TestLinker is not wired into the production ingest path)
     }
 }
 ```
@@ -540,9 +608,9 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0
 CELERY_TASK_SOFT_TIME_LIMIT=300
 
 # Vector Store
-VECTOR_BACKEND=chroma  # or qdrant
+VECTOR_BACKEND=postgres  # Options: chroma | postgres (default: postgres). Qdrant is legacy/optional and not selectable here.
 CHROMA_PERSIST_DIR=./data/chromadb
-USE_PGVECTOR=false
+# USE_PGVECTOR is deprecated — superseded by VECTOR_BACKEND (config.py:192)
 
 # Code Graph
 ENABLE_CODE_GRAPH=true
@@ -576,34 +644,42 @@ OLLAMA_HOST=http://localhost:11434
 
 ### Architecture Compliance Checklist
 
-- ✅ Graph is derived state (rebuilt from metadata)
-- ✅ Graph is instance-scoped (`self._code_graph`)
-- ✅ QID format uses `::` separator
-- ✅ NO global graph variables
-- ✅ NO graph persistence
-- ✅ NO backend internals in agent layer
-- ✅ Celery → Agents (not tools)
-- ✅ Agents → BaseVectorStore (not backends)
+- Graph is derived state (rebuilt from metadata, cached in Redis with 1-hour TTL)
+- Graph is instance-scoped (`self._code_graph`)
+- QID format is `tenant::file::entity` (3 segments, `::` separator)
+- NO global graph variables
+- NO on-disk graph persistence (Redis-only, with invalidation hooks)
+- NO backend internals in agent layer
+- Celery → Agents (entry into business logic)
+- Agents → Tools → BaseVectorStore (production direction)
 
 ---
 
 ## Related Documentation
 
-- [Integration Flow](./rag_integration_flow.md) - Complete call chains
-- [retrieve_docs Tool](./tools/retrieve_docs.md) - API reference
+- [Integration Flow](./rag/rag_integration_flow.md) - Complete call chains
+- [retrieve_docs Tool](./rag/retrieve_docs.md) - API reference
 - [Phase 10.1 Plan](../brain/.../implementation_plan.md) - Original requirements
 
 ---
 
 **Maintainer:** DevForge Team  
 **Version History:**
-- v10.1 (Dec 2025) - Code graph, async queue, vector abstraction
-- v3.1 (Dec 2025) - Initial RAG implementation
+- v0.8.0 (May 2026) - Doc reconciliation: JWT auth (drop `X-User-ID`), `tenant::file::entity` QID, Redis-cached graph (Phase 16), Phase 12A query intelligence in retrieval flow, expanded module table, `VECTOR_BACKEND=chroma|postgres` (Qdrant marked legacy/optional), Lobe Chat + ops endpoints surfaced.
+- v15.4 (early 2026) - Sibling integration-flow doc reference (Phase 15.4).
+- v15.3 (Feb 2026) - Sequential chunk retrieval; backend contract frozen.
+- v14 - Phase 14 work.
+- v13 - Context Shaper (deterministic dedup → role assignment → ordering → limits).
+- v12A - Query intelligence (intent classification, semantic cache, query expansion, RRF).
+- v12 - Hybrid search (BM25 + vector).
+- v11.x - Cross-encoder reranking, code-aware boost factors.
+- v10.1 (Dec 2025) - Code graph, async queue, vector abstraction.
+- v3.1 (Dec 2025) - Initial RAG implementation.
 
 
 
 
-⚠️ CANONICAL FOR FRONTEND (PHASE 15 ONLY)
+**CANONICAL FOR FRONTEND (PHASE 15 ONLY)**
 The following endpoints are the ONLY ones used by Lobe Chat:
 - /api/v1/rag/file/upload
 - /api/v1/rag/file/{id}

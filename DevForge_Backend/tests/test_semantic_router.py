@@ -178,3 +178,114 @@ class TestSemanticRouterWithCatalog:
         
         assert isinstance(name, str)
         assert len(name) > 0
+
+
+# ---------- v0.9: field_catalog parameter ----------
+
+class TestFieldCatalogSandbox:
+    """When a field_catalog is supplied and the semantic type is loose,
+    sample from the catalog instead of using Faker."""
+
+    def test_samples_from_catalog_for_free_text(self):
+        from src.tools.datagen.semantic_router import SemanticRouter
+        router = SemanticRouter()
+        catalog = [f"FlowerName{i}" for i in range(50)]
+        seen = set()
+        for _ in range(20):
+            v = router.generate_value(
+                semantic_type="free_text",
+                entity_name="flower",
+                constraints={},
+                field_name="common_name",
+                field_catalog=catalog,
+            )
+            assert v in catalog
+            seen.add(v)
+        assert len(seen) > 1  # we actually sample more than one value
+
+    def test_samples_from_catalog_for_unknown(self):
+        from src.tools.datagen.semantic_router import SemanticRouter
+        router = SemanticRouter()
+        catalog = ["kg/m³", "Hz", "Pa", "lumen", "mol"] * 10
+        v = router.generate_value(
+            semantic_type="unknown",
+            entity_name="instrument",
+            constraints={},
+            field_name="measurement_unit",
+            field_catalog=catalog,
+        )
+        assert v in catalog
+
+    def test_samples_from_catalog_for_enum_value_without_explicit_enum(self):
+        from src.tools.datagen.semantic_router import SemanticRouter
+        router = SemanticRouter()
+        catalog = [f"unit_{i}" for i in range(50)]
+        v = router.generate_value(
+            semantic_type="enum_value",
+            entity_name="x",
+            constraints={},  # no enum supplied
+            field_name="unit",
+            field_catalog=catalog,
+        )
+        assert v in catalog
+
+    def test_explicit_enum_overrides_catalog(self):
+        from src.tools.datagen.semantic_router import SemanticRouter
+        router = SemanticRouter()
+        catalog = [f"wrong_{i}" for i in range(50)]
+        v = router.generate_value(
+            semantic_type="enum_value",
+            entity_name="x",
+            constraints={"enum": ["A", "B", "C"]},
+            field_name="tier",
+            field_catalog=catalog,
+        )
+        assert v in ("A", "B", "C")
+
+    def test_explicit_pattern_overrides_catalog(self):
+        from src.tools.datagen.semantic_router import SemanticRouter
+        router = SemanticRouter()
+        catalog = [f"wrong_{i}" for i in range(50)]
+        v = router.generate_value(
+            semantic_type="free_text",
+            entity_name="x",
+            constraints={"pattern": r"^[A-Z]{3}-\d{3}$"},
+            field_name="code",
+            field_catalog=catalog,
+        )
+        # Must match pattern, not catalog
+        import re
+        assert re.match(r"^[A-Z]{3}-\d{3}$", v) is not None
+
+    def test_known_semantic_type_ignores_catalog(self):
+        """If the classifier already pinned a high-confidence type (email,
+        person_name, etc.), we trust it and ignore the catalog."""
+        from src.tools.datagen.semantic_router import SemanticRouter
+        router = SemanticRouter()
+        catalog = [f"not-an-email-{i}" for i in range(50)]
+        v = router.generate_value(
+            semantic_type="email_address",
+            entity_name="x",
+            constraints={},
+            field_name="email",
+            field_catalog=catalog,
+        )
+        # Should look like an email, not "not-an-email-N"
+        assert "@" in v
+        assert not v.startswith("not-an-email-")
+
+    def test_no_catalog_falls_back_to_smart_free_text(self):
+        """When no field_catalog is supplied, the v0.8.5 _smart_free_text
+        heuristic is used."""
+        from src.tools.datagen.semantic_router import SemanticRouter
+        router = SemanticRouter()
+        v = router.generate_value(
+            semantic_type="free_text",
+            entity_name="x",
+            constraints={},
+            field_name="model_name",
+            field_catalog=None,
+        )
+        # Should be a non-empty string, never lorem ipsum sentence
+        assert isinstance(v, str)
+        assert len(v) > 0

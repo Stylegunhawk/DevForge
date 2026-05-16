@@ -13,6 +13,12 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import Message
 
+from src.core.auth import verify_jwt
+
+# Configure logging for middleware
+middleware_logger = logging.getLogger("middleware")
+middleware_logger.setLevel(logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,3 +107,60 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             media_type=response.media_type,
         )
 
+
+from src.core.auth import verify_jwt
+from fastapi import HTTPException
+import logging
+
+# Configure logging for JWT middleware
+jwt_middleware_logger = logging.getLogger("jwt_middleware")
+jwt_middleware_logger.setLevel(logging.DEBUG)
+
+class JWTAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to protect routes with JWT authentication.
+    """
+    PROTECTED_EXACT = {"/api/rag/ingest-async"}
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        if (
+            request.url.path.startswith("/api/v1/rag/")
+            or request.url.path in self.PROTECTED_EXACT
+        ):
+            auth_header = request.headers.get("Authorization")
+            
+            if not auth_header:
+                jwt_middleware_logger.warning(f"[JWT_MW] No Authorization header for {request.url.path}")
+                return Response(
+                    content=json.dumps({"detail": "Authorization header missing"}),
+                    status_code=401,
+                    media_type="application/json",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+            parts = auth_header.split()
+            if len(parts) != 2 or parts[0].lower() != "bearer":
+                jwt_middleware_logger.warning(f"[JWT_MW] Invalid Authorization header for {request.url.path}")
+                return Response(
+                    content=json.dumps({"detail": "Invalid Authorization header"}),
+                    status_code=401,
+                    media_type="application/json",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            token = parts[1]
+            
+            try:
+                payload = verify_jwt(token)
+                request.state.tenant_id = payload.get("tenant_id")
+                jwt_middleware_logger.info(f"[JWT_MW] JWT verified for tenant: {request.state.tenant_id}")
+            except HTTPException as e:
+                jwt_middleware_logger.warning(f"[JWT_MW] JWT verification failed for {request.url.path}: {e.detail}")
+                return Response(
+                    content=json.dumps({"detail": e.detail}),
+                    status_code=e.status_code,
+                    media_type="application/json",
+                    headers=e.headers if hasattr(e, 'headers') else {"WWW-Authenticate": "Bearer"},
+                )
+        
+        return await call_next(request)

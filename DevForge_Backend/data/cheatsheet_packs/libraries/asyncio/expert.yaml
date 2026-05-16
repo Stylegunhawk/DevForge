@@ -1,0 +1,139 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: asyncio
+  library_version_floor: '3.11'
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: asyncio-gather-concurrency
+  title: Concurrent Task Gathering
+  explanation: Run multiple coroutines concurrently and wait for all to finish, collecting
+    results.
+  tags:
+  - tasks
+  - concurrency
+  - gather
+  when_to_use: When you need to execute several independent coroutines and aggregate
+    their results.
+  examples:
+  - title: Parallel Sleep Tasks with gather
+    language: python
+    code: "import asyncio\n\nasync def task(i):\n    await asyncio.sleep(0.1)\n  \
+      \  return i\n\nasync def main():\n    results = await asyncio.gather(*(task(i)\
+      \ for i in range(5)))\n    print('results:', results)\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting to await the gather call, which returns a coroutine object.
+  - Passing non-awaitable objects to gather, causing TypeError.
+- id: asyncio-create-task
+  title: Background Task Creation
+  explanation: Schedule a coroutine to run concurrently without awaiting it immediately.
+  tags:
+  - tasks
+  - background
+  when_to_use: When you need to fire and forget a coroutine, such as logging or cleanup.
+  examples:
+  - title: Fire-and-Forget Logging
+    language: python
+    code: "import asyncio\n\nasync def log_message(msg):\n    await asyncio.sleep(0.05)\n\
+      \    print(msg)\n\nasync def main():\n    asyncio.create_task(log_message('Hello,\
+      \ World!'))\n    await asyncio.sleep(0.2)  # keep loop alive\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Not keeping the event loop alive long enough, causing the task to be cancelled.
+  - Ignoring the returned Task object, which can hide unhandled exceptions.
+- id: asyncio-queue-comms
+  title: Inter-task Communication with Queue
+  explanation: Use an asyncio.Queue to safely pass data between producer and consumer
+    coroutines.
+  tags:
+  - communication
+  - queue
+  when_to_use: When multiple coroutines need to exchange data without race conditions.
+  examples:
+  - title: Producer-Consumer Pattern
+    language: python
+    code: "import asyncio\n\nasync def producer(q):\n    for i in range(5):\n    \
+      \    await q.put(i)\n        await asyncio.sleep(0.05)\n\nasync def consumer(q):\n\
+      \    while True:\n        item = await q.get()\n        print('Got', item)\n\
+      \        q.task_done()\n        if item == 4:\n            break\n\nasync def\
+      \ main():\n    q = asyncio.Queue()\n    await asyncio.gather(producer(q), consumer(q))\n\
+      \    await q.join()\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting to call task_done(), causing q.join() to block indefinitely.
+  - Not awaiting q.get(), leading to missed items or deadlock.
+- id: asyncio-lock-mutual-exclusion
+  title: Mutual Exclusion with Lock
+  explanation: Prevent concurrent access to shared resources using asyncio.Lock.
+  tags:
+  - synchronization
+  - lock
+  when_to_use: When multiple coroutines must update a shared variable safely.
+  examples:
+  - title: Increment Shared Counter
+    language: python
+    code: "import asyncio\n\ncounter = 0\nlock = asyncio.Lock()\n\nasync def increment():\n\
+      \    global counter\n    async with lock:\n        tmp = counter\n        await\
+      \ asyncio.sleep(0.05)\n        counter = tmp + 1\n\nasync def main():\n    await\
+      \ asyncio.gather(*[increment() for _ in range(10)])\n    print('counter:', counter)\n\
+      \nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting to use async with lock, which allows race conditions.
+  - Holding the lock across long await calls, blocking other tasks unnecessarily.
+- id: asyncio-run-event-loop
+  title: Entry Point with asyncio.run
+  explanation: Conveniently start the event loop and run the main coroutine.
+  tags:
+  - loop
+  - entrypoint
+  when_to_use: When launching a top-level async program from a script.
+  examples:
+  - title: Simple async main
+    language: python
+    code: "import asyncio\n\nasync def main():\n    print('Hello from async world!')\n\
+      \nasyncio.run(main())\n"
+  pitfalls:
+  - Using asyncio.get_event_loop() in modern Python, which may return a closed loop.
+  - Mixing asyncio.run() with an already running event loop, raising RuntimeError.
+- id: asyncio-taskgroup-grouping
+  title: TaskGroup for Structured Concurrency
+  explanation: Group multiple tasks that automatically cancel on exception, introduced
+    in Python 3.11.
+  tags:
+  - tasks
+  - group
+  - structured-concurrency
+  when_to_use: When you need to run a set of coroutines that should be cleaned up
+    together on error.
+  examples:
+  - title: TaskGroup Example
+    language: python
+    code: "import asyncio\n\nasync def worker(n):\n    await asyncio.sleep(n)\n  \
+      \  print(f'Worker {n} done')\n    return n\n\nasync def main():\n    async with\
+      \ asyncio.TaskGroup() as tg:\n        for i in range(3):\n            tg.create_task(worker(i))\n\
+      \    print('All workers completed')\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Using TaskGroup in Python versions earlier than 3.11, causing ImportError.
+  - Forgetting to await the TaskGroup context, leaving tasks running after exit.
+- id: asyncio-wait-timeout
+  title: Waiting with Timeout
+  explanation: Await multiple awaitables with a timeout using asyncio.wait.
+  tags:
+  - tasks
+  - wait
+  - timeout
+  when_to_use: When you need to wait for one or more coroutines but abort after a
+    deadline.
+  examples:
+  - title: Wait for First Completed Task
+    language: python
+    code: "import asyncio\n\nasync def slow_task():\n    await asyncio.sleep(5)\n\
+      \    return 'slow'\n\nasync def fast_task():\n    await asyncio.sleep(1)\n \
+      \   return 'fast'\n\nasync def main():\n    done, pending = await asyncio.wait(\n\
+      \        {slow_task(), fast_task()}, timeout=2\n    )\n    for task in done:\n\
+      \        print('Completed:', task.result())\n    for task in pending:\n    \
+      \    task.cancel()\n        print('Cancelled:', task)\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting to cancel pending tasks, which can leave orphaned coroutines.
+  - Using wrong awaitable types (e.g., non-coroutine objects) in the set, causing
+    TypeError.

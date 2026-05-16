@@ -1,0 +1,217 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: matplotlib
+  library_version_floor: 3.8.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: plot-basic
+  title: Basic Line Plot
+  explanation: Create a simple line graph using plt.plot with default styling.
+  tags:
+  - plotting
+  - line-plot
+  when_to_use: When you have paired x and y data and need a quick visual comparison.
+  examples:
+  - title: Simple line plot
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      x = [1, 2, 3, 4]
+
+      y = [10, 20, 25, 40]
+
+      plt.plot(x, y)
+
+      plt.title(''Basic Line Plot'')
+
+      plt.xlabel(''X-axis'')
+
+      plt.ylabel(''Y-axis'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Forgetting to call plt.show() in scripts.
+  - Using plt.plot without specifying a line style when multiple lines overlap.
+- id: plot-scatter
+  title: Scatter Plot
+  explanation: Visualize relationships between two numeric variables with plt.scatter.
+  tags:
+  - plotting
+  - scatter
+  when_to_use: When you need to show distribution and correlation between two datasets.
+  examples:
+  - title: Scatter plot with colors
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      import numpy as np
+
+      x = np.random.rand(50)
+
+      y = np.random.rand(50)
+
+      colors = np.random.rand(50)
+
+      plt.scatter(x, y, c=colors, cmap=''viridis'', alpha=0.7)
+
+      plt.title(''Scatter Plot'')
+
+      plt.xlabel(''X'')
+
+      plt.ylabel(''Y'')
+
+      plt.colorbar(label=''Color scale'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Using large point sizes without adjusting figure size, causing clutter.
+  - Forgetting to specify a colormap when using color arrays.
+- id: plot-subplots
+  title: Subplots Layout
+  explanation: Arrange multiple plots in a grid using plt.subplots for efficient comparison.
+  tags:
+  - plotting
+  - subplots
+  when_to_use: When you want to display several related plots in a single figure.
+  examples:
+  - title: Two-by-one subplot
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 8))
+
+      ax1.plot([1, 2, 3], [1, 4, 9], label=''Quadratic'')
+
+      ax1.set_title(''Quadratic'')
+
+      ax1.legend()
+
+      ax2.plot([1, 2, 3], [1, 2, 3], label=''Linear'')
+
+      ax2.set_title(''Linear'')
+
+      ax2.legend()
+
+      plt.tight_layout()
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Forgetting to adjust layout with tight_layout, leading to overlapping labels.
+  - Mixing axis objects and figure-level commands incorrectly.
+- id: plot-axes-labels
+  title: Custom Axes Formatting
+  explanation: Fine-tune axis limits, ticks, and labels with set_xlim, set_yticks,
+    and tick_params.
+  tags:
+  - plotting
+  - formatting
+  when_to_use: When precise control over the appearance of axes is required.
+  examples:
+  - title: Setting custom ticks and limits
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      x = range(10)
+
+      y = [i**2 for i in x]
+
+      plt.plot(x, y)
+
+      plt.xlim(0, 9)
+
+      plt.ylim(0, 81)
+
+      plt.xticks([0, 2, 4, 6, 8])
+
+      plt.yticks([0, 20, 40, 60, 80])
+
+      plt.xlabel(''Index'')
+
+      plt.ylabel(''Square'')
+
+      plt.title(''Custom Axes'')
+
+      plt.grid(True, which=''both'', linestyle=''--'', linewidth=0.5)
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Setting limits that exclude data points, making the plot empty.
+  - Overusing grid lines, cluttering the visual.
+- id: plot-color-maps
+  title: Heatmap with Colormaps
+  explanation: Display 2D data arrays as images with plt.imshow and choose colormaps.
+  tags:
+  - plotting
+  - heatmap
+  - colormap
+  when_to_use: When representing matrix or image data that benefits from color scaling.
+  examples:
+  - title: Simple heatmap
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      import numpy as np
+
+      data = np.random.rand(10, 10)
+
+      plt.imshow(data, cmap=''plasma'', interpolation=''nearest'')
+
+      plt.title(''Heatmap'')
+
+      plt.colorbar(label=''Intensity'')
+
+      plt.xlabel(''X'')
+
+      plt.ylabel(''Y'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Using default 'viridis' for data where perceptual uniformity matters.
+  - Forgetting to add a colorbar, leaving the scale ambiguous.
+- id: plot-save-figure
+  title: Exporting Figures
+  explanation: Save plots to files in various formats with plt.savefig, specifying
+    DPI and bbox_inches.
+  tags:
+  - plotting
+  - export
+  - file
+  when_to_use: When producing high-quality figures for reports or publications.
+  examples:
+  - title: Save PNG and PDF
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      plt.plot([0, 1, 2], [0, 1, 4], marker=''o'')
+
+      plt.title(''Export Example'')
+
+      plt.xlabel(''X'')
+
+      plt.ylabel(''Y'')
+
+      plt.tight_layout()
+
+      plt.savefig(''export_example.png'', dpi=300, bbox_inches=''tight'')
+
+      plt.savefig(''export_example.pdf'', bbox_inches=''tight'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Forgetting to call tight_layout before saving, causing clipped labels.
+  - Using low DPI that degrades resolution in print media.

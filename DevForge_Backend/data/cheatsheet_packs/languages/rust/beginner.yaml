@@ -1,0 +1,117 @@
+pack:
+  language: rust
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: variable-binding
+  title: Variable Binding
+  explanation: Declaring variables with let, and specifying mutability.
+  tags:
+  - variables
+  - mutability
+  when_to_use: Use when you need to store or change a value.
+  examples:
+  - title: let and mut
+    language: rust
+    code: 'let mut count = 0;
+
+      count += 1;
+
+      println!("Count is {}", count);
+
+      '
+  pitfalls:
+  - Forgetting to add mut when modifying a variable.
+  - Using mutable reference when not needed.
+- id: ownership
+  title: Ownership
+  explanation: Rust enforces ownership rules to manage memory safely without a garbage
+    collector.
+  tags:
+  - memory
+  - ownership
+  - move
+  when_to_use: Use when passing values between functions.
+  examples:
+  - title: move semantics
+    language: rust
+    code: "fn takes_ownership(s: String) {\n    println!(\"{}\", s);\n}\n\nlet s1\
+      \ = String::from(\"Hello\");\ntakes_ownership(s1);\n// s1 is moved; cannot be\
+      \ used here\n"
+  pitfalls:
+  - Using a value after it has been moved.
+  - Forgetting to clone when you need to keep a copy.
+- id: borrowing
+  title: Borrowing
+  explanation: References allow you to read or modify data without taking ownership.
+  tags:
+  - references
+  - borrowing
+  - immutability
+  - mutability
+  when_to_use: Use when you need to access data without transferring ownership.
+  examples:
+  - title: immutable borrow
+    language: rust
+    code: "fn print_len(s: &str) -> usize {\n    s.len()\n}\n\nlet greeting = String::from(\"\
+      Hi\");\nlet len = print_len(&greeting);\nprintln!(\"Length is {}\", len);\n"
+  pitfalls:
+  - Creating a mutable borrow while an immutable borrow exists.
+  - Borrowing a reference that outlives the data.
+- id: if-let
+  title: if let
+  explanation: Conditionally bind a value only when it matches a pattern.
+  tags:
+  - control-flow
+  - pattern-matching
+  - if-let
+  when_to_use: Use when you only care about a specific variant of an enum.
+  examples:
+  - title: if let example
+    language: rust
+    code: "enum Message {\n    Quit,\n    Move { x: i32, y: i32 },\n    Write(String),\n\
+      \    ChangeColor(i32, i32, i32),\n}\n\nlet msg = Message::Write(String::from(\"\
+      Hello\"));\n\nif let Message::Write(text) = msg {\n    println!(\"Received:\
+      \ {}\", text);\n}\n"
+  pitfalls:
+  - Using if let without else, leading to missing handling.
+  - Forgetting to consume the matched value.
+- id: match
+  title: match
+  explanation: Exhaustive pattern matching that covers all possibilities.
+  tags:
+  - control-flow
+  - pattern-matching
+  - match
+  when_to_use: Use when you need to handle every variant of an enum or value.
+  examples:
+  - title: match example
+    language: rust
+    code: "enum Direction {\n    North,\n    South,\n    East,\n    West,\n}\n\nfn\
+      \ move_player(dir: Direction) -> &'static str {\n    match dir {\n        Direction::North\
+      \ => \"moving north\",\n        Direction::South => \"moving south\",\n    \
+      \    Direction::East => \"moving east\",\n        Direction::West => \"moving\
+      \ west\",\n    }\n}\n"
+  pitfalls:
+  - Forgetting a match arm, causing compile error.
+  - Using wildcard without handling all cases.
+- id: loops
+  title: Loops
+  explanation: Rust supports while, for, and loop for repeated execution.
+  tags:
+  - control-flow
+  - loops
+  - iteration
+  when_to_use: Use when you need to repeat an action until a condition changes.
+  examples:
+  - title: for loop example
+    language: rust
+    code: "let numbers = [1, 2, 3, 4, 5];\nfor n in numbers.iter() {\n    println!(\"\
+      Number: {}\", n);\n}\n"
+  pitfalls:
+  - Forgetting to break or continue, causing infinite loops.
+  - Off-by-one errors when indexing.

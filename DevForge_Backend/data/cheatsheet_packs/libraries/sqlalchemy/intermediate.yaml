@@ -1,0 +1,129 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: sqlalchemy
+  library_version_floor: 2.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: create-engine
+  title: Create Engine
+  explanation: Instantiates a database connection engine that manages connections
+    and dialects.
+  tags:
+  - engine
+  - connection
+  when_to_use: When you need a reusable, thread‑safe database connection pool.
+  examples:
+  - title: In‑memory SQLite with echo
+    language: python
+    code: 'from sqlalchemy import create_engine
+
+      engine = create_engine("sqlite:///:memory:", echo=True)
+
+      '
+  pitfalls:
+  - Forgetting to specify a pool size for high‑concurrency workloads.
+  - Using the wrong URL scheme for the target database.
+- id: declarative-base
+  title: Declarative Base
+  explanation: Provides a base class for ORM models using the Declarative system.
+  tags:
+  - orm
+  - models
+  when_to_use: When defining table‑mapped classes with SQLAlchemy’s ORM.
+  examples:
+  - title: Simple User model
+    language: python
+    code: "from sqlalchemy import Column, Integer, String\nfrom sqlalchemy.orm import\
+      \ declarative_base\nBase = declarative_base()\nclass User(Base):\n    __tablename__\
+      \ = \"users\"\n    id = Column(Integer, primary_key=True)\n    name = Column(String,\
+      \ nullable=False)\n"
+  pitfalls:
+  - Not calling Base.metadata.create_all(engine) after model definitions.
+  - Defining columns after the class body without proper syntax.
+- id: session-scoped
+  title: Session Scope
+  explanation: Creates a session factory for interacting with the database in a transactional
+    context.
+  tags:
+  - session
+  - transaction
+  when_to_use: When you need to perform CRUD operations with transaction support.
+  examples:
+  - title: Session maker and context
+    language: python
+    code: 'from sqlalchemy import create_engine
+
+      from sqlalchemy.orm import sessionmaker
+
+      engine = create_engine("sqlite:///example.db")
+
+      SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+      session = SessionLocal()
+
+      '
+  pitfalls:
+  - Forgetting to close or dispose the session after use.
+  - Mixing autocommit with manual commit calls.
+- id: query-filter
+  title: Query with Filter
+  explanation: Demonstrates constructing queries with filtering conditions and retrieving
+    results.
+  tags:
+  - query
+  - filter
+  when_to_use: When retrieving specific rows that match criteria.
+  examples:
+  - title: Find users by name pattern
+    language: python
+    code: "from sqlalchemy import create_engine, Column, Integer, String\nfrom sqlalchemy.orm\
+      \ import declarative_base, sessionmaker\nBase = declarative_base()\nclass User(Base):\n\
+      \    __tablename__ = \"users\"\n    id = Column(Integer, primary_key=True)\n\
+      \    name = Column(String)\nengine = create_engine(\"sqlite:///example.db\"\
+      )\nSessionLocal = sessionmaker(bind=engine)\nsession = SessionLocal()\nusers\
+      \ = session.query(User).filter(User.name.like(\"%John%\")).all()\n"
+  pitfalls:
+  - Using == instead of .eq() when comparing columns to values.
+  - Forgetting to commit after adding new rows before querying.
+- id: one-to-many-relationship
+  title: One‑to‑Many Relationship
+  explanation: Sets up a parent‑child association with back‑populated attributes.
+  tags:
+  - relationship
+  - orm
+  when_to_use: When modeling hierarchical data such as categories and items.
+  examples:
+  - title: Parent–Child models
+    language: python
+    code: "from sqlalchemy import Column, Integer, ForeignKey\nfrom sqlalchemy.orm\
+      \ import declarative_base, relationship\nBase = declarative_base()\nclass Parent(Base):\n\
+      \    __tablename__ = \"parents\"\n    id = Column(Integer, primary_key=True)\n\
+      \    children = relationship(\"Child\", back_populates=\"parent\")\nclass Child(Base):\n\
+      \    __tablename__ = \"children\"\n    id = Column(Integer, primary_key=True)\n\
+      \    parent_id = Column(Integer, ForeignKey(\"parents.id\"))\n    parent = relationship(\"\
+      Parent\", back_populates=\"children\")\n"
+  pitfalls:
+  - Forgetting to set back_populates on both sides, breaking bidirectional navigation.
+  - Not specifying cascade options when desired for orphan cleanup.
+- id: bulk-insert
+  title: Bulk Insert
+  explanation: Efficiently inserts many rows without loading them into the ORM session.
+  tags:
+  - bulk
+  - performance
+  when_to_use: When inserting thousands of records and session overhead is significant.
+  examples:
+  - title: Bulk save objects
+    language: python
+    code: "from sqlalchemy import create_engine, Column, Integer, String\nfrom sqlalchemy.orm\
+      \ import declarative_base, sessionmaker\nBase = declarative_base()\nclass User(Base):\n\
+      \    __tablename__ = \"users\"\n    id = Column(Integer, primary_key=True)\n\
+      \    name = Column(String)\nengine = create_engine(\"sqlite:///example.db\"\
+      )\nSessionLocal = sessionmaker(bind=engine)\nsession = SessionLocal()\nsession.bulk_save_objects([User(name=\"\
+      Alice\"), User(name=\"Bob\")])\nsession.commit()\n"
+  pitfalls:
+  - Using bulk_save_objects with relationships; relationships are ignored.
+  - Forgetting to commit, leaving bulk inserts unpersisted.

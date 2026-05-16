@@ -1,0 +1,159 @@
+pack:
+  language: go
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: concurrency-goroutine-channel
+  title: Goroutine & Channel
+  explanation: Use goroutines for concurrent work and channels for safe communication.
+  tags:
+  - concurrency
+  - goroutine
+  - channel
+  when_to_use: When parallelizing I/O or CPU-bound tasks that can be split into independent
+    units.
+  examples:
+  - title: Sum with workers
+    language: go
+    code: "package main\nimport (\n    \"fmt\"\n    \"sync\"\n)\nfunc worker(nums\
+      \ <-chan int, wg *sync.WaitGroup, out chan<- int) {\n    defer wg.Done()\n \
+      \   sum := 0\n    for n := range nums {\n        sum += n\n    }\n    out <-\
+      \ sum\n}\nfunc main() {\n    nums := []int{1,2,3,4,5,6,7,8,9,10}\n    numCh\
+      \ := make(chan int, len(nums))\n    outCh := make(chan int, 2)\n    var wg sync.WaitGroup\n\
+      \    wg.Add(2)\n    go worker(numCh, &wg, outCh)\n    go worker(numCh, &wg,\
+      \ outCh)\n    for _, n := range nums {\n        numCh <- n\n    }\n    close(numCh)\n\
+      \    wg.Wait()\n    close(outCh)\n    total := 0\n    for s := range outCh {\n\
+      \        total += s\n    }\n    fmt.Println(\"Total:\", total)\n}\n"
+  pitfalls:
+  - Forgetting to close channels, leading to goroutine leaks.
+  - Using unbuffered channels without proper synchronization, causing deadlocks.
+- id: context-usage
+  title: Context for Cancellation
+  explanation: Pass context to goroutines to observe cancellation, deadlines, and
+    propagate values.
+  tags:
+  - context
+  - cancellation
+  - deadline
+  when_to_use: When a long-running operation must be abortable or share request-scoped
+    data.
+  examples:
+  - title: Timed worker
+    language: go
+    code: "package main\nimport (\n    \"context\"\n    \"fmt\"\n    \"time\"\n)\n\
+      func worker(ctx context.Context) {\n    for {\n        select {\n        case\
+      \ <-ctx.Done():\n            fmt.Println(\"worker stopped:\", ctx.Err())\n \
+      \           return\n        default:\n            // do work\n            time.Sleep(100\
+      \ * time.Millisecond)\n        }\n    }\n}\nfunc main() {\n    ctx, cancel :=\
+      \ context.WithTimeout(context.Background(), 350*time.Millisecond)\n    defer\
+      \ cancel()\n    go worker(ctx)\n    <-ctx.Done()\n    fmt.Println(\"main exits\"\
+      )\n}\n"
+  pitfalls:
+  - Ignoring ctx.Err() and assuming cancellation always means timeout.
+  - Passing nil context into functions that expect a non-nil value.
+- id: error-handling-errors
+  title: errors.Is & errors.As
+  explanation: Use errors.Is to check for sentinel errors and errors.As for type assertions
+    in error chains.
+  tags:
+  - error
+  - sentinel
+  - type-assertion
+  when_to_use: When you need to match errors returned from libraries or propagate
+    wrapped errors.
+  examples:
+  - title: Custom sentinel error
+    language: go
+    code: "package main\nimport (\n    \"errors\"\n    \"fmt\"\n)\nvar ErrNotFound\
+      \ = errors.New(\"not found\")\nfunc find(id int) error {\n    if id != 42 {\n\
+      \        return fmt.Errorf(\"lookup: %w\", ErrNotFound)\n    }\n    return nil\n\
+      }\nfunc main() {\n    if err := find(1); err != nil {\n        if errors.Is(err,\
+      \ ErrNotFound) {\n            fmt.Println(\"resource missing\")\n        } else\
+      \ {\n            fmt.Println(\"unexpected error:\", err)\n        }\n    }\n\
+      }\n"
+  pitfalls:
+  - Using == to compare wrapped errors instead of errors.Is.
+  - Forgetting to wrap errors with fmt.Errorf and %w when delegating.
+- id: defer-panic-recovery
+  title: Deferred Recovery
+  explanation: Use defer with recover to gracefully handle panics and perform cleanup.
+  tags:
+  - panic
+  - recover
+  - defer
+  when_to_use: When you need to catch runtime panics in servers or libraries.
+  examples:
+  - title: Safe division
+    language: go
+    code: "package main\nimport \"fmt\"\nfunc safeDivide(a, b int) (int, error) {\n\
+      \    defer func() {\n        if r := recover(); r != nil {\n            fmt.Println(\"\
+      Recovered from panic:\", r)\n        }\n    }()\n    if b == 0 {\n        panic(\"\
+      division by zero\")\n    }\n    return a / b, nil\n}\nfunc main() {\n    if\
+      \ _, err := safeDivide(10, 0); err != nil {\n        fmt.Println(\"Error:\"\
+      , err)\n    }\n}\n"
+  pitfalls:
+  - Recovering without checking the panic value, masking real bugs.
+  - Placing defer after code that might panic, missing the recover point.
+- id: sync-atomic
+  title: Atomic Operations
+  explanation: Use sync/atomic for lock-free counters and state flags.
+  tags:
+  - atomic
+  - sync
+  - performance
+  when_to_use: When you need a high-frequency counter or a flag without mutex contention.
+  examples:
+  - title: Concurrent counter
+    language: go
+    code: "package main\nimport (\n    \"fmt\"\n    \"runtime\"\n    \"sync/atomic\"\
+      \n)\nvar counter int64\nfunc incr() {\n    atomic.AddInt64(&counter, 1)\n}\n\
+      func main() {\n    runtime.GOMAXPROCS(4)\n    for i := 0; i < 1000; i++ {\n\
+      \        go incr()\n    }\n    // Wait a moment for goroutines to finish\n \
+      \   runtime.Gosched()\n    fmt.Println(\"counter:\", atomic.LoadInt64(&counter))\n\
+      }\n"
+  pitfalls:
+  - Using atomic on structs that are not 64-bit aligned, causing undefined behavior.
+  - Ignoring memory ordering guarantees; use proper Load/Store for visibility.
+- id: sync-mutex-rwmutex
+  title: Mutex vs RWMutex
+  explanation: Use sync.Mutex for exclusive locks; sync.RWMutex for read-heavy workloads.
+  tags:
+  - mutex
+  - rwmutex
+  - concurrency
+  when_to_use: When a shared resource is read frequently but modified rarely.
+  examples:
+  - title: Cache with RWMutex
+    language: go
+    code: "package main\nimport (\n    \"sync\"\n)\ntype Cache struct {\n    mu  \
+      \  sync.RWMutex\n    store map[string]int\n}\nfunc (c *Cache) Get(key string)\
+      \ (int, bool) {\n    c.mu.RLock()\n    defer c.mu.RUnlock()\n    val, ok :=\
+      \ c.store[key]\n    return val, ok\n}\nfunc (c *Cache) Set(key string, val int)\
+      \ {\n    c.mu.Lock()\n    defer c.mu.Unlock()\n    c.store[key] = val\n}\nfunc\
+      \ main() {\n    c := Cache{store: make(map[string]int)}\n    c.Set(\"foo\",\
+      \ 42)\n    if v, ok := c.Get(\"foo\"); ok {\n        _ = v\n    }\n}\n"
+  pitfalls:
+  - Mixing RLock and Lock without unlocking appropriately, leading to deadlocks.
+  - Overusing RWMutex when writes dominate, causing unnecessary overhead.
+- id: testing-assertions
+  title: Testing with testify
+  explanation: Use testify/assert for expressive test assertions and mock for dependencies.
+  tags:
+  - testing
+  - testify
+  - mock
+  when_to_use: When writing unit tests that require clear failure messages and mocking.
+  examples:
+  - title: Simple assert test
+    language: go
+    code: "package main\nimport (\n    \"testing\"\n    \"github.com/stretchr/testify/assert\"\
+      \n)\nfunc add(a, b int) int { return a + b }\nfunc TestAdd(t *testing.T) {\n\
+      \    result := add(2, 3)\n    assert.Equal(t, 5, result, \"they should be equal\"\
+      )\n}\n"
+  pitfalls:
+  - Forgetting to import testify correctly, causing build failures.
+  - Using assert without checking the returned bool; test will continue even on failure.

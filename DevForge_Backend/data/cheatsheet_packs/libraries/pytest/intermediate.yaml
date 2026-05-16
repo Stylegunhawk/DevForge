@@ -1,0 +1,103 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: pytest
+  library_version_floor: 7.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-test
+  title: Basic Test Function
+  explanation: Simple function-level test using assert.
+  tags:
+  - test
+  - function
+  when_to_use: When writing straightforward unit tests for small functions.
+  examples:
+  - title: Simple assertion
+    language: python
+    code: "import pytest\n\ndef test_addition():\n    assert 1 + 1 == 2\n"
+  pitfalls:
+  - Forgetting to prefix test functions with test_
+  - Using assert statements that may be optimized away with -O flag
+- id: parametrize
+  title: Parametrized Tests
+  explanation: Run the same test with multiple inputs using @pytest.mark.parametrize
+    decorator.
+  tags:
+  - parametrize
+  - data-driven
+  when_to_use: When testing a function against many input-output pairs.
+  examples:
+  - title: Square function
+    language: python
+    code: "import pytest\n\n@pytest.mark.parametrize(\"input,expected\", [\n    (2,\
+      \ 4),\n    (3, 9),\n    (4, 16)\n])\ndef test_square(input, expected):\n   \
+      \ assert input * input == expected\n"
+  pitfalls:
+  - Not providing unique identifiers for each param set
+  - Overusing parametrize leading to huge test matrix
+- id: fixtures
+  title: Using Fixtures
+  explanation: Set up common test data or resources with @pytest.fixture.
+  tags:
+  - fixtures
+  - setup
+  when_to_use: When multiple tests share the same setup logic.
+  examples:
+  - title: Sample list fixture
+    language: python
+    code: "import pytest\n\n@pytest.fixture\ndef sample_list():\n    return [1, 2,\
+      \ 3]\n\ndef test_sum(sample_list):\n    assert sum(sample_list) == 6\n"
+  pitfalls:
+  - Returning mutable state without isolation
+  - Forgetting to yield or return in fixture
+- id: markers
+  title: Custom Markers and Skipping
+  explanation: Mark tests with @pytest.mark to control collection or skip conditions.
+  tags:
+  - markers
+  - skip
+  when_to_use: When you need to skip tests conditionally or mark them for selective
+    run.
+  examples:
+  - title: Skip on Windows
+    language: python
+    code: "import pytest\nimport sys\n\n@pytest.mark.skipif(sys.platform == \"win32\"\
+      , reason=\"Not supported on Windows\")\ndef test_unix_only():\n    assert True\n"
+  pitfalls:
+  - Using unknown markers without registering in pytest.ini
+  - Overusing skip leading to hidden failures
+- id: assert-raises
+  title: Asserting Exceptions
+  explanation: Use pytest.raises to check that code raises expected exception.
+  tags:
+  - exceptions
+  - assert
+  when_to_use: When verifying error handling behavior.
+  examples:
+  - title: ValueError on bad input
+    language: python
+    code: "import pytest\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"\
+      division by zero\")\n    return a / b\n\ndef test_divide_by_zero():\n    with\
+      \ pytest.raises(ValueError, match=\"division by zero\"):\n        divide(1,\
+      \ 0)\n"
+  pitfalls:
+  - Not using the context manager correctly
+  - Ignoring the match argument leading to false positives
+- id: long-running
+  title: Testing Timeouts
+  explanation: Use @pytest.mark.timeout to enforce maximum execution time per test.
+  tags:
+  - timeout
+  - performance
+  when_to_use: When you need to ensure a test does not hang or take too long.
+  examples:
+  - title: Timeout example
+    language: python
+    code: "import pytest\nimport time\n\n@pytest.mark.timeout(2)\ndef test_sleep():\n\
+      \    time.sleep(1)\n    assert True\n"
+  pitfalls:
+  - Relying on timeout only for debugging, not for correctness
+  - Setting too short timeout causing flaky tests

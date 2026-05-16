@@ -31,6 +31,9 @@ class PromptRefinerAgent:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         attached_files: Optional[List[str]] = None,
         project_files: Optional[Dict[str, str]] = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        user_id: str = None  # NEW: Phase 4 analytics support
     ) -> Dict[str, Any]:
         """Refine a user prompt.
 
@@ -47,7 +50,18 @@ class PromptRefinerAgent:
             Dictionary containing the refined prompt and metadata.
         """
         start_time = time.time()
-        
+
+        # Validate prompt
+        if not prompt or not prompt.strip():
+            logger.warning("refine_prompt called with empty prompt")
+            return {
+                "original_prompt": prompt or "",
+                "refined_prompt": prompt or "",
+                "domain": domain,
+                "error": "Prompt is empty. Provide a non-empty prompt to refine.",
+                "success": False,
+            }
+
         # Validate domain
         if domain not in DOMAIN_CONFIGS and domain != "general":
             logger.warning(f"Unknown domain '{domain}', defaulting to 'general'")
@@ -86,6 +100,9 @@ class PromptRefinerAgent:
                 file_context=file_context,
                 code_context=code_context,
                 project_files=project_files,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to enhancer
             )
 
             execution_time = time.time() - start_time
@@ -96,12 +113,13 @@ class PromptRefinerAgent:
                 "context_summary": enhancement_result.get("context_summary"),
                 "chosen_stack": enhancement_result.get("chosen_stack"),
                 "sanitization_log": enhancement_result.get("sanitization_log", []),
+                "quality": enhancement_result.get("quality"),
                 "domain": domain,
                 "skill_level": skill_level,
                 "execution_time": execution_time,
                 "success": True,
             }
-            
+
             return result
 
         except Exception as e:
@@ -165,7 +183,12 @@ class PromptRefinerAgent:
 # Global instance
 prompt_refiner_agent = PromptRefinerAgent()
 
-async def refine_prompt_invoke(arguments: dict) -> Dict[str, Any]:
+async def refine_prompt_invoke(
+    arguments: dict,
+    tenant_id: str = "unknown",
+    integration_name: str = "unknown",
+    user_id: str = None  # NEW: Phase 4 analytics support
+) -> Dict[str, Any]:
     """Convenience function to invoke the prompt refiner agent.
     
     Matches the Gateway tool signature - accepts dict of arguments.
@@ -181,6 +204,9 @@ async def refine_prompt_invoke(arguments: dict) -> Dict[str, Any]:
         conversation_history=arguments.get("conversation_history"),
         attached_files=arguments.get("attached_files"),
         project_files=arguments.get("project_files"),
+        tenant_id=tenant_id,
+        integration_name=integration_name,
+        user_id=user_id  # NEW: Pass user_id to agent
     )
     
     # Format for Gateway response
@@ -192,6 +218,7 @@ async def refine_prompt_invoke(arguments: dict) -> Dict[str, Any]:
             "context_summary": result.get("context_summary"),
             "chosen_stack": result.get("chosen_stack"),
             "sanitization_log": result.get("sanitization_log", []),
+            "quality": result.get("quality"),
             "domain": result["domain"],
         },
         "execution_time": round(result.get("execution_time", 0), 4),

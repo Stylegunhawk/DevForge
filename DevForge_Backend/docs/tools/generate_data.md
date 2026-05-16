@@ -1,9 +1,17 @@
 # generate_data - Advanced Synthetic Data Generation Tool
 
-**Tool Name:** `generate_data`  
-**Version:** 1.1.0 (Phase 1 Complete - Production Ready)  
-**Phase:** Phase 1 (3-Layer Semantic Architecture)  
-**Status:** ✅ Production Ready (Verified)
+**Tool Name:** `generate_data`
+**Version:** 0.9.0 (Catalog-Sandbox + Realism Consolidation)
+**Phase:** Phase 1 (3-Layer Semantic Architecture) + v0.9 catalog-sandbox
+**Status:** Beta — production-grade for known domains, off-template prompts now LLM-cataloged
+
+> **v0.9 Production-Grade (Catalog-Sandbox):**
+> - **Per-entity batched LLM catalogs**: every string field gets a domain-realistic value catalog (50 values per field), generated in one LLM call per entity, cached L1+L2 with 1h TTL. Replaces the v0.8 Faker `_smart_free_text` fallback for unknown semantic types.
+> - **SchemaValidator**: post-LLM schema fixes (enum-swap correction + range inference for numeric fields without explicit min/max).
+> - **Realism consolidation**: V2's dead-code dual realism implementation is gone. Single call to `realism_engine.apply_realism_to_data` handles nulls + duplicates + outliers per `REALISM_CONFIGS`.
+> - **Domain templates mark fields nullable**: `customers.phone`, `customers.address`, `products.category`, `products.description`, `users.phone`, `users.last_login`, `subscriptions.cancellation_reason`, `usage_logs.error_message`, `devices.last_seen`, `readings.error_code` are now nullable so `realism_level="high"` actually injects the documented ~10% nulls.
+>
+> **Behavior change**: `realism_level="high"` on the `ecommerce` / `saas` / `iot_devices` domains now produces 5-15% nulls in the fields listed above. Previous v0.8 behavior produced 0% nulls. Update test assertions and downstream consumers accordingly.
 
 ---
 
@@ -12,14 +20,16 @@
 The `generate_data` tool generates realistic synthetic data with two operational modes:
 
 - **V1 Mode (Simple)**: Original Faker-based generation for backward compatibility
-- **V2 Mode (Advanced)**: LLM-powered semantic analysis with domain-specific value generation, multi-entity relationships, and data quality simulation
+- **V2 Mode (Advanced)**: LLM-powered schema design + per-entity catalog-sandbox + multi-entity relationships + data-quality realism
 
 Perfect for testing, prototyping, development workflows, and generating complex relational datasets.
 
-**Phase 1 Refactor:** LLM is now confined to **classification only** - it never generates data values. All values come from Faker or catalogs, fixing the "Agent every development say" prose bug permanently!
+**Phase 1 Refactor (v0.8):** LLM is confined to **classification + catalog generation only** — it never generates per-row data values directly. All values come from Faker or LLM-pre-generated catalogs (the catalog is metadata; row sampling is deterministic).
+
+**v0.9 Catalog-Sandbox:** Every string field on every V2 entity gets a domain-realistic value catalog from a single per-entity LLM call (cached L1/L2 with 1h TTL). Replaces the v0.8 Faker `_smart_free_text` fallback for unknown semantic types — `instrument_name` returns `"Spectrophotometer"` not `"Agent every development say."`; `measurement_unit` returns `"Pascal"` not `"perform"`. See [v0.9 spec](../../../docs/superpowers/specs/2026-05-15-generate-data-production-grade-design.md).
 
 > [!IMPORTANT]
-> **Key Guarantee:** LLM outputs are metadata (semantic types, constraints), never actual data values.
+> **Key Guarantee:** LLM outputs are metadata (semantic types, constraint hints, value catalogs), never per-row data values. The generator samples from catalogs via `random.choice`; values themselves are never LLM-streamed prose.
 
 ---
 
@@ -29,22 +39,24 @@ Perfect for testing, prototyping, development workflows, and generating complex 
 - ✅ Generate realistic mock data with Faker library
 - ✅ Support for CSV and JSON output formats
 - ✅ Customizable field selection
-- ✅ Configurable row counts (1-10,000 rows)
+- ✅ Configurable row counts (1-10,000 rows; Pydantic gate, V2 internal allows 100,000 but Pydantic blocks earlier)
 - ✅ Fast execution (\u003c 1s for small datasets)
 
-### V2 Mode (Phase 1 Advanced)
+### V2 Mode (Phase 1 + v0.9 Catalog-Sandbox)
 - 🆕 **LLM-powered schema design** from natural language prompts
-- 🆕 **Domain templates** for ecommerce and SaaS use cases
-- 🆕 **Multi-entity generation** - generates data for multiple related entities
+- 🆕 **SchemaValidator** (v0.9) - post-LLM enum-swap fix + range inference for numeric fields without explicit min/max
+- 🆕 **Domain templates** for `ecommerce`, `saas`, `iot_devices` use cases
+- 🆕 **Per-entity catalog-sandbox** (v0.9) - one LLM call per entity returns 50 realistic values per string field; cached L1/L2
+- 🆕 **Multi-entity generation** - generates data for multiple related entities with FK linkage
 - 🆕 **Semantic field analysis** - understands field context (e.g., `flowers.name` vs `person.name`)
-- 🆕 **Data quality realism** - null injection based on realism level (Phase 1 simplified realism)
-- 🆕 **Relationship-aware generation** - foreign key relationships are tracked **and enforced** during generation
+- 🆕 **Data quality realism** (v0.9 consolidated) - nulls + duplicates + outliers via single `realism_engine.apply_realism_to_data` call
+- 🆕 **Relationship-aware generation** - foreign keys enforced during generation, validated via `fk_integrity` block
 
 ### Phase 1 (3-Layer Semantic Architecture)
 - 🏗️ **Layer 1: Semantic Understanding** - Multi-tier classification (lexical → pattern → context → LLM → fallback)
 - 🏗️ **Layer 2: Generator Selection** - Semantic type → generator mapping via `SemanticRouter`
 - 🏗️ **Layer 3: Value Production** - Faker/catalogs only, **never LLM**
-- ✨ **303 lexical mappings** - Fast dictionary-based field name recognition
+- ✨ **299 lexical mappings** - Fast dictionary-based field name recognition
 - ✨ **Pattern matching** - Regex for suffixes (`_at`, `_id`) and prefixes (`is_`, `has_`)
 - ✨ **Context classification** - Entity-aware name resolution (flowers.name → flower_name)
 - ✨ **LLM classification** - Only returns semantic metadata, never values
@@ -64,7 +76,7 @@ The following constraints are enforced during generation:
 
 | Parameter | Type | Required | Default | Description | Mode |
 |-----------|------|----------|---------|-------------|------|
-| `rows` | integer | ✅ Yes | - | Number of rows to generate (1-10,000) | V1, V2 |
+| `rows` | integer | ✅ Yes | - | Number of rows to generate (1-10,000, enforced by Pydantic; V2 internal allows up to 100,000 but Pydantic blocks earlier) | V1, V2 |
 | `format` | string | No | `"json"` | Output format: `"json"` or `"csv"` | V1, V2 |
 | `fields` | array[string] | No | Default fields | Custom fields to generate | V1 only |
 | `prompt` | string | No | `null` | Natural language schema description | V2 only |
@@ -87,8 +99,16 @@ The tool automatically selects the appropriate mode:
 | `high` | ~10% on nullable fields | ~2% on key fields | ~1% on numeric fields |
 
 > [!NOTE]
+> **v0.9 update:** Domain templates now mark business-domain fields as `nullable=True` so realism levels actually inject the documented rates. Verified via MCP at 2000-row scale: `customers.phone` 10.4% null, `customers.address` 10.7% null at `realism_level="high"` (target 10%, ±5% sampling jitter at lower row counts).
+>
+> Nullable fields per domain:
+> - **ecommerce**: `customers.phone`, `customers.address`, `products.category`, `products.description`
+> - **saas**: `users.phone`, `users.last_login`, `subscriptions.cancellation_reason`, `subscriptions.expires_at`, `usage_logs.error_message`
+> - **iot_devices**: `devices.last_seen`, `readings.error_code`
+
+> [!IMPORTANT]
 > **Critical Field Protection:** To maintain data integrity, the following semantic types are **never** injected with nulls, even if nullable in the schema:
-> `email_address`, `phone_number`, `uuid`, `numeric_id`, `timestamp`, `date`, `bank_account_number`, `transaction_id`.
+> `email_address`, `phone_number`, `uuid`, `numeric_id`, `timestamp`, `date`, `bank_account_number`, `transaction_id`. Verified via MCP — at `realism_level="high"` on 308 customers, `email`, `id`, and `created_at` all showed 0 nulls.
 
 ---
 
@@ -97,7 +117,7 @@ The tool automatically selects the appropriate mode:
 ### Supported Fields
 
 When `fields` is not specified, default fields are generated:
-- `name`, `email`, `phone`, `address`, `company`, `job`, `date`
+- `name`, `email`, `address`, `phone`, `company`, `job`, `date_of_birth`, `city`
 
 **Custom field options:**
 - Personal: `name`, `first_name`, `last_name`, `email`, `phone`, `ssn`
@@ -158,7 +178,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### Ecommerce Domain
 **Entities:** customers, products, orders  
-**Relationships:** orders → customers (1:N), orders → products (1:N) (enforced during generation)  
+**Relationships:** orders → customers (1:N), orders → products (1:N) (enforced during generation and validated via `fk_integrity`)  
 **Distributions:** Lognormal prices, categorical order statuses  
 **Default Counts:** 100 customers, 50 products, 500 orders
 
@@ -178,7 +198,7 @@ curl -X POST http://localhost:8001/api/gateway \
 
 #### SaaS Domain
 **Entities:** users, subscriptions, usage_logs  
-**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N) (enforced during generation)  
+**Relationships:** subscriptions → users (1:N), usage_logs → subscriptions (1:N) (enforced during generation and validated via `fk_integrity`)  
 **Distributions:** Categorical plans, pareto API usage  
 **Default Counts:** 100 users, 120 subscriptions, 1000 usage logs
 
@@ -442,7 +462,7 @@ curl -X POST http://localhost:8001/mcp \
 }
 ```
 
-> **Note:** `semantic_generation_used` field indicates whether Phase 1 semantic analysis was successfully applied. `false` means fallback to Faker was used. The `enable_semantic_generation` parameter is not part of the Pydantic schema but is handled dynamically via `getattr()` in the agent.
+> **Note:** `semantic_generation_used` field indicates whether Phase 1 semantic analysis was successfully applied. `false` means fallback to Faker was used.
 
 ---
 
@@ -519,14 +539,20 @@ Test how applications handle imperfect data:
 
 ## Performance
 
-| Dataset Size | Mode | Execution Time | Use Case |
-|--------------|------|----------------|----------|
-| 10 rows | V1 | \u003c 0.1s | Quick tests |
-| 100 rows | V1 | \u003c 0.5s | Prototyping |
-| 100 rows | V2 (3 entities) | \u003c 2s | Multi-entity testing |
-| 1,000 rows | V1 | \u003c 2s | Development |
-| 1,000 rows | V2 (3 entities) | \u003c 5s | Relational data |
-| 10,000 rows | V1 | \u003c 5s | Load testing |
+LLM-bound for V2 modes — the free Ollama endpoint (currently `gpt-oss:20b-cloud`) dominates wall-clock time. Measured on the live MCP container at v0.9:
+
+| Scenario | Mode | Cold (no cache) | Warm (L2 hit) | Use Case |
+|----------|------|-----------------|---------------|----------|
+| 5–10 rows | V1 (Faker) | < 0.1s | — | Quick mock users |
+| 1,000 rows | V1 (Faker, CSV) | ~1s | — | Development seed |
+| 10,000 rows | V1 (Faker, CSV, max) | ~3s | — | Load testing |
+| 50–500 rows | V2 domain (template, no schema-design LLM) | 9–17s | 5–10s | Realistic ecommerce / saas / iot |
+| 100–500 rows | V2 prompt (1 schema-design LLM + N entity-catalog LLM calls) | 15–30s | 5–10s | Novel domains |
+| 2,000 rows | V2 domain ecommerce, realism=high | ~45s | ~30s | Stress + realism scale-out |
+
+> **Why V2 cold-cache is slow:** Schema design takes 4–6s (LLM call #1) and each entity catalog adds 3–4s (LLM call #N). For a 3-entity domain that's 4 LLM calls. The L2 cache (1h TTL, keyed by `entity+fields_hash+prompt_hash`) amortizes within minutes for repeat prompts.
+
+> **Frontend integration:** `progress_callback` at `routers/__init__.py:1162-1168` emits stage events (`schema_design 20% → semantic_analysis 40% → catalog_generation 60% → row_generation 80% → complete 100%`). Subscribe instead of showing a blocking spinner.
 
 ---
 
@@ -575,65 +601,82 @@ DataGen Agent (mode router + feature flag)
                 JSON/CSV Output
 ```
 
-### Workflow & Internals
+### Workflow & Internals (v0.9 pipeline)
 
-The Phase 1 architecture follows a strict pipeline to ensure data quality and prevent LLM hallucinations.
+The v0.9 pipeline adds two stages (SchemaValidator + Catalog-Sandbox) on top of the Phase 1 architecture, while keeping the strict "LLM never returns per-row values" guarantee.
 
-#### 1. Schema Design
+#### 1. Schema Design (LLM call #1)
 - **Input:** User prompt (e.g., "Generate 100 users with zip codes")
-- **Process:** `SchemaDesigner` uses an LLM to convert the prompt into a structured JSON schema defining entities, fields, and constraints (enum, pattern, min/max).
-- **Output:** JSON Schema (e.g., `{"users": {"fields": {"zip_code": {"type": "string"}}}}`)
+- **Process:** `SchemaDesigner` uses an LLM to convert the prompt into a structured JSON schema defining entities, fields, and constraints (enum, pattern, min/max). The system prompt (`SCHEMA_DESIGN_PROMPT`) was updated in v0.9 with explicit nullable-marking instructions and few-shot examples.
+- **Output:** `SchemaDesign` Pydantic object with entities, fields, relationships.
 
-#### 2. Semantic Analysis (5-Tier Pipeline)
+#### 2. SchemaValidator (v0.9, pure function — no LLM)
+- **Input:** `SchemaDesign` from step 1 + the original user prompt.
+- **Process:** Two post-LLM corrections:
+    - **Enum-swap fix:** Match `<field> enum: [...]` patterns in the prompt and force the LLM-supplied values onto the named field. Clear the same values from any other field that received them by mistake (fixes the v0.8 stress-test bug where `genre` got `{active, pending}` instead of `{Fiction, Non-Fiction, Sci-Fi}`).
+    - **Range inference:** For any numeric field with no explicit `min`/`max`, look up sane defaults in `RANGE_HINTS` by field-name pattern (longest-match wins). Examples: `bedroom_count` → `(1, 6)`, `age` → `(1, 120)`, `year_built` → `(1900, 2030)`, `square_feet` → `(200, 20000)`.
+- **Output:** Corrected `SchemaDesign`. Pure function — no side effects, deterministic.
+
+#### 3. Semantic Analysis (5-Tier Pipeline)
 The `SemanticAnalyzer` determines the *meaning* of each field using a waterfall approach:
-1.  **Tier 1: Lexical (Fastest)**: Checks `lexical_dict.py` for exact matches (e.g., "zip_code" → `ZIP_CODE`). Covers 303 common field mappings.
+1.  **Tier 1: Lexical (Fastest)**: Checks `lexical_dict.py` for exact matches (e.g., "zip_code" → `ZIP_CODE`). Covers 299 common field mappings.
 2.  **Tier 2: Pattern (Fast)**: Checks `PatternClassifier` for regex matches on field names (e.g., `*_id` → `UUID`, `is_*` → `BOOLEAN`).
 3.  **Tier 3: Context (Heuristic)**: Checks `ContextClassifier` for entity-specific meanings (e.g., `product.name` → `PRODUCT_NAME` vs `person.name` → `PERSON_FULL_NAME`).
 4.  **Tier 4: LLM (Fallback)**: Uses `LLMClassifier` to analyze ambiguous fields based on name and description. Returns *metadata only* (semantic type), never data values.
-5.  **Tier 5: Fallback**: Defaults to `UNKNOWN` (generates generic text).
+5.  **Tier 5: Fallback**: Defaults to `UNKNOWN` / `FREE_TEXT` — historically the lorem-ipsum source; in v0.9 the catalog-sandbox handles these cases first.
 
-#### 3. Generator Selection
-- **Input:** Semantic Type (e.g., `ZIP_CODE`)
-- **Process:** `SemanticRouter` maps the type to a specific generator function.
-- **Routing:**
-    - `ZIP_CODE` → `faker.zipcode()`
-    - `PRODUCT_NAME` → `CatalogFactory` (cached list of products)
-    - `PATTERN` → `rstr.xeger()` (regex generation)
-    - **Precedence:** `Enum` > `Pattern` > `Min/Max` (Enums always override other constraints).
+#### 4. Catalog-Sandbox precompute (v0.9, LLM call per entity)
+- **Input:** For each entity, the list of `(field_name, "string")` pairs plus the user prompt.
+- **Process:** `CatalogFactory.get_entity_catalogs(entity_name, fields, user_prompt, count=50)` issues a single LLM call returning a JSON object `{field_name: [50 realistic values], ...}`. Cached via:
+    - **L1** (request-scope, key `entity_catalog:{entity}:{fields_hash}:{prompt_hash}`)
+    - **L2** (process-scope, 1h TTL, same key)
+- **Fallback:** If the LLM call fails, returns malformed JSON, or yields < 40 items per field, falls back per-field to `_smart_field_fallback` (Faker `catch_phrase` for `_name` fields, short sentences for `description`, `faker.email/phone/city/country` for known suffixes, `faker.word()` otherwise). Never produces placeholder garbage like `<field>_value_1`.
+- **Output:** `Dict[str, List[str]]` — one catalog per string field.
 
-#### 4. Value Production
-- **Process:** The selected generator produces a value for each row.
-- **Constraint Enforcement:**
-    - **Enums:** Randomly selects from allowed values.
-    - **Patterns:** Generates string matching the regex.
-    - **Ranges:** Generates number within min/max.
-- **Realism:** `_apply_realism` injects nulls (if nullable) and outliers based on `realism_level`. Respecs "Critical Field Protection".
-- **Strict Validation (Invariant 3):** Post-generation validation ensures NO invalid data is returned. If *any* row violates constraints, the entire dataset for that entity is cleared to ensure safety.
+#### 5. Generator Selection & Value Production
+- **Input:** Semantic Type + `field_catalog` (from step 4, if applicable).
+- **Process:** `SemanticRouter.generate_value(...)` routes per row:
+    - **Constraint-first:** `enum` > `pattern` > catalog-sandbox > registered semantic-type generator > smart-free-text fallback.
+    - **v0.9 catalog-sandbox branch:** If the classifier landed on `free_text` / `unknown` / `enum_value`-without-values AND a `field_catalog` was supplied, sample from it via `random.choice`. Known semantic types (email, person_name, uuid, etc.) ignore the catalog and use their dedicated generators.
+- **Output:** Per-row values for every entity.
 
-#### 5. Output Formatting
-- **Process:** Data is formatted as JSON or CSV.
-- **Metadata:** Performance metrics and semantic analysis confidence scores are attached.
+#### 6. Validation & Safety (Invariant 3)
+- **Constraint check:** Every generated value verified against schema constraints (pattern, enum, min/max, nullable). Violations land in `data.constraint_violations`.
+- **FK integrity:** `RelationshipEngine._validate_fk_integrity` confirms every foreign key references a real parent row. Surfaces as `data.fk_integrity.{valid, errors, statistics}` (per-relationship: total_children, parents_with_zero_children, orphaned_children).
+- **Strict safety:** If *any* row violates constraints OR `fk_integrity.valid == false`, the entire dataset for that entity is **cleared** and `_internal_success` is set to `false`.
+
+#### 7. Realism (v0.9 consolidated)
+- **Process:** Single call to `realism_engine.apply_realism_to_data(generated_data, schema_design, realism_level)` — replaces V2's old inline `_apply_realism` (deleted in v0.9; the v0.8 dual-implementation was applying realism twice).
+- **Injection:** Per `REALISM_CONFIGS` — medium=5% nulls, high=10% nulls + 2% duplicates + 1% outliers. Respects critical-field protection AND the schema's `nullable` flag (gated by domain template updates).
+
+#### 8. Output Formatting
+- **Process:** Data is formatted as JSON (native arrays) or CSV (strings per entity).
+- **Metadata:** Performance metrics (`analysis_ms`, `generation_ms`, `total_ms`), semantic-analysis source counts (lexical/pattern/context/llm/fallback), and the `_internal_success` flag are attached.
 
 ### Code Location
 - **Agent:** `src/agents/datagen/agent.py` (V1/V2 router + feature flag)
 - **V1 Tools:** `src/tools/datagen/tools.py`
 - **Phase 1 Components:**
   - Semantic Types: `src/tools/datagen/semantic_types.py`
-  - Lexical Dictionary: `src/tools/datagen/lexical_dict.py` (303 mappings)
+  - Lexical Dictionary: `src/tools/datagen/lexical_dict.py` (299 mappings)
   - Lexical Classifier: `src/tools/datagen/lexical_classifier.py`
   - Pattern Classifier: `src/tools/datagen/pattern_classifier.py`
   - Context Classifier: `src/tools/datagen/context_classifier.py`
   - LLM Classifier: `src/tools/datagen/llm_classifier.py`
   - Semantic Analyzer: `src/tools/datagen/semantic_analyzer_v2.py`
-  - Catalog Factory: `src/tools/datagen/catalog_factory.py`
-  - Semantic Router: `src/tools/datagen/semantic_router.py`
-
-  - **Orchestrator:** `src/tools/datagen/advanced_generator_v2.py` (Main engine - Phase 1)
-- **V2 Legacy Components (not used in Phase 1):**
-  - Schema Designer: `src/tools/datagen/schema_designer.py` (used for schema design)
-  - Relationship Engine: `src/tools/datagen/relationship_engine.py` (exists but not used in `advanced_generator_v2.py`)
-  - Realism Engine: `src/tools/datagen/realism_engine.py` (simplified realism in V2 generator)
-- **Tests:** `tests/test_semantic_analyzer_v2.py`, `tests/test_semantic_router.py`, `tests/test_datagen.py`, `tests/test_relationships.py`, `tests/test_realism.py`
+  - Catalog Factory: `src/tools/datagen/catalog_factory.py` (v0.9 adds `get_entity_catalogs`)
+  - Semantic Router: `src/tools/datagen/semantic_router.py` (v0.9 adds `field_catalog` param)
+- **v0.9 Components (new):**
+  - **Schema Validator:** `src/tools/datagen/schema_validator.py` (enum-swap fix + range inference, pure function)
+- **Orchestrator:** `src/tools/datagen/advanced_generator_v2.py` (v0.9: wires SchemaValidator, per-entity catalog precompute, consolidated realism — internal `_apply_realism` deleted)
+- **V2 Supporting Components:**
+  - Schema Designer: `src/tools/datagen/schema_designer.py` (v0.9: prompt updated with nullable-marking rules + examples)
+  - Relationship Engine: `src/tools/datagen/relationship_engine.py` (FK linkage during generation + `validate_relationships()` post-validation)
+  - Realism Engine: `src/tools/datagen/realism_engine.py` (v0.9: single source of truth — V2 internal `_apply_realism` was deleted, now routes here)
+  - Domain Templates: `src/tools/datagen/domain_templates.py` (v0.9: `nullable=True` markers on business-domain fields)
+- **Tests (v0.9 adds 3 new files):**
+  - Existing: `tests/test_semantic_analyzer_v2.py`, `tests/test_semantic_router.py`, `tests/test_datagen.py`, `tests/test_relationships.py`, `tests/test_realism.py`, `tests/test_domain_templates.py`, `tests/test_distributions.py`, `tests/test_schema_designer.py`
+  - **New in v0.9:** `tests/test_schema_validator.py` (13 tests), `tests/test_catalog_sandbox.py` (10 tests), `tests/test_realism_consolidation.py` (3 tests)
 
 ---
 
@@ -664,12 +707,14 @@ curl -X POST "http://localhost:8001/api/gateway" \
 - ✅ **Lexical Expansion:** Generates valid `ip_v6`, `mac_address`, `zip_code`, `street_address`.
 - ✅ **Pattern Constraints:** Enforces `^EMP-[0-9]{5}$` and `^978-[0-9]{10}$` (ISBN) using `rstr`.
 - ✅ **Enum Constraints:** Respects status enums (`active`, `returned`, `overdue`).
-- ✅ **Multi-Entity:** Generates data for multiple entities (relationships tracked but foreign keys not validated in Phase 1).
+- ✅ **Multi-Entity:** Generates data for multiple entities; foreign keys are enforced via `_generate_with_relationships` and validated by `_validate_fk_integrity`. The response includes an `fk_integrity` block with `valid`, `errors`, and `statistics` (per-relationship `total_children`, `total_parents`, `parents_with_children`, `parents_with_zero_children`, `orphaned_children`).
 
 ### Known Limitations
-- **Enum Extraction from Prompt:** While the tool supports enums defined in the schema, the LLM Schema Designer may occasionally miss specific enum values provided in a complex natural language prompt (e.g., specific book genres might default to a generic list).
-- **Foreign Key Relationships:** In Phase 1, relationships are tracked in the schema but foreign keys are not validated or enforced during generation. The `RelationshipEngine` exists but is not used by `advanced_generator_v2.py`. Foreign key fields are generated as regular UUIDs/IDs without ensuring they reference existing parent records.
-- **enable_semantic_generation Parameter:** This parameter is not part of the `DataGenArgs` Pydantic schema but is handled dynamically via `getattr()` in the agent. It defaults to `True` if the `ENABLE_SEMANTIC_ANALYZER` environment variable is set.
+- **NL constraint extraction:** The LLM schema designer occasionally drops natural-language constraints embedded in prompts (e.g. `duration_minutes between 15 and 120` or inline regex patterns). v0.9 SchemaValidator handles enum-swap and range inference for fields with no explicit constraints, but it cannot recover constraints the LLM didn't transcribe into the schema in the first place. **Workaround:** keep prompt enums in the `field enum: ["A","B"]` form (SchemaValidator parses these reliably).
+- **Schema non-determinism:** Same prompt → potentially different schema (entity names, field counts) across calls, because the LLM schema designer is non-deterministic. This defeats the entity-catalog cache when the LLM picks different entity names (`cocktail` vs `cocktails`). Reproducibility (optional `seed` argument + schema-hash cache) deferred to v0.10.
+- **Cold-cache latency:** First V2-prompt call against the free Ollama endpoint takes 15–25s (schema design + per-entity catalog generation). Warm-cache (within 1h L2 TTL, same prompt + entity names): 5–10s. Frontend should subscribe to the existing `progress_callback` (`routers/__init__.py:1162-1168`) for staged progress UI.
+- **Doc/version drift:** `manifests/devforge.json` is at `0.10.0`, this doc is at `0.9.0`, `src/main.py` and `Dockerfile` carry separate version stamps. Reconciliation to a single source of truth is deferred to v0.10.
+- **enable_semantic_generation parameter:** Typed `bool` field on `DataGenArgs` (default `True`). The `ENABLE_SEMANTIC_ANALYZER` environment variable acts as the system-level feature flag. Setting either to `False` disables both the analyzer AND the v0.9 catalog-sandbox, restoring v0.7 Faker-only behavior.
 
 ### Invariant Enforcement
 The tool now strictly enforces data quality invariants:
@@ -789,16 +834,19 @@ pytest tests/test_realism.py -v
 pytest tests/test_datagen.py tests/test_schema_designer.py tests/test_relationships.py tests/test_distributions.py tests/test_domain_templates.py tests/test_realism.py -v
 ```
 
-### Test Coverage
-- ✅ **180+ passing tests** across 8 test suites
-- ✅ V1 backward compatibility (20 tests)
-- ✅ Schema validation and LLM fallback (36 tests)
-- ✅ **Phase 1 Semantic Analyzer (30 tests)** ← NEW
-- ✅ **Phase 1 Semantic Router (20 tests)** ← NEW
-- ✅ Relationship integrity (11 tests)
-- ✅ Distribution accuracy (28 tests)
-- ✅ Domain template validation (18 tests)
-- ✅ Realism injection rates (17 tests)
+### Test Coverage (v0.9)
+- ✅ **221 passing tests** across all suites (51 new in v0.9; 2 pre-existing `test_agent_invalid_*` failures predate v0.9)
+- ✅ V1 backward compatibility (`test_datagen.py`)
+- ✅ Schema designer + LLM fallback (`test_schema_designer.py`)
+- ✅ Phase 1 Semantic Analyzer (`test_semantic_analyzer_v2.py` — 14 sync-vs-async failures predate v0.9, deferred to test-modernization)
+- ✅ Semantic Router (`test_semantic_router.py` — extended in v0.9 with 7 catalog-sandbox tests)
+- ✅ Relationship integrity (`test_relationships.py`)
+- ✅ Distribution accuracy (`test_distributions.py`)
+- ✅ Domain template validation (`test_domain_templates.py` — extended in v0.9 with `nullable` markers)
+- ✅ Realism injection rates (`test_realism.py`)
+- ✅ **NEW v0.9 SchemaValidator (13 tests)** — `test_schema_validator.py`
+- ✅ **NEW v0.9 Catalog-Sandbox (10 tests)** — `test_catalog_sandbox.py`
+- ✅ **NEW v0.9 Realism consolidation (3 tests)** — `test_realism_consolidation.py`
 
 #### Critical Tests
 ```bash
@@ -818,7 +866,7 @@ pytest tests/test_semantic_analyzer_v2.py::TestEndToEnd::test_banking_example_no
 ### V2 Mode
 4. **Use domain templates** - Faster than LLM prompts for known use cases
 5. **Start with basic realism** - Increase to medium/high as needed
-6. **Note on relationships** - Foreign keys are generated but not validated in Phase 1. Manually verify FK integrity if needed.
+6. **Note on relationships** - Foreign keys are enforced during generation and validated via `_validate_fk_integrity`; check the `fk_integrity` block in the response for per-relationship statistics.
 7. **Monitor entity counts** - Balance parent/child ratios
 8. **Test with realism** - Simulate real-world data quality issues
 9. **Semantic generation** - Enabled by default via `ENABLE_SEMANTIC_ANALYZER` environment variable
@@ -875,7 +923,7 @@ Add `domain` or `prompt` to enable V2 mode:
 **Solution:** Adjust row counts or use domain templates with balanced ratios
 
 **Issue:** Foreign keys don't match parent IDs  
-**Solution:** This is a Phase 1 limitation. Foreign keys are generated but not validated. Consider post-processing or wait for Phase 2 relationship enforcement.
+**Solution:** Foreign keys are enforced via `_generate_with_relationships` and validated by `_validate_fk_integrity`. Inspect the `fk_integrity` block in the response (`valid`, `errors`, and per-relationship `statistics`) to confirm referential integrity.
 
 **Issue:** Need more domains beyond ecommerce/saas  
 **Solution:** Use natural language prompts with LLM schema designer
@@ -891,12 +939,24 @@ Add `domain` or `prompt` to enable V2 mode:
 
 ## Changelog
 
-### Version 1.0.0 (Phase 1 Refactor - December 2025)
+### Version 0.9.0 (2026-05-15 — Catalog-Sandbox + Realism Consolidation)
+- 🆕 **`SchemaValidator`** (new module `src/tools/datagen/schema_validator.py`): post-LLM enum-swap fix + range inference for numeric fields without explicit min/max. Pure function; no LLM calls. Fixes the v0.8 stress-test bug where `genre` enum got `{active, pending}` instead of `{Fiction, Non-Fiction, Sci-Fi}`.
+- 🆕 **Per-entity catalog-sandbox**: `CatalogFactory.get_entity_catalogs()` issues one LLM call per entity returning `{field_name: [50 realistic values]}`. Cached via L1 (request) + L2 (process, 1h TTL). Replaces v0.8 Faker `_smart_free_text` fallback. Verified production-grade: `Spectrophotometer` / `Beta Particle Counter` for instruments, `Pascal` / `Newton` / `Coulomb` for units, `Mojito` / `Rob Roy` for cocktails.
+- 🔧 **Realism consolidation**: deleted V2's internal `_apply_realism` (double-application bug + only-nulls implementation). All realism now routes through `realism_engine.apply_realism_to_data` — single source of truth, handles nulls + duplicates + outliers per `REALISM_CONFIGS`.
+- 🔧 **Schema designer prompt updated**: explicit `nullable: true|false` instructions + few-shot examples (always-nullable: `middle_name`, `last_login`, `description`, `notes`, `cancellation_reason`, `error_message`; never-nullable: `id`, `email`, `created_at`, FKs).
+- 🔧 **Domain templates marked nullable**: `customers.phone`, `customers.address`, `products.category`, `products.description`, `users.phone`, `users.last_login`, `subscriptions.cancellation_reason`, `usage_logs.error_message`, `devices.last_seen`, `readings.error_code`. Verified at 2000-row scale: 10.4% null on `phone`, 10.7% null on `address` at `realism_level="high"`.
+- 🔧 **MCP tool description rewritten**: now teaches calling agents the 3-mode model (V1 / V2 domain / V2 prompt) with cold/warm cache latency expectations. Row bound corrected from misleading `1-100000` to actual Pydantic gate `1-10000`.
+- 🔒 **Critical-field protection verified at scale**: `id`, `email`, `created_at`, `uuid`, `*_id` foreign keys show 0% nulls across 308 customers + 820 usage_logs + 455 IoT readings at `realism_level="high"`.
+- ✅ **51 new tests** (13 SchemaValidator + 10 Catalog-Sandbox + 7 router-extension + 18 domain-template extensions + 3 realism-consolidation). Total: 221 passing tests.
+- ✅ Earlier session fixes folded in: v0.8.5 silent-failure cascade (NameError `user_id`) and success-calculation fix; field-name-aware `_smart_free_text` fallback in semantic_router (extended numeric-suffix coverage).
+- 📊 **Cold-cache latency**: V2 prompt mode now 15–30s on free Ollama (4 LLM calls: 1 schema + N entity catalogs). Warm-cache (within 1h L2 TTL, same entity names): 5–10s. Frontend should use `progress_callback` for staged UI.
+
+### Version 0.8.0 (Phase 1 Refactor - matches manifest)
 - 🏗️ **3-Layer Semantic Architecture** - LLM confined to classification only
 - 🔒 **Key Guarantee:** LLM never generates data values (fixes "Agent every" bug)
 - 🆕 Multi-tier classification pipeline (lexical → pattern → context → LLM → fallback)
 - 🆕 `semantic_types.py` - Core data models (`SemanticType`, `FieldContext`, `SemanticFieldInfo`)
-- 🆕 `lexical_dict.py` - 303 field name → semantic type mappings
+- 🆕 `lexical_dict.py` - 299 field name → semantic type mappings
 - 🆕 `pattern_classifier.py` - Regex-based suffix/prefix detection
 - 🆕 `context_classifier.py` - Entity-aware name resolution
 - 🆕 `llm_classifier.py` - LLM for classification metadata only
@@ -904,29 +964,20 @@ Add `domain` or `prompt` to enable V2 mode:
 - 🆕 `catalog_factory.py` - L1/L2 caching for value catalogs
 - 🆕 `semantic_router.py` - Semantic type → Faker/catalog routing
 - 🆕 `advanced_generator_v2.py` - Integrated generator with metadata
-- 🆕 Feature flag: `ENABLE_SEMANTIC_ANALYZER` environment variable
-- 🆕 Full observability: metadata with source, confidence, warnings
-- ✅ 50 new Phase 1 tests
-- ✅ 180+ total passing tests
-
-### Version 0.9.0 (Phase 8.6 - December 2025)
-- ✨ Semantic field analysis (initial implementation)
-- ✨ Domain-specific value catalogs
-- ⚠️ Bug: LLM sometimes generated prose as values
-
-### Version 0.8.0 (Phase 8 - December 2025)
 - 🆕 V2 mode with advanced multi-entity generation
 - 🆕 LLM-powered schema design from natural language
-- 🆕 Domain templates for ecommerce and SaaS
-- ✅ 130 passing tests
+- 🆕 Domain templates for ecommerce, SaaS, and IoT devices
+- 🆕 Feature flag: `ENABLE_SEMANTIC_ANALYZER` environment variable
+- 🆕 Full observability: metadata with source, confidence, warnings
+- ✅ 169 total passing tests
 
 ### Version 0.7.0 (Phase 7 - December 2025)
 - ✅ Original Faker-based generation (V1 mode)
 
 ---
 
-**Last Updated:** February 26, 2026  
-**Maintainer:** DevForge Team  
+**Last Updated:** 2026-05-15
+**Maintainer:** DevForge Team
 **Feedback:** Create an issue in the repository
 
 ---

@@ -22,7 +22,7 @@ class ConversationParser:
         "django": "Django",
         "flask": "Flask",
         "pyramid": "Pyramid",
-        
+
         # JavaScript frameworks
         "react": "React",
         "vue": "Vue.js",
@@ -30,7 +30,7 @@ class ConversationParser:
         "next": "Next.js",
         "express": "Express.js",
         "nest": "NestJS",
-        
+
         # Databases
         "postgresql": "PostgreSQL",
         "postgres": "PostgreSQL",
@@ -38,12 +38,12 @@ class ConversationParser:
         "mongodb": "MongoDB",
         "redis": "Redis",
         "sqlite": "SQLite",
-        
+
         # ORMs
         "sqlalchemy": "SQLAlchemy",
         "prisma": "Prisma",
         "mongoose": "Mongoose",
-        
+
         # Other
         "typescript": "TypeScript",
         "graphql": "GraphQL",
@@ -51,6 +51,33 @@ class ConversationParser:
         "kubernetes": "Kubernetes",
         "aws": "AWS",
         "gcp": "Google Cloud",
+    }
+
+    # Maps the normalized tech name (TECH_KEYWORDS values) to its category.
+    # Names not present default to "framework" for back-compat with existing
+    # evidence construction. Used by enhancer._extract_conversation_evidence.
+    CATEGORY_MAP = {
+        # Databases
+        "PostgreSQL": "database",
+        "MySQL": "database",
+        "MongoDB": "database",
+        "SQLite": "database",
+        # Caches and brokers — treated as services when mentioned in chat
+        "Redis": "service",
+        # Cloud / infra / runtimes
+        "AWS": "service",
+        "Google Cloud": "service",
+        "Docker": "service",
+        "Kubernetes": "service",
+        # Libraries
+        "SQLAlchemy": "library",
+        "Prisma": "library",
+        "Mongoose": "library",
+        "GraphQL": "library",
+        # Languages
+        "TypeScript": "language",
+        # Everything else (FastAPI, Django, Flask, Pyramid, React, Vue.js,
+        # Angular, Next.js, Express.js, NestJS) → "framework"
     }
     
     # Project type patterns

@@ -1,47 +1,66 @@
-"""Tests for Cheatsheet Agent."""
+"""High-level cheatsheet tests (v0.11).
+
+LLM-touching tests tolerate both 'curated' and 'curated_unpersonalized'
+quality — when Ollama is unavailable or returns malformed JSON, the
+deterministic fallback still produces a valid sheet from the seed pack.
+"""
 
 import pytest
-from src.agents.cheatsheet.agent import CheatsheetAgent, generate_cheatsheet_invoke
 
-def test_generate_python_beginner():
-    """Test generating a beginner Python cheat sheet."""
-    agent = CheatsheetAgent()
-    result = agent.generate({'language': 'python', 'skill_level': 'beginner'})
-    
-    assert result["success"] is True
-    assert result["language"] == "python"
-    assert result["skill_level"] == "beginner"
-    assert "Python Cheat Sheet - Beginner" in result["markdown"]
-    assert "Variables" in result["markdown"]
+from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
 
-def test_generate_javascript_intermediate():
-    """Test generating an intermediate JavaScript cheat sheet."""
-    agent = CheatsheetAgent()
-    result = agent.generate({'language': 'javascript', 'skill_level': 'intermediate'})
-    
-    assert result["success"] is True
-    assert result["language"] == "javascript"
-    # JavaScript not in enhanced templates yet, so will use fallback
-    assert "JavaScript" in result["markdown"] or result["language"] == "javascript"
-
-def test_auto_detect_language():
-    """Test language auto-detection from code context."""
-    agent = CheatsheetAgent()
-    code = "def my_func(): print('hello')"
-    result = agent.generate({'code_context': code, 'skill_level': 'beginner'})
-    
-    assert result["success"] is True
-    assert result["language"] == "python"
-    assert "Python" in result["markdown"]
 
 @pytest.mark.asyncio
-async def test_gateway_invoke_wrapper():
-    """Test the gateway wrapper function."""
-    result = await generate_cheatsheet_invoke({
-        "language": "python",
-        "skill_level": "beginner"
-    })
-    
+async def test_python_beginner_explicit_language_returns_curated():
+    result = await generate_cheatsheet_invoke(
+        {"language": "python", "skill_level": "beginner",
+         "intent": "learning python basics"},
+        tenant_id="t", integration_name="i", user_id="u",
+    )
+    assert result["success"] is True
+    data = result["data"]
+    assert data["language"] == "python"
+    assert data["skill_level"] == "beginner"
+    assert data["quality"] in ("curated", "curated_unpersonalized")
+    assert data["markdown"].startswith("# Python Cheat Sheet - Beginner")
+
+
+@pytest.mark.asyncio
+async def test_unsupported_language_returns_failure():
+    result = await generate_cheatsheet_invoke(
+        {"language": "cobol", "skill_level": "beginner"},
+        tenant_id="t", integration_name="i", user_id="u",
+    )
+    assert result["success"] is False
+    msg = result["data"]["message"].lower()
+    assert "cobol" in msg or "not supported" in msg
+
+
+@pytest.mark.asyncio
+async def test_no_inputs_returns_failure():
+    result = await generate_cheatsheet_invoke(
+        {}, tenant_id="t", integration_name="i", user_id="u",
+    )
+    assert result["success"] is False
+    msg = result["data"]["message"].lower()
+    assert "language" in msg or "intent" in msg or "at least one" in msg
+
+
+@pytest.mark.asyncio
+async def test_auto_detect_language_from_code_context():
+    result = await generate_cheatsheet_invoke(
+        {"code_context": "def hello():\n    print('hi')\n",
+         "skill_level": "beginner"},
+        tenant_id="t", integration_name="i", user_id="u",
+    )
     assert result["success"] is True
     assert result["data"]["language"] == "python"
-    assert "Python Cheat Sheet - Beginner" in result["data"]["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_intent_only_request_with_language():
+    result = await generate_cheatsheet_invoke(
+        {"language": "python", "intent": "refactoring to typed code"},
+        tenant_id="t", integration_name="i", user_id="u",
+    )
+    assert result["success"] is True

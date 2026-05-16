@@ -90,7 +90,13 @@ class GitHubTools:
             return
             
         auth = Auth.Token(self.token)
-        self._client = Github(auth=auth)
+        # Bound the underlying socket timeout so a stalled GitHub API call cannot
+        # hang the executor thread indefinitely. The agent layer wraps each call
+        # in asyncio.wait_for(..., timeout=15.0), but that does not cancel the
+        # synchronous PyGithub call running in run_in_executor — we need a real
+        # socket-level cap here too. Configurable via GITHUB_HTTP_TIMEOUT env.
+        http_timeout = int(os.getenv("GITHUB_HTTP_TIMEOUT", "10"))
+        self._client = Github(auth=auth, timeout=http_timeout)
         self._user = self._client.get_user()
         
         logger.info(
@@ -631,24 +637,221 @@ class GitHubTools:
                     repo_name = f"{self.user.login}/{repo_name}"
                 full_query = f"{query} repo:{repo_name}"
             
-            # Code search specifically
+            # Code search specifically. PyGithub's PaginatedList raises IndexError
+            # when sliced on empty results (the lazy buffer has nothing to index),
+            # so iterate with an explicit cap instead of using `results[:20]`.
             results = self.client.search_code(query=full_query)
-            
+
             result_list = []
-            # Limit to top 20 results for performance
-            for item in list(results[:20]):
+            for item in results:
+                if len(result_list) >= 20:
+                    break
                 result_list.append({
                     "name": item.name,
                     "path": item.path,
                     "repo": item.repository.full_name,
-                    "url": item.html_url
+                    "url": item.html_url,
                 })
-                
+
             return result_list
         except Exception as e:
             if "404" in str(e):
                 raise ValueError(f"Repository '{repo_name}' not found for code search.")
             logger.error(f"Search failed for query '{query}': {e}")
+            raise
+
+    @handle_rate_limits
+    def list_branches(self, repo_name: str) -> List[Dict[str, Any]]:
+        """List all branches in a repository.
+
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+
+        Returns:
+            List of branch information dicts
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+
+            repo = self.client.get_repo(repo_name)
+            branches = repo.get_branches()
+
+            result = []
+            for branch in branches:
+                result.append({
+                    "name": branch.name,
+                    "sha": branch.commit.sha,
+                    "protected": branch.protected,
+                })
+
+            logger.info(
+                f"Listed {len(result)} branches in {repo_name}",
+                extra={"repo": repo_name, "count": len(result)}
+            )
+            return result
+
+        except GithubException as e:
+            logger.error(
+                f"Failed to list branches in '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "status": e.status},
+                exc_info=True,
+            )
+            raise
+
+    @handle_rate_limits
+    def create_branch(
+        self,
+        repo_name: str,
+        branch_name: str,
+        from_branch: str = "main",
+    ) -> Dict[str, Any]:
+        """Create a new branch in a repository.
+
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+            branch_name: Name of the new branch to create
+            from_branch: Source branch to branch from (default: 'main')
+
+        Returns:
+            Created branch information
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+
+            repo = self.client.get_repo(repo_name)
+
+            # Get the SHA of the source branch tip
+            source_ref = repo.get_git_ref(f"heads/{from_branch}")
+            source_sha = source_ref.object.sha
+
+            start_time = time.time()
+            new_ref = repo.create_git_ref(
+                ref=f"refs/heads/{branch_name}",
+                sha=source_sha,
+            )
+            duration = time.time() - start_time
+
+            result = {
+                "branch_name": branch_name,
+                "from_branch": from_branch,
+                "sha": source_sha,
+                "ref": new_ref.ref,
+            }
+
+            logger.info(
+                f"Created branch '{branch_name}' from '{from_branch}' in {repo_name} ({duration:.2f}s)",
+                extra={"repo": repo_name, "branch": branch_name, "from": from_branch},
+            )
+            return result
+
+        except GithubException as e:
+            logger.error(
+                f"Failed to create branch '{branch_name}' in '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "branch": branch_name, "status": e.status},
+                exc_info=True,
+            )
+            raise
+
+    @handle_rate_limits
+    def delete_branch(self, repo_name: str, branch_name: str) -> Dict[str, Any]:
+        """Delete a branch from a repository.
+
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+            branch_name: Name of the branch to delete
+
+        Returns:
+            Deletion confirmation
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+
+            repo = self.client.get_repo(repo_name)
+            ref = repo.get_git_ref(f"heads/{branch_name}")
+            ref.delete()
+
+            result = {
+                "deleted_branch": branch_name,
+                "repo": repo_name,
+                "status": "deleted",
+            }
+
+            logger.info(
+                f"Deleted branch '{branch_name}' from {repo_name}",
+                extra={"repo": repo_name, "branch": branch_name},
+            )
+            return result
+
+        except GithubException as e:
+            logger.error(
+                f"Failed to delete branch '{branch_name}' in '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "branch": branch_name, "status": e.status},
+                exc_info=True,
+            )
+            raise
+
+    @handle_rate_limits
+    def delete_repo(self, repo_name: str) -> Dict[str, Any]:
+        """Delete a repository permanently.
+
+        CRITICAL: This operation is irreversible.
+        Uses exact-match lookup only — fuzzy matching is intentionally disabled.
+        If the repository is not found with this exact name, raises an error and
+        never guesses or suggests alternatives.
+
+        Args:
+            repo_name: Exact repository name (must be 'owner/repo' format)
+
+        Returns:
+            Deletion confirmation
+
+        Raises:
+            ValueError: If repo_name is not in 'owner/repo' format
+            GithubException: If repo not found (404) or permission denied (403)
+        """
+        # Enforce exact owner/repo format — no auto-qualification allowed
+        if '/' not in repo_name:
+            raise ValueError(
+                f"Repository name must be in 'owner/repo' format for deletion. "
+                f"Got: '{repo_name}'. Refusing to guess the owner."
+            )
+
+        try:
+            # Exact lookup — no fuzzy resolution at any layer
+            repo = self.client.get_repo(repo_name)
+            full_name = repo.full_name  # capture before deletion
+
+            start_time = time.time()
+            repo.delete()
+            duration = time.time() - start_time
+
+            result = {
+                "deleted_repo": full_name,
+                "status": "deleted",
+            }
+
+            logger.warning(
+                f"DELETED repository: {full_name} (took {duration:.2f}s)",
+                extra={"repo": full_name},
+            )
+            return result
+
+        except GithubException as e:
+            if e.status == 404:
+                # Hard error — never suggest alternatives
+                raise GithubException(
+                    status=404,
+                    data={"message": f"Repository '{repo_name}' not found. No repository was deleted."},
+                    headers={}
+                )
+            logger.error(
+                f"Failed to delete repo '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "status": e.status},
+                exc_info=True,
+            )
             raise
 
 

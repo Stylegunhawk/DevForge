@@ -147,6 +147,10 @@ class CrossEncoderReranker(BaseReranker):
         for chunk in chunks:
             chunk_type = chunk.metadata.get("chunk_type", "text")
             
+            # Guard: rerank_score is None if chunk hasn't been through rerank() yet
+            if chunk.rerank_score is None:
+                chunk.rerank_score = 0.0
+            
             # Apply boost based on chunk type
             if chunk_type == "function":
                 chunk.rerank_score *= settings.BOOST_FUNCTION  # 1.2x

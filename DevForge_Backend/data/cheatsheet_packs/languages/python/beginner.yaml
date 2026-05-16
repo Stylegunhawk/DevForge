@@ -1,0 +1,397 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 2
+  library: null
+  library_version_floor: null
+  last_reviewed: 2026-05-15
+  reviewer: sid
+
+entries:
+  - id: py.beginner.variables
+    title: "Variables & Types"
+    explanation: "Python uses dynamic typing — variables don't declare types up front. The built-in types you'll meet first are int, float, str, bool, and NoneType."
+    tags: [syntax, fundamentals, variables, types, assignment, basics]
+    when_to_use: "Always — the foundation of any Python program. Use type hints when you want to document intent or unlock editor autocomplete."
+    examples:
+      - title: "Basic assignment and built-in types"
+        language: python
+        code: |
+          name = "Alice"
+          age = 25
+          price = 19.99
+          is_active = True
+          missing = None
+          print(type(age))
+      - title: "Type hints (optional, recommended for clarity)"
+        language: python
+        code: |
+          name: str = "Alice"
+          age: int = 25
+          balance: float = 100.50
+          tags: list[str] = ["admin", "ops"]
+      - title: "Multiple assignment and tuple unpacking"
+        language: python
+        code: |
+          x, y, z = 1, 2, 3
+          first, *rest = [1, 2, 3, 4]
+          a = b = c = 0
+    pitfalls:
+      - "Reassigning to a different type is legal but error-prone — use type hints to make intent explicit."
+      - "`is` checks identity (same object in memory), not equality. Use `==` for value comparison."
+      - "`None` is a singleton — always compare with `x is None` or `x is not None`, never `x == None`."
+      - "Variables defined inside a function are local; reading from outside scope is fine, but writing to outer names needs `global` or `nonlocal`."
+
+  - id: py.beginner.numbers
+    title: "Numbers and Arithmetic"
+    explanation: "Python integers have unbounded precision; floats are 64-bit IEEE 754. Use `//` for integer division and `**` for exponentiation."
+    tags: [numbers, arithmetic, int, float, math, division, operators, basics]
+    when_to_use: "Any numeric calculation. Watch out for float precision and the difference between `/` and `//`."
+    examples:
+      - title: "Arithmetic operators"
+        language: python
+        code: |
+          a, b = 7, 3
+          print(a + b)
+          print(a - b)
+          print(a * b)
+          print(a / b)
+          print(a // b)
+          print(a % b)
+          print(a ** b)
+      - title: "Float precision gotcha and the fix"
+        language: python
+        code: |
+          from decimal import Decimal
+          print(0.1 + 0.2)
+          print(Decimal("0.1") + Decimal("0.2"))
+      - title: "Type conversion"
+        language: python
+        code: |
+          n = int("42")
+          x = float("3.14")
+          s = str(99)
+          rounded = round(3.5)
+    pitfalls:
+      - "`/` always returns a float in Python 3; use `//` when you want integer truncation."
+      - "Floats are inexact — never compare floats with `==`. Use `math.isclose(a, b)` instead."
+      - "`int()` and `float()` raise ValueError on bad input. Wrap user input in try/except."
+      - "Mixing int and float yields a float — `1 + 1.0` is `2.0`, not `2`."
+
+  - id: py.beginner.strings
+    title: "Strings and f-Strings"
+    explanation: "Strings are immutable sequences of Unicode characters. f-strings (f\"...\") are the modern way to format and are 4-10x faster than older % or .format()."
+    tags: [strings, fstring, formatting, text, slicing, immutable, basics]
+    when_to_use: "Any time you handle text — user input, file paths, logs, output formatting."
+    examples:
+      - title: "f-string formatting"
+        language: python
+        code: |
+          name = "Alice"
+          age = 25
+          print(f"Hello, {name}! You are {age} years old.")
+          price = 19.99
+          print(f"Price: ${price:.2f}")
+          print(f"{name=}, {age=}")
+      - title: "Slicing and common methods"
+        language: python
+        code: |
+          s = "Hello, World!"
+          print(s[0:5])
+          print(s[-6:])
+          print(s.upper())
+          print(s.replace("World", "Python"))
+          print(s.split(", "))
+          print("  spaces  ".strip())
+      - title: "Joining and checking"
+        language: python
+        code: |
+          parts = ["one", "two", "three"]
+          joined = "-".join(parts)
+          assert "py" in "python"
+          assert "python".startswith("py")
+    pitfalls:
+      - "Strings are immutable — `s[0] = 'x'` raises TypeError. Build new strings instead."
+      - "Concatenating strings with `+` in a loop is O(n²). Use `\"\".join(...)` or a list + join."
+      - "f-strings can run any Python expression — avoid putting untrusted input directly in one if it could be eval-like."
+      - "`.split()` with no argument splits on any whitespace and drops empties. `.split(' ')` keeps empty strings between consecutive spaces."
+
+  - id: py.beginner.collections
+    title: "Lists, Dicts, Tuples, Sets"
+    explanation: "Python's four built-in collection types. Lists are ordered & mutable. Dicts map keys to values (insertion-ordered since 3.7). Tuples are immutable lists. Sets are unordered unique collections."
+    tags: [collections, list, dict, tuple, set, data-structures, fundamentals, basics]
+    when_to_use: "Lists for ordered data, dicts for keyed lookup, tuples for fixed records or dict keys, sets for uniqueness and membership tests."
+    examples:
+      - title: "Lists — create, append, slice, iterate"
+        language: python
+        code: |
+          nums = [1, 2, 3]
+          nums.append(4)
+          nums.extend([5, 6])
+          first = nums[0]
+          last_three = nums[-3:]
+          for n in nums:
+              print(n)
+      - title: "Dicts — lookup, update, iterate"
+        language: python
+        code: |
+          person = {"name": "Alice", "age": 25}
+          age = person.get("age", 0)
+          person["email"] = "alice@example.com"
+          for key, value in person.items():
+              print(key, value)
+      - title: "Tuples and sets"
+        language: python
+        code: |
+          point = (3, 4)
+          x, y = point
+          unique = set([1, 2, 2, 3, 3, 3])
+          print(unique)
+          print({1, 2, 3} & {2, 3, 4})
+    pitfalls:
+      - "Don't iterate and mutate a list at the same time — iterate over a copy with `for x in items[:]`."
+      - "`dict.get(key)` returns None on missing key; `dict[key]` raises KeyError. Pick the one matching your intent."
+      - "Tuples are immutable but can contain mutable items — `(1, [2, 3])` is mutable inside."
+      - "Sets are unordered — never assume iteration order. Use a list if order matters."
+
+  - id: py.beginner.control_flow
+    title: "Control Flow: if, for, while"
+    explanation: "Branching with if/elif/else, iteration with for/while. Indentation defines blocks — no curly braces."
+    tags: [control-flow, if, for, while, loops, conditionals, branching, basics]
+    when_to_use: "Any program logic that branches or repeats. Prefer `for` over manual indexing."
+    examples:
+      - title: "If/elif/else and ternary"
+        language: python
+        code: |
+          age = 18
+          if age >= 18:
+              category = "adult"
+          elif age >= 13:
+              category = "teen"
+          else:
+              category = "child"
+          status = "ok" if age > 0 else "invalid"
+      - title: "For loop with enumerate and zip"
+        language: python
+        code: |
+          names = ["Alice", "Bob", "Charlie"]
+          for i, name in enumerate(names):
+              print(i, name)
+          ages = [25, 30, 35]
+          for name, age in zip(names, ages):
+              print(f"{name}: {age}")
+      - title: "While loop with break and continue"
+        language: python
+        code: |
+          n = 10
+          while n > 0:
+              if n == 5:
+                  break
+              if n % 2 == 0:
+                  n -= 1
+                  continue
+              print(n)
+              n -= 1
+    pitfalls:
+      - "Python uses indentation for blocks — mixing tabs and spaces breaks code. Use 4 spaces consistently."
+      - "`for ... else:` runs when the loop exits without break — confusing if you don't know it."
+      - "Don't use `while True:` without a clear `break` condition — infinite loops are common bugs."
+      - "Empty collections, 0, None, '', [], {} are all falsy. Don't write `if len(x) > 0` — just `if x:`."
+
+  - id: py.beginner.functions
+    title: "Functions and Arguments"
+    explanation: "Reusable named blocks of code. Use type hints for clarity. Functions are first-class — pass them around like values."
+    tags: [functions, def, arguments, parameters, return, scope, basics]
+    when_to_use: "Any logic used more than once, or any logic worth naming for readability."
+    examples:
+      - title: "Definition with type hints and default args"
+        language: python
+        code: |
+          def greet(name: str, greeting: str = "Hello") -> str:
+              return f"{greeting}, {name}!"
+
+          print(greet("Alice"))
+          print(greet("Bob", greeting="Hi"))
+      - title: "Multiple returns and unpacking"
+        language: python
+        code: |
+          def divmod_safe(a: int, b: int) -> tuple[int, int]:
+              return a // b, a % b
+
+          q, r = divmod_safe(17, 5)
+          print(q, r)
+      - title: "Functions as first-class objects"
+        language: python
+        code: |
+          def square(x):
+              return x * x
+
+          numbers = [1, 2, 3, 4]
+          squared = list(map(square, numbers))
+          print(squared)
+    pitfalls:
+      - "NEVER use a mutable default argument like `def f(items=[]):` — it's shared across all calls. Use `items=None` then `items = items or []` inside."
+      - "Functions without `return` implicitly return `None`."
+      - "Default arguments evaluate once at function-definition time, not at call time."
+      - "Positional vs keyword args: `def f(*, key):` forces keyword-only; `def f(x, /):` forces positional-only."
+
+  - id: py.beginner.exceptions
+    title: "Exceptions and Error Handling"
+    explanation: "Use try/except to handle errors gracefully. Raise specific exceptions, not bare `Exception`. Always catch the narrowest exception type that fits."
+    tags: [exceptions, errors, try, except, raise, handling, basics]
+    when_to_use: "File I/O, network calls, user input parsing, anywhere a failure mode is expected."
+    examples:
+      - title: "Basic try/except/else/finally"
+        language: python
+        code: |
+          try:
+              n = int(input("Enter a number: "))
+              result = 10 / n
+          except ValueError:
+              print("Not a valid number")
+          except ZeroDivisionError:
+              print("Cannot divide by zero")
+          else:
+              print(f"Result: {result}")
+          finally:
+              print("Done")
+      - title: "Raising and re-raising"
+        language: python
+        code: |
+          def get_user(user_id: int):
+              if user_id < 0:
+                  raise ValueError(f"Invalid user_id: {user_id}")
+              return {"id": user_id, "name": "Alice"}
+
+          try:
+              get_user(-1)
+          except ValueError as e:
+              print(f"Got error: {e}")
+              raise
+      - title: "Common built-in exceptions"
+        language: python
+        code: |
+          items = [1, 2, 3]
+          try:
+              x = items[10]
+          except IndexError as e:
+              print(f"Index out of range: {e}")
+
+          data = {"a": 1}
+          try:
+              v = data["missing"]
+          except KeyError:
+              v = None
+    pitfalls:
+      - "Avoid bare `except:` — it catches KeyboardInterrupt and SystemExit too. Use `except Exception:` if you must catch broadly."
+      - "Don't use exceptions for control flow when an `if` check would do — exceptions are slow on the failure path."
+      - "Use `except FooError as e:` so you can inspect/log the actual exception."
+      - "Never silently swallow exceptions (`except: pass`) — at minimum log them."
+
+  - id: py.beginner.io_files
+    title: "Basic I/O and File Handling"
+    explanation: "Reading from stdin, writing to stdout, and reading/writing files. Always use the `with` statement to ensure files are closed."
+    tags: [io, files, input, output, print, open, read, write, basics]
+    when_to_use: "Interacting with the user, reading configuration, persisting data, processing logs."
+    examples:
+      - title: "Print, input, file write"
+        language: python
+        code: |
+          name = input("Your name: ")
+          print(f"Hello, {name}!")
+
+          with open("greeting.txt", "w") as f:
+              f.write(f"Hello, {name}!\n")
+      - title: "Reading a file line by line"
+        language: python
+        code: |
+          with open("data.txt", "r") as f:
+              for line in f:
+                  print(line.rstrip())
+      - title: "JSON read/write"
+        language: python
+        code: |
+          import json
+
+          data = {"users": [{"name": "Alice", "age": 25}]}
+          with open("data.json", "w") as f:
+              json.dump(data, f, indent=2)
+
+          with open("data.json") as f:
+              loaded = json.load(f)
+          print(loaded["users"][0]["name"])
+    pitfalls:
+      - "Always use `with open(...) as f:` — it closes the file even if an exception is raised."
+      - "`input()` returns a string. Convert with `int(...)` or `float(...)` if you need a number."
+      - "Default file mode is `'r'` (read text). Use `'w'` (truncate write), `'a'` (append), or `'rb'`/`'wb'` for binary."
+      - "Reading huge files with `.read()` loads everything in memory. Iterate line-by-line or use `.read(chunk_size)`."
+
+  - id: py.beginner.imports
+    title: "Imports and Modules"
+    explanation: "Use `import` to load modules from the standard library, third-party packages, or your own code. `if __name__ == \"__main__\":` runs code only when the file is executed directly."
+    tags: [imports, modules, packages, namespace, basics]
+    when_to_use: "Anything beyond a 20-line script. Split code into modules for organization."
+    examples:
+      - title: "Standard library imports"
+        language: python
+        code: |
+          import os
+          import json
+          from pathlib import Path
+          from datetime import datetime, timedelta
+
+          home = Path.home()
+          now = datetime.now()
+          print(home, now)
+      - title: "Aliasing and selective imports"
+        language: python
+        code: |
+          import numpy as np
+          import pandas as pd
+          from collections import Counter, defaultdict
+
+          counts = Counter([1, 1, 2, 3, 3, 3])
+          print(counts)
+      - title: "The __main__ guard"
+        language: python
+        code: |
+          def main():
+              print("running as script")
+
+          if __name__ == "__main__":
+              main()
+    pitfalls:
+      - "Never use `from module import *` in production code — it pollutes the namespace and hides what's used."
+      - "Circular imports happen when module A imports B and B imports A. Refactor by moving shared code to a third module."
+      - "Without `if __name__ == \"__main__\":`, top-level code runs even when the file is imported."
+      - "`import` is cached — subsequent imports of the same module don't re-execute. Use `importlib.reload()` if you really need to re-run."
+
+  - id: py.beginner.list_comprehensions
+    title: "List Comprehensions (the gateway to Pythonic)"
+    explanation: "A concise way to build a list from another iterable, optionally filtered and transformed in one expression. Reads as: \"new_value for item in collection if condition\"."
+    tags: [comprehensions, list, filter, map, pythonic, basics, transform]
+    when_to_use: "Building a new list from an existing iterable — replaces simple for-loops with appends."
+    examples:
+      - title: "Simple transform"
+        language: python
+        code: |
+          numbers = [1, 2, 3, 4, 5]
+          squares = [n * n for n in numbers]
+          print(squares)
+      - title: "With a filter"
+        language: python
+        code: |
+          numbers = range(20)
+          evens = [n for n in numbers if n % 2 == 0]
+          print(evens)
+      - title: "With conditional expression"
+        language: python
+        code: |
+          numbers = [-2, -1, 0, 1, 2]
+          signs = ["pos" if n > 0 else "neg" if n < 0 else "zero" for n in numbers]
+          print(signs)
+    pitfalls:
+      - "Don't nest deeply (>2 levels) — a regular for-loop is more readable for complex logic."
+      - "List comprehensions build the entire list in memory. For big data, use a generator expression: `(n*n for n in ...)`."
+      - "Side effects in comprehensions (like print() or .append()) are a code smell — use a regular loop."
+      - "Dict and set comprehensions exist too: `{k: v*2 for k, v in d.items()}` and `{x*x for x in range(10)}`."

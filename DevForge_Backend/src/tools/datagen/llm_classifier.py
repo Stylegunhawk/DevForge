@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Optional
 from .semantic_types import SemanticFieldInfo, FieldContext
+from src.core.model_router import model_router
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,13 @@ Return ONLY the JSON object. No markdown, no backticks, no explanations."""
             llm_client: LangChain LLM instance or similar. If None, classification will fail gracefully.
         """
         self.llm = llm_client
-    
-    def classify(self, ctx: FieldContext) -> Optional[SemanticFieldInfo]:
+    async def classify(
+        self, 
+        ctx: FieldContext,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
+    ) -> Optional[SemanticFieldInfo]:
         """
         Classify field using LLM.
         
@@ -65,14 +71,15 @@ Return ONLY the JSON object. No markdown, no backticks, no explanations."""
         prompt = self._build_prompt(ctx)
         
         try:
-            # Call LLM (adjust based on your LLM client interface)
-            response = self.llm.invoke(prompt)
-            
-            # Extract text from response (adjust based on response type)
-            if hasattr(response, 'content'):
-                text = response.content
-            else:
-                text = str(response)
+            # Phase 2: Use ModelRouter.invoke_with_usage for token tracking
+            usage_result = await model_router.invoke_with_usage(
+                prompt=prompt,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                task_type="datagen_field_classification",
+                user_id=user_id  # NEW: Pass user_id to ModelRouter
+            )
+            text = usage_result.content
             
             # Parse JSON
             result = self._parse_response(text)

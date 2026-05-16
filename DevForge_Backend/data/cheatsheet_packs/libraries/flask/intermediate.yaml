@@ -1,0 +1,118 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: flask
+  library_version_floor: 3.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: app-routing
+  title: Route Decorators
+  explanation: Define URL endpoints using @app.route decorators to map URLs to view
+    functions.
+  tags:
+  - routing
+  - decorators
+  when_to_use: Use when mapping URLs to specific view logic.
+  examples:
+  - title: Basic Route
+    language: python
+    code: "from flask import Flask\napp = Flask(__name__)\n\n@app.route('/')\ndef\
+      \ hello():\n    return 'Hello, World!'\n\nif __name__ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Forgetting to create the Flask app instance before defining routes.
+  - Defining routes after calling app.run() – the decorator must run before the server
+    starts.
+- id: error-handling
+  title: Custom Error Handlers
+  explanation: Register handlers for HTTP errors like 404 or 500 to return custom
+    responses.
+  tags:
+  - errors
+  - handlers
+  when_to_use: Use when you want user-friendly error pages or JSON error responses.
+  examples:
+  - title: 404 Handler
+    language: python
+    code: "from flask import Flask, jsonify\napp = Flask(__name__)\n\n@app.errorhandler(404)\n\
+      def not_found(e):\n    return jsonify(error='Not found'), 404\n\nif __name__\
+      \ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Not returning a valid response object from the error handler.
+  - Registering error handlers after the first request has been processed.
+- id: template-rendering
+  title: Rendering Jinja Templates
+  explanation: Use render_template to generate dynamic HTML using Jinja2 templates.
+  tags:
+  - templates
+  - rendering
+  when_to_use: Use when you need to serve dynamic HTML pages.
+  examples:
+  - title: Template Render
+    language: python
+    code: "from flask import Flask, render_template_string\napp = Flask(__name__)\n\
+      \n@app.route('/greet/<name>')\ndef greet(name):\n    template = '<h1>Hello,\
+      \ {{ name }}!</h1>'\n    return render_template_string(template, name=name)\n\
+      \nif __name__ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Mixing Python logic inside templates; keep templates for presentation only.
+  - Forgetting to escape user input in templates, leading to XSS vulnerabilities.
+- id: database-integration
+  title: SQLAlchemy with Flask
+  explanation: Integrate Flask with SQLAlchemy ORM to interact with relational databases.
+  tags:
+  - database
+  - orm
+  when_to_use: Use when persistent data storage with relational DB is required.
+  examples:
+  - title: Simple Model
+    language: python
+    code: "from flask import Flask\nfrom flask_sqlalchemy import SQLAlchemy\n\napp\
+      \ = Flask(__name__)\napp.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'\n\
+      db = SQLAlchemy(app)\n\nclass User(db.Model):\n    id = db.Column(db.Integer,\
+      \ primary_key=True)\n    username = db.Column(db.String(80), unique=True, nullable=False)\n\
+      \n@app.before_first_request\ndef create_tables():\n    db.create_all()\n\n@app.route('/add/<username>')\n\
+      def add_user(username):\n    user = User(username=username)\n    db.session.add(user)\n\
+      \    db.session.commit()\n    return f'Added {username}'\n\nif __name__ == '__main__':\n\
+      \    app.run()\n"
+  pitfalls:
+  - Forgetting to call db.create_all() before using the tables.
+  - Using SQLAlchemy queries without committing the session, causing no data persistence.
+- id: session-management
+  title: Flask Sessions
+  explanation: Store per-user data using secure signed cookies via Flask's session
+    object.
+  tags:
+  - sessions
+  - auth
+  when_to_use: Use when you need to track user identity or preferences across requests.
+  examples:
+  - title: Session Usage
+    language: python
+    code: "from flask import Flask, session, redirect, url_for\napp = Flask(__name__)\n\
+      app.secret_key = 'super-secret-key'\n\n@app.route('/login')\ndef login():\n\
+      \    session['user'] = 'alice'\n    return 'Logged in'\n\n@app.route('/profile')\n\
+      def profile():\n    user = session.get('user')\n    if not user:\n        return\
+      \ redirect(url_for('login'))\n    return f'Profile of {user}'\n\nif __name__\
+      \ == '__main__':\n    app.run()\n"
+  pitfalls:
+  - Using a weak or hard-coded secret_key, compromising session security.
+  - Storing large objects in the session, exceeding cookie size limits.
+- id: blueprint-usage
+  title: Organizing with Blueprints
+  explanation: Split application into reusable components using Flask Blueprints.
+  tags:
+  - blueprints
+  - modularity
+  when_to_use: Use when the application grows and you need a modular structure.
+  examples:
+  - title: Simple Blueprint
+    language: python
+    code: "from flask import Flask, Blueprint\napp = Flask(__name__)\n\nmain_bp =\
+      \ Blueprint('main', __name__)\n\n@main_bp.route('/')\ndef index():\n    return\
+      \ 'Hello from Blueprint'\n\napp.register_blueprint(main_bp)\n\nif __name__ ==\
+      \ '__main__':\n    app.run()\n"
+  pitfalls:
+  - Forgetting to register the blueprint with the app before handling requests.
+  - Using relative URLs inside blueprints without prefixing with url_prefix.

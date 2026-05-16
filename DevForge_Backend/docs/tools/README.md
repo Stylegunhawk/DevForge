@@ -1,405 +1,276 @@
 # DevForge Backend - Tools Documentation Index
 
-**Version:** 0.7.0  
-**Last Updated:** December 2, 2025  
-**Total Tools:** 6
+**Version:** 0.8.0
+**Last Updated:** 2026-05-08
+**Gateway tools:** 4 (registered in `SUPPORTED_TOOLS`)
+**Internal RAG capabilities:** 2 (different access path)
 
 ---
 
 ## Overview
 
-This directory contains comprehensive documentation for all DevForge Backend tools. Each tool is documented with a standardized format designed for easy LLM understanding and human readability.
+This directory contains documentation for every DevForge tool. Each `.md` file uses a standard structure designed for LLM consumption and human readability.
+
+> **Doc accuracy:** Every per-tool doc has a corresponding doc-vs-code review under [`_reviews/`](./_reviews/). The reviews list which claims are verified against current source, which diverged, and which are unverifiable. **Read the review before trusting a per-tool doc** — drift is significant in places.
 
 ---
 
 ## Documentation Format
 
-Each tool documentation follows this structure:
+Each tool doc follows this structure:
 
-1. **Header** - Tool name, version, phase, status
-2. **Overview** - Brief description and key features
-3. **Folder Structure** - Complete file/folder organization
-4. **Parameters** - Detailed parameter specifications
-5. **API Usage** - curl examples and responses
-6. **Lobe Chat Usage** - Natural language examples
-7. **Use Cases** - Real-world scenarios
-8. **Implementation Details** - Tech stack and architecture
-9. **Error Handling** - Common errors and solutions
-10. **Examples** - Code samples and outputs
-11. **Testing** - Test commands and coverage
-12. **Best Practices** - Recommended usage patterns
-13. **Troubleshooting** - Common issues and fixes
-14. **Related Tools** - Integration with other tools
+1. Header — name, version, status
+2. Overview — description and key features
+3. Folder structure — file/folder organization
+4. Parameters — input/output specs
+5. API usage — `curl` examples
+6. Use cases — real-world scenarios
+7. Implementation — tech stack and architecture
+8. Error handling — common errors
+9. Testing — test commands and counts
+10. Best practices and troubleshooting
 
 ---
 
-## Available Tools
+## Gateway Tools (4)
 
-### 1. generate_data - Mock Data Generation
-**File:** [`generate_data.md`](./generate_data.md)  
-**Phase:** 1 (Foundation)  
-**Status:** ✅ Production Ready
+These are the tools registered in `SUPPORTED_TOOLS` (`src/api/routers/__init__.py:45-54`) and callable via `POST /api/gateway` or `POST /mcp` (`tools/call`). Both endpoints require `x-api-key`.
 
-**Description:** Generate realistic mock CSV/JSON data using Faker and Pandas
+### 1. `generate_data` — Mock Data Generation
+**Doc:** [`generate_data.md`](./generate_data.md) · **Review:** [`_reviews/generate_data_review.md`](./_reviews/generate_data_review.md)
 
-**Key Features:**
-- Multiple format support (CSV, JSON)
-- Custom field selection
-- 1-10,000 row generation
-- Fast execution (< 1s for small datasets)
+Generates realistic mock CSV/JSON data. Two modes:
+- **V1 (simple):** Faker-based, `rows` + `format` + optional `fields`.
+- **V2 (advanced):** semantic generation with domain templates, FK integrity validation, realism injection. Triggered by `prompt` or `domain`.
 
-**Common Use Cases:**
-- API testing
-- Database seeding
-- UI prototyping
-- Performance testing
+Domains: `ecommerce`, `saas`, `iot_devices`. Realism: `basic | medium | high`.
 
----
+### 2. `github_operation` — GitHub Automation
+**Doc:** [`github_operation.md`](./github_operation.md) · **Curl tests:** [`github_operation_curl_tests.md`](./github_operation_curl_tests.md) · **Review:** [`_reviews/github_operation_review.md`](./_reviews/github_operation_review.md)
 
-### 2. retrieve_docs - RAG Document Retrieval
-**File:** [`retrieve_docs.md`](./retrieve_docs.md)  
-**Phase:** 3.1 (RAG Agent)  
-**Status:** ✅ Production Ready
+LangGraph-orchestrated GitOps with intent classification, fuzzy repo matching, LLM commit-message generation, risk gate, policy gate, and audit logging. Operations supported (per `agent.py:163-179`): `list_repos`, `create_repo`, `delete_repo`, `create_issue`, `commit_file`, `create_pull_request`, `browse_files`, `read_file`, `search_code`, `list_branches`, `create_branch`, `delete_branch`, plus internal `generate_changelog` / `analyze_ci_failure` / `scaffold_repo` (reachable via this tool, **not** as standalone gateway names).
 
-**Description:** Semantic document search using RAG with ChromaDB or Qdrant
+> Token: pass per-request via `arguments.context.github_token`. Server-level `GITHUB_TOKEN` is optional fallback.
 
-**Key Features:**
-- Multi-format support (PDF, MD, TXT, DOCX)
-- Dual vector store (ChromaDB local + Qdrant cloud)
-- Automatic reranking
-- Configurable top-k results
+### 3. `refine_prompt` — Prompt Optimization
+**Doc:** [`refine_prompt.md`](./refine_prompt.md) · **Review:** [`_reviews/refine_prompt_review.md`](./_reviews/refine_prompt_review.md)
 
-**Common Use Cases:**
-- Codebase documentation search
-- API reference lookup
-- Architecture documentation
-- Troubleshooting guides
+Domain-aware LLM prompt enhancement. Five domains: `general`, `image`, `code`, `rag`, `llm`. Three skill levels: `beginner | intermediate | expert`. Uses evidence-weighted stack detection (dependency 0.9, code 0.8, conversation 0.4) for code-domain prompts.
+
+### 4. `generate_cheatsheet` — Cheat Sheet Generation
+**Doc:** [`generate_cheatsheet.md`](./generate_cheatsheet.md) · **Review:** [`_reviews/generate_cheatsheet_review.md`](./_reviews/generate_cheatsheet_review.md)
+
+Rule-based (no LLM) markdown cheat sheets. Pipeline: parse → detect libraries (14 supported) → score complexity → select sections → assemble markdown.
+
+> ⚠️ **Known limitation:** only Python has full templates. Requesting `language: "rust"` (etc.) currently returns Python content under a relabelled header. See the review.
 
 ---
 
-### 3. github_operation - GitHub Automation
-**File:** [`github_operation.md`](./github_operation.md)  
-**Phase:** 3.3 (GitHub Operations)  
-**Status:** ✅ Production Ready
+## Internal RAG Capabilities (2)
 
-**Description:** Automate GitHub operations using natural language commands
+These appear in older docs as "tools" but they are **not gateway-registered**. Calling `POST /api/gateway` with `name: "retrieve_docs"` or `name: "rerank_docs"` returns *Tool not found*.
 
-**Key Features:**
-- Natural language query parsing
-- Repository management
-- Issue creation
-- File commits
-- Pull request automation
+### `retrieve_docs` — Document Retrieval (RAG)
+**Doc:** [`rag/retrieve_docs.md`](./rag/retrieve_docs.md) · **Architecture:** [`rag_architecture.md`](./rag_architecture.md) · **Reviews:** [`_reviews/retrieve_docs_review.md`](./_reviews/retrieve_docs_review.md), [`_reviews/rag_architecture_review.md`](./_reviews/rag_architecture_review.md)
 
-**Common Use Cases:**
-- Automated issue creation
-- Repository listing
-- Quick commits
-- PR workflow automation
+Reachable via:
+- `POST /api/v1/rag/chunk/semanticSearchForChat` (tenant JWT required)
+- `POST /api/v1/rag/file/upload` for ingestion
+- `retrieve_node` inside the LangGraph supervisor (when supervisor routes to RAG)
 
----
+Pipeline: query intent → expansion → hybrid search (BM25 + vector) → cross-encoder rerank → optional code-graph BFS expansion → top-K. Vector backends: `chroma` or `postgres` (pgvector); production default is **postgres**.
 
-### 4. rerank_docs - Document Reranking
-**File:** [`rerank_docs.md`](./rerank_docs.md)  
-**Phase:** 4 (Reranking)  
-**Status:** ✅ Production Ready
+### `rerank_docs` — Cross-Encoder Reranking
+**Doc:** [`rag/rerank_docs.md`](./rag/rerank_docs.md) · **Review:** [`_reviews/rerank_docs_review.md`](./_reviews/rerank_docs_review.md)
 
-**Description:** Improve search quality using Cross-Encoder reranking
-
-**Key Features:**
-- Cross-Encoder based scoring
-- Standalone or RAG-integrated
-- 10-20% relevance improvement
-- Fast inference (< 200ms)
-
-**Common Use Cases:**
-- Search result refinement
-- Question answering
-- Code snippet selection
-- Document prioritization
-
----
-
-### 5. refine_prompt - Prompt Optimization
-**File:** [`refine_prompt.md`](./refine_prompt.md)  
-**Phase:** 6 (Prompt Refinement)  
-**Status:** ✅ Production Ready
-
-**Description:** Optimize prompts for specific domains using LLM enhancement
-
-**Key Features:**
-- 5 domain types (general, image, code, rag, llm)
-- 3 skill levels (beginner, intermediate, expert)
-- Context-aware refinement
-- Template-based enhancement
-
-**Common Use Cases:**
-- Image generation optimization
-- Code specification enhancement
-- RAG query improvement
-- General LLM prompting
-
----
-
-### 6. generate_cheatsheet - Dynamic Cheat Sheets
-**File:** [`generate_cheatsheet.md`](./generate_cheatsheet.md)  
-**Phase:** 7 (Cheat Sheets)  
-**Status:** ✅ Production Ready
-
-**Description:** Generate skill-level appropriate programming cheat sheets
-
-**Key Features:**
-- Auto language detection
-- 15+ languages supported
-- Skill-level adaptation
-- Markdown formatted output
-
-**Common Use Cases:**
-- Learning resources
-- Quick reference
-- Code review aid
-- Team onboarding
+Internal stage of `retrieve_docs`. Cross-encoder model `cross-encoder/ms-marco-MiniLM-L-6-v2`, sigmoid-normalised, with code-aware boosting (function 1.2, class 1.15). Not exposed as a standalone tool.
 
 ---
 
 ## Quick Start
 
-### For LLMs
-
-To understand a tool:
-1. Read the tool's `.md` file
-2. Review **Folder Structure** for code organization
-3. Check **Parameters** for API specifications
-4. Study **API Usage** for examples
-5. Review **Use Cases** for context
-
-### For Developers
-
+### Local development
 ```bash
-# Navigate to docs
-cd DevForge_Backend/docs/tools
-
-# Read any tool documentation
-cat generate_data.md
-cat retrieve_docs.md
-# ... etc
+cd DevForge_Backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+uvicorn src.main:app --reload --port 8001
 ```
 
-### For Users
+### Docker (full RAG stack)
+```bash
+cp .env.docker .env
+docker compose --profile rag up -d --build
+```
 
-Access through Lobe Chat using natural language:
-- "Generate 100 user records in JSON format"
-- "Search documentation for authentication examples"
-- "Create a GitHub issue about the login bug"
-- "Rerank these search results"
-- "Refine this code prompt"
-- "Generate a Python cheat sheet for beginners"
+### Calling a gateway tool
+```bash
+curl -X POST http://localhost:8001/api/gateway \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <YOUR_KEY>" \
+  -d '{"name": "generate_data", "arguments": {"rows": 100, "format": "json"}}'
+```
 
 ---
 
-## Architecture Overview
-
-### Project Structure
+## Project Structure
 
 ```
 DevForge_Backend/
 ├── docs/
-│   └── tools/               # THIS DIRECTORY
-│       ├── README.md        # This file
+│   └── tools/                     # this directory
+│       ├── README.md              # this file
 │       ├── generate_data.md
-│       ├── retrieve_docs.md
 │       ├── github_operation.md
-│       ├── rerank_docs.md
 │       ├── refine_prompt.md
-│       └── generate_cheatsheet.md
+│       ├── generate_cheatsheet.md
+│       ├── rag_architecture.md
+│       ├── rag/                   # RAG endpoint docs
+│       │   ├── retrieve_docs.md
+│       │   ├── rerank_docs.md
+│       │   ├── get_files_api.md
+│       │   ├── get_file_chunks_api.md
+│       │   └── rag_integration_flow.md
+│       └── _reviews/              # doc-vs-code audit reviews
 │
 ├── src/
-│   ├── agents/              # Agent implementations
+│   ├── agents/                    # business logic
 │   │   ├── datagen/
-│   │   ├── rag/
 │   │   ├── github/
-│   │   ├── reranker.py
 │   │   ├── prompt_refiner/
-│   │   └── cheatsheet/
-│   │
-│   ├── tools/               # Tool functions
+│   │   ├── cheatsheet/
+│   │   ├── rag/                   # RAG agent + reranking + intent + graph
+│   │   └── supervisor.py
+│   ├── tools/                     # reusable tool functions
 │   │   ├── datagen/
-│   │   ├── rag/
 │   │   ├── github/
+│   │   ├── rag/
 │   │   └── cheatsheet/
-│   │
-│   ├── api/routers.py       # Gateway endpoints
-│   └── main.py              # FastAPI app
+│   ├── storage/                   # vector store abstraction
+│   │   ├── base_store.py
+│   │   ├── chroma_store.py
+│   │   └── pgvector_store.py
+│   ├── api/
+│   │   ├── routers/__init__.py    # gateway, MCP, SUPPORTED_TOOLS
+│   │   └── routers/rag.py         # /api/v1/rag/* endpoints
+│   └── main.py
 │
 ├── manifests/
-│   └── devforge.json        # MCP manifest (all tools)
+│   └── devforge.json              # MCP discovery manifest
 │
-└── tests/                   # Test suites
-    ├── test_datagen.py
-    ├── test_rag.py
-    ├── test_github.py
-    ├── test_reranker.py
-    ├── test_prompt_refiner.py
-    └── test_cheatsheet.py
+└── tests/                         # pytest suites
 ```
 
 ---
 
 ## Tool Comparison
 
-| Tool | Phase | Speed | Complexity | Use Frequency |
-|------|-------|-------|------------|---------------|
-| generate_data | 1 | ⚡ Fast | ⭐ Low | ⭐⭐⭐ High |
-| retrieve_docs | 3 | ⚡ Fast | ⭐⭐ Medium | ⭐⭐⭐ High |
-| github_operation | 3 | 🔄 Medium | ⭐⭐ Medium | ⭐⭐ Medium |
-| rerank_docs | 4 | ⚡ Fast | ⭐⭐ Medium | ⭐ Low |
-| refine_prompt | 6 | 🔄 Medium | ⭐⭐⭐ High | ⭐⭐ Medium |
-| generate_cheatsheet | 7 | ⚡ Fast | ⭐ Low | ⭐⭐ Medium |
-
----
-
-## Integration Patterns
-
-### Tool Chains
-
-**Data Generation + RAG:**
-```
-1. generate_data (create sample docs)
-2. retrieve_docs (ingest and search)
-```
-
-**Prompt Optimization + Code Gen:**
-```
-1. refine_prompt (optimize code request)
-2. Use refined prompt with Cursor/Copilot
-```
-
-**Search + Rerank + Learn:**
-```
-1. retrieve_docs (search documentation)
-2. rerank_docs (improve results)
-3. generate_cheatsheet (create reference)
-```
-
-**GitHub Workflow:**
-```
-1. refine_prompt (optimize issue description)
-2. github_operation (create issue)
-```
+| Tool | Surface | LLM | Speed | Common use |
+|---|---|---|---|---|
+| `generate_data` | gateway | optional (V2 only) | fast (V1) / medium (V2) | seed DBs, prototype, load test |
+| `github_operation` | gateway | yes | medium | issues, commits, PRs, repo ops |
+| `refine_prompt` | gateway | yes | medium | optimise prompts before sending elsewhere |
+| `generate_cheatsheet` | gateway | no (rule-based) | fast | quick reference for Python libs |
+| `retrieve_docs` | RAG endpoint | optional (cloud LLM for response synthesis) | fast (cached) / medium | semantic search over uploaded files |
+| `rerank_docs` | internal stage | no | fast | reorder retrieve_docs candidates |
 
 ---
 
 ## API Gateway
 
-All tools are accessed through a unified gateway:
-
 **Endpoint:** `POST /api/gateway`
+**Auth:** `x-api-key` header (validated by `APIKeyAuthMiddleware`)
+**Port:** 8001 (local), 8001 inside Docker (`api` service)
 
-**Request Format:**
+### Request
 ```json
 {
   "name": "tool_name",
-  "arguments": {
-    "param1": "value1",
-    "param2": "value2"
-  }
+  "arguments": {"param1": "value1"}
 }
 ```
 
-**Response Format:**
+### Response (success)
 ```json
 {
   "success": true,
-  "data": { ... },
+  "data": { "...": "..." },
   "message": "tool_name executed successfully"
 }
 ```
+
+### Response (unknown tool)
+```json
+{
+  "success": false,
+  "data": null,
+  "message": "Tool 'X' not found. Available tools: ['generate_data', 'github_operation', 'refine_prompt', 'generate_cheatsheet']"
+}
+```
+
+### MCP equivalent
+The same four tools are reachable via JSON-RPC at `POST /mcp` using `tools/list` and `tools/call`.
 
 ---
 
 ## Testing
 
-### Run All Tests
 ```bash
+# All tests
 pytest tests/ -v
-```
 
-### Run Specific Tool Tests
-```bash
+# Per tool
 pytest tests/test_datagen.py -v
 pytest tests/test_rag.py -v
-pytest tests/test github.py -v
+pytest tests/test_github_integration.py -v
 pytest tests/test_reranker.py -v
 pytest tests/test_prompt_refiner.py -v
 pytest tests/test_cheatsheet.py -v
+
+# Single test with prints
+pytest tests/test_rag.py::test_semantic_search -v -s
 ```
 
-### Test Coverage
-**Total:** 100+ tests across all tools
+> Some integration tests require Docker services running (Postgres + Redis): `docker compose --profile rag up -d`.
 
 ---
 
-## Development Phases
+## Doc-vs-Code Reviews
 
-| Phase | Features | Status |
-|-------|----------|--------|
-| Phase 1 | Foundation (DataGen, MCP) | ✅ Complete |
-| Phase 2 | Multi-Model Routing | ✅ Complete |
-| Phase 3 | RAG + GitHub | ✅ Complete |
-| Phase 4 | Reranking | ✅ Complete |
-| Phase 5 | Deployment | ⏳ Deferred |
-| Phase 6 | Prompt Refinement | ✅ Complete |
-| Phase 7 | Cheat Sheets | ✅ Complete |
+Each per-tool doc has a corresponding review under [`_reviews/`](./_reviews/). Reviews follow a strict format: every "Verified" claim cites a `file:line`; every "Discrepancy" quotes the doc and shows what the code actually does.
+
+| Tool / Doc | Review | Verdict |
+|---|---|---|
+| `generate_data.md` | [`generate_data_review.md`](./_reviews/generate_data_review.md) | Diverged |
+| `refine_prompt.md` | [`refine_prompt_review.md`](./_reviews/refine_prompt_review.md) | Mostly accurate |
+| `rag/retrieve_docs.md` | [`retrieve_docs_review.md`](./_reviews/retrieve_docs_review.md) | Diverged |
+| `rag/rerank_docs.md` | [`rerank_docs_review.md`](./_reviews/rerank_docs_review.md) | Diverged |
+| `github_operation.md` | [`github_operation_review.md`](./_reviews/github_operation_review.md) | Diverged |
+| `generate_cheatsheet.md` | [`generate_cheatsheet_review.md`](./_reviews/generate_cheatsheet_review.md) | Diverged |
+| `rag_architecture.md` | [`rag_architecture_review.md`](./_reviews/rag_architecture_review.md) | Diverged |
+| `rag_unification_verified.md` | [`rag_unification_verified_review.md`](./_reviews/rag_unification_verified_review.md) | Stale verification report |
 
 ---
 
 ## Contributing
 
-### Adding New Tool Documentation
-
-1. Create new `.md` file in `docs/tools/`
-2. Follow standardized format (see existing docs)
-3. Include all sections:
-   - Overview
-   - Folder Structure
-   - Parameters
-   - API Usage
-   - Examples
-   - Testing
-4. Update this README with new tool
-5. Update manifest (`manifests/devforge.json`)
-
----
-
-## Support
-
-**Documentation Issues:**
-- Check individual tool `.md` files
-- Review **Troubleshooting** sections
-- See **Best Practices** for guidance
-
-**Code Issues:**
-- Run tests: `pytest tests/ -v`
-- Check server logs
-- Review **Error Handling** sections
-
-**Feature Requests:**
-- Create GitHub issue
-- Reference tool documentation
-- Provide use case examples
+Adding a new tool:
+1. Implement in `src/tools/<feature>/tools.py`
+2. Add an agent in `src/agents/<feature>/agent.py` if it needs orchestration
+3. Register in `SUPPORTED_TOOLS` (`src/api/routers/__init__.py:45`) and `TOOL_DESCRIPTIONS`
+4. Add a JSON-Schema entry to `_get_tool_schema` in the same file
+5. Update `manifests/devforge.json`
+6. Add `tests/test_<feature>.py`
+7. Write `docs/tools/<feature>.md` following the standard format
+8. Add a doc-vs-code review under `_reviews/` (audit your own doc)
 
 ---
 
 ## Resources
 
-- **Main README:** [`../../README.md`](../../README.md)
-- **Backend Plan:** [`../../BACKEND_PLAN.md`](../../BACKEND_PLAN.md)
-- **Phase Status:** [`../../PHASE_STATUS.md`](../../PHASE_STATUS.md)
-- **Manifest:** [`../../manifests/devforge.json`](../../manifests/devforge.json)
-
----
-
-**Documentation Version:** 1.0  
-**Backend Version:** 0.7.0  
-**Last Updated:** December 2, 2025  
-**Maintained By:** DevForge Team
+- [`manifests/devforge.json`](../../manifests/devforge.json) — MCP discovery manifest
+- [`docs/API.md`](../API.md) — full HTTP API reference
+- [`docs/AUTHENTICATION_GUIDE.md`](../AUTHENTICATION_GUIDE.md) — JWT and API-key auth
+- [`docs/DOCKER_GUIDE.md`](../DOCKER_GUIDE.md) — Docker compose setup
+- [`docs/CELERY_SCALING.md`](../CELERY_SCALING.md) — async worker scaling
+- [`DevForge_Backend/CLAUDE.md`](../../CLAUDE.md) — project conventions

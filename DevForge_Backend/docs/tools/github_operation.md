@@ -1,8 +1,11 @@
 # github_operation - Intelligent GitHub Automation Tool
 
-**Tool Name:** `github_operation`  
-**Version:** 0.8.2  
-**Phase:** GitOps v0.8 - Production Hardening  
+**Tool Name:** `github_operation`
+**Version:** 0.8.0
+**Manifest Version:** 0.11.0
+**Last Updated:** 2026-05-15
+**Last Verified:** 2026-05-15 — live MCP verification suite, see `_reviews/github_operation_review_verification_2026-05-15.md`
+**Phase:** GitOps v0.8 - Phase 5 (Audit & Policy Hardened)
 **Status:** ✅ Production Ready (Hardened)
 
 ---
@@ -27,7 +30,7 @@ The `github_operation` tool is an intelligent GitHub automation system that tran
 │                     src/agents/github/agent.py                          │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
 │  │  StateGraph Workflow:                                             │  │
-│  │    parse_github_request → enhance_with_intelligence → validate → execute    │
+│  │    parse_github_request → enhance_with_intelligence → validate → policy_gate → risk_gate → execute    │
 │  │              ↘               ↙                      ↘            │  │
 │  │               handle_error ←───────────────────────────          │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
@@ -61,7 +64,7 @@ The `github_operation` tool is an intelligent GitHub automation system that tran
 ## File-by-File Implementation Details
 
 ### 1. Agent Core: `src/agents/github/agent.py`
-**Lines:** 558 | **Purpose:** LangGraph state machine orchestrating GitHub operations
+**Purpose:** LangGraph state machine orchestrating GitHub operations
 
 #### Key Components:
 
@@ -87,7 +90,9 @@ class GitHubState:
 |------|----------|-------------|
 | `parse` | `parse_github_request()` | LLM extracts intent, operation, parameters from query (30s timeout) |
 | `enhance` | `enhance_with_intelligence()` | Apply fuzzy repo, commit gen, log parsing |
-| `validate` | `validate_parameters()` | **Phase 4:** Strict Pydantic validation of all parameters |
+| `validate` | `validate_parameters()` | Strict Pydantic validation of all parameters |
+| `policy_gate` | `policy_gate_check()` | **Phase 4:** Environment-level hard blocks (Production/Staging) |
+| `risk_gate` | `risk_gate_check()` | **Phase 1-3:** Severity assessment and user confirmation requirement |
 | `execute` | `execute_github_operation()` | Call GitHub API via PyGithub (15s timeout) |
 | `error` | `handle_error()` | Format error responses and categorize GithubExceptions |
 
@@ -107,7 +112,7 @@ async def github_agent_invoke(
 ---
 
 ### 2. GitHub Tools: `src/tools/github/tools.py`
-**Lines:** 423 | **Purpose:** PyGithub wrapper for GitHub API operations
+**Purpose:** PyGithub wrapper for GitHub API operations
 
 #### `GitHubTools` Class Methods:
 
@@ -115,13 +120,19 @@ async def github_agent_invoke(
 |--------|-----------|-------------|
 | `__init__(token)` | `token: Optional[str]` | Initialize PyGithub client |
 | `list_repos()` | `visibility, sort, limit` | List user repositories |
-| `create_repo()` | `name, description, private, auto_init, gitignore_template, license_template` | Create new repository |
+| `create_repo()` | `name, description, private, auto_init, gitignore_template, license_template` | **HIGH RISK** |
 | `create_issue()` | `repo_name, title, body, labels, assignees` | Create issue in repository |
-| `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | Commit file to repository |
+| `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | Commit file |
 | `create_pull_request()` | `repo_name, title, head, base, body, draft` | Create pull request |
-| `browse_files()` | `repo_name, path` | List repository content (file tree) |
-| `read_file()` | `repo_name, file_path` | Read content of a specific file |
-| `search_code()` | `query, repo_name` | Search code across repository |
+| `list_branches()` | `repo_name` | List repo branches |
+| `create_branch()` | `repo_name, branch_name, from_branch` | Create new branch |
+| `delete_branch()` | `repo_name, branch_name` | **HIGH to CRITICAL RISK** |
+| `delete_repo()` | `repo_name` | **CRITICAL RISK (requires exact match)** |
+| `browse_files()` | `repo_name, path` | List repository content |
+| `read_file()` | `repo_name, file_path` | Read specific file |
+| `search_code()` | `query, repo_name` | Search code |
+
+> **Note:** `merge_pr` appears in `OperationRiskRegistry.RISK_LEVELS` and `RollbackMatrix.MATRIX` as forward-looking metadata, but **no implementation exists** in `GitHubTools` and there is no dispatch branch in `agent.py`. Do not document it as a callable operation until the method is added.
 
 **Convenience Functions:**
 ```python
@@ -136,7 +147,7 @@ create_pull_request(repo_name, title, head, base, body, token, **kwargs)
 
 ### 3. Intelligence: Repo Discovery
 **File:** `src/agents/github/intelligence/repo_discovery.py`  
-**Lines:** 230 | **Purpose:** Fuzzy repository matching with confidence scoring
+**Purpose:** Fuzzy repository matching with confidence scoring
 
 #### `RepoMatch` Dataclass:
 ```python
@@ -168,7 +179,7 @@ class RepoMatch:
 
 ### 4. Intelligence: Commit Generator
 **File:** `src/agents/github/intelligence/commit_generator.py`  
-**Lines:** 335 | **Purpose:** AI-generated Conventional Commits from git diffs
+**Purpose:** AI-generated Conventional Commits from git diffs
 
 #### `ChangeType` Enum:
 ```python
@@ -234,7 +245,7 @@ class CommitMessage:
 
 ### 5. Intelligence: Log Parser
 **File:** `src/agents/github/intelligence/log_parser.py`  
-**Lines:** 487 | **Purpose:** Multi-language stack trace parsing for issue creation
+**Purpose:** Multi-language stack trace parsing for issue creation
 
 #### `Language` Enum:
 ```python
@@ -297,7 +308,7 @@ class ParsedIssue:
 
 ### 6. Workflows: Rollback Matrix
 **File:** `src/agents/github/workflows/rollback.py`  
-**Lines:** 234 | **Purpose:** Rollback feasibility and compensating actions
+**Purpose:** Rollback feasibility and compensating actions
 
 #### `RollbackFeasibility` Enum:
 ```python
@@ -328,7 +339,7 @@ class RollbackFeasibility(Enum):
 
 ### 7. Changelog Generator
 **File:** `src/tools/changelog.py`  
-**Lines:** 272 | **Tool:** `generate_changelog`
+**Tool:** `generate_changelog`
 
 #### `ChangelogGenerator` Class:
 
@@ -353,7 +364,7 @@ class RollbackFeasibility(Enum):
 
 ### 8. CI Diagnostics
 **File:** `src/tools/ci_diagnostics.py`  
-**Lines:** 455 | **Tool:** `analyze_ci_failure`
+**Tool:** `analyze_ci_failure`
 
 #### Key Dataclasses:
 ```python
@@ -396,7 +407,9 @@ class SuggestedFix:
 
 ### 9. Repository Scaffolder
 **File:** `src/tools/scaffold.py`  
-**Lines:** 355 | **Tool:** `scaffold_repository`
+**Tool:** `scaffold_repo`
+
+> **Note:** The agent dispatches the operation as `scaffold_repo` (matches `agent.py` and `schemas.py`). The `manifests/devforge.json` entry name is `scaffold_repository` — this is a known mismatch between the manifest entry and the LLM-emitted operation string.
 
 #### Built-in Templates:
 
@@ -423,40 +436,173 @@ class SuggestedFix:
 
 ---
 
+---
+
+## Risk Model & Security (Phases 1-5)
+
+The GitOps tool implements a multi-layered security model involving environment-level policies, contextual risk assessment, and mandatory user confirmation.
+
+### 1. Risk Levels
+Every operation is assigned a base risk level in the `OperationRiskRegistry`.
+
+| Risk Level | Requirement | Examples |
+|------------|-------------|----------|
+| **`LOW`** | None | `list_repos`, `browse_files`, `list_branches` |
+| **`MEDIUM`** | None | `create_issue`, `create_branch`, `merge_pr` (feature branch) |
+| **`HIGH`** | `confirmed: true` | `create_repo`, `delete_branch` (non-protected), `force_push` |
+| **`CRITICAL`** | `confirmed: true` + `reason: "..."` | `delete_repo`, `delete_branch` (main), `merge_pr` (production) |
+
+### 2. Contextual Risk Escalation
+Risk levels are dynamically escalated based on the parameters of the operation. If a contextual rule matches, the **highest** risk level between the registry and the rule wins.
+
+*   **`merge_pr`**:
+    *   Into `main`, `master`: **HIGH**
+    *   Into `production`, `release/*`: **CRITICAL**
+*   **`delete_branch`**:
+    *   `main`, `master`, `production`: **CRITICAL**
+
+### 3. Policy Gate (Phase 4)
+Runs before the risk gate. Blocks operations based on environment configuration.
+
+| Var / Env | Mode | Policy |
+|-----------|------|--------|
+| `GITOPS_PROTECTED_MODE=true` | All | Blocks **HIGH** and **CRITICAL** operations entirely. |
+| `GITOPS_ENV=production` | Prod | Blocks `delete_repo`, `force_push`, and deleting `main`/`master`. |
+| `GITOPS_ENV=staging` | Staging | Blocks `delete_repo`. Requires confirmation for `force_push`. |
+| `GITOPS_ENV=development` | Dev | Permissive. Defers all security to the Risk Gate. |
+
+### 4. Audit & Escalation (Phase 5)
+All high-risk attempts are logged to a dedicated escalation channel (`src/core/audit.py`).
+- **CRITICAL**: Logs all attempts (blocked or executed).
+- **HIGH**: Logs all blocked attempts.
+- **Sanitization**: Tokens, passwords, and keys are automatically redacted (`[REDACTED]`) before logging.
+- **Privacy**: Raw tokens are never stored; only truncated SHA-256 hashes for correlation.
+
+---
+
 ## API Request Format
+
+Two endpoints accept `github_operation`. Both require `x-api-key`. **Per-request `context.github_token`** is the canonical PAT path; the server-level `GITHUB_TOKEN` env var is an optional fallback.
+
+### Gateway (REST) — `POST /api/gateway`
 
 ```bash
 curl -X POST http://localhost:8001/api/gateway \
   -H "Content-Type: application/json" \
+  -H "x-api-key: <dev_api_key>" \
   -d '{
     "name": "github_operation",
     "arguments": {
-      "query": "list my repos"
+      "query": "list my repos",
+      "context": {"github_token": "ghp_…"}
     }
   }'
 ```
 
-> **Important:** Use `"name"` field (not `"tool_name"`).
+> **Important:** Use `"name"` (or alias `"apiName"`), not `"tool_name"`. Both fields are validated by `GatewayRequest` Pydantic model; either must be provided.
 
-### Response Structure
+### MCP (JSON-RPC 2.0) — `POST /mcp`
+
+```bash
+curl -X POST http://localhost:8001/mcp \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <dev_api_key>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "github_operation",
+      "arguments": {
+        "query": "list my repos",
+        "context": {"github_token": "ghp_…"}
+      }
+    }
+  }'
+```
+
+---
+
+### Response Structure — Gateway success path
+
+Verified 2026-05-15 against live `localhost:8001/api/gateway`. The envelope is **flat** — `data` is the agent payload directly (an array for `list_repos`, an object for `create_issue`/`commit_file`/etc.).
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "name": "testing_devforge",
+      "full_name": "sidcollege/testing_devforge",
+      "description": null,
+      "private": false,
+      "url": "https://github.com/sidcollege/testing_devforge",
+      "clone_url": "...",
+      "language": null,
+      "stars": 0,
+      "forks": 0,
+      "updated_at": "...",
+      "created_at": "..."
+    }
+  ],
+  "message": "github_operation executed successfully"
+}
+```
+
+For non-list operations the agent attaches `audit_id` and `timeline` inside `data`:
 
 ```json
 {
   "success": true,
   "data": {
-    "operation": "list_repos",
-    "repos": [...],
-    "audit_id": "audit_20251212_abc123",
-    "timeline": {
-      "total_duration_ms": 1250,
-      "events": [...]
-    }
+    "number": 3,
+    "title": "...",
+    "url": "https://github.com/owner/repo/issues/3",
+    "audit_id": "audit_20260515_115d0e5be729",
+    "timeline": {"total_duration_ms": 2394.99, "events": [...]}
   },
-  "message": "Listed 10 repositories",
-  "tool": "github_operation",
-  "execution_time": 1.25
+  "message": "github_operation executed successfully"
 }
 ```
+
+> **Important:** there is **no top-level `operation` key on the gateway envelope** — the operation type lives only inside the agent payload (e.g., audit timeline events). Older docs that showed `data:{operation:"list_repos", data:[...]}` were incorrect.
+
+### Response Structure — MCP success path
+
+MCP wraps the same agent payload inside the standard JSON-RPC `result.content[0].text` field as a **JSON-encoded string**:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"success\": true,\n  \"operation\": \"create_issue\",\n  \"data\": {...},\n  \"audit_id\": \"...\",\n  \"timeline\": {...}\n}"
+      }
+    ],
+    "isError": false
+  }
+}
+```
+
+Clients must `JSON.parse(result.content[0].text)` to access the agent payload. The MCP payload **does** include a top-level `operation` key (the gateway envelope does not).
+
+### Response Structure — Error paths
+
+| Condition | Gateway response | MCP response |
+|-----------|------------------|--------------|
+| Wrong tool name | HTTP 400 `{success:false, data:null, message:"Tool 'x' not found. Available tools: [...]"}` | JSON-RPC `error.code = -32602`, message `"Tool not found: x"` |
+| Missing `name`/`apiName` | HTTP 422 Pydantic `Either 'name' or 'apiName' must be provided` | (gateway-only) |
+| Malformed JSON | HTTP 422 Pydantic `json_invalid` | HTTP 422 Pydantic `json_invalid` |
+| `arguments: null` | HTTP 422 Pydantic `'arguments' must be str or dict, got NoneType` | (gateway-only) |
+| Missing `x-api-key` | HTTP 401 `{success:false, detail:"API Key missing"}` | HTTP 401 same |
+| GET instead of POST | HTTP 405 `{detail:"Method Not Allowed"}` | HTTP 405 same |
+| **Risk-gate blocks (HIGH/CRITICAL)** | HTTP 200 `{success:false, data:{audit_id, timeline}, message:"Risk gate blocked: ..."}` | **JSON-RPC `error.code = -32603`** with `message:"Risk gate blocked: ..."` — does **not** flow through `result.content` |
+| Disambiguation (multiple repo matches) | HTTP 200 `{success:false, data:{status:"needs_clarification", options:[...]}, message:"Multiple repositories match your query:"}` | Wrapped inside `result.content[0].text` as JSON string |
+
+> **Frontend integrators:** the MCP path collapses every risk-gate block to a JSON-RPC `-32603` error. If you need the `audit_id`/`timeline` payload from blocked ops, call `/api/gateway` instead — the MCP envelope does not surface them on blocks.
 
 ---
 
@@ -465,7 +611,8 @@ curl -X POST http://localhost:8001/api/gateway \
 ### Required Environment Variables
 
 ```bash
-# Required
+# GitHub PAT — Required at request time, normally supplied via context.github_token
+# (per-user/per-connection PAT). The server-level env var is an optional fallback only.
 GITHUB_TOKEN=ghp_your_token_here
 
 # Optional
@@ -475,20 +622,34 @@ GITHUB_USERNAME=your_username
 ### Feature Toggles
 
 ```bash
-# Intelligence Features
+# Intelligence Features (all in src/core/config.py)
 GITOPS_ENABLE_FUZZY_SEARCH=true
 GITOPS_ENABLE_COMMIT_GEN=true
 GITOPS_ENABLE_LOG_PARSING=true
-GITOPS_ENABLE_CONFIDENCE_GATING=true
+GITOPS_ENABLE_WORKFLOWS=true
+GITOPS_ENABLE_ROLLBACK=true
+GITOPS_ENABLE_ASYNC_JOBS=true
 
 # Thresholds
 GITOPS_FUZZY_THRESHOLD=0.85
-GITOPS_COMMIT_CONFIDENCE_THRESHOLD=0.90
+GITOPS_AUTO_FIX_THRESHOLD=0.95
 
 # Performance
 GITOPS_REPO_CACHE_TTL=3600    # 1 hour
 GITOPS_SESSION_TTL=1800       # 30 minutes
+GITOPS_LLM_TIMEOUT=10         # parse_github_request LLM timeout (s)
+GITOPS_UNDO_WINDOW_MINUTES=30
+GITOPS_JOB_CLEANUP_HOURS=24
+
+# Storage (memory | redis | postgres)
+GITOPS_STORAGE=memory
+
+# Policy / Environment (read via os.getenv in src/core/policy.py)
+GITOPS_PROTECTED_MODE=false
+GITOPS_ENV=development
 ```
+
+> **Note:** Confidence gating is enabled by default via `Feature.CONFIDENCE_GATING` in `src/core/features.py:46` (hard-coded `True`, no env binding). The 0.90 commit-message confidence threshold is hard-coded in `ConfidencePolicy.THRESHOLDS["commit_message"]` (`src/core/confidence.py:42`). There are no `GITOPS_ENABLE_CONFIDENCE_GATING` or `GITOPS_COMMIT_CONFIDENCE_THRESHOLD` env vars.
 
 ---
 
@@ -520,6 +681,18 @@ GITOPS_SESSION_TTL=1800       # 30 minutes
     │  Node: validate_parameters (Phase 4)         │
     │  - Pydantic schema enforcement              │
     │  - Strict type and constraint checking       │
+    └─────────────────────────────────────────────┘
+                               │
+    ┌─────────────────────────────────────────────┐
+    │  Node: policy_gate_check (Phase 4)          │
+    │  - Environment-level hard blocks            │
+    │  - GITOPS_PROTECTED_MODE / GITOPS_ENV       │
+    └─────────────────────────────────────────────┘
+                               │
+    ┌─────────────────────────────────────────────┐
+    │  Node: risk_gate_check (Phase 1-3)          │
+    │  - Severity assessment (LOW/MED/HIGH/CRIT)  │
+    │  - Requires confirmed/reason for HIGH+      │
     └─────────────────────────────────────────────┘
                                │
     ┌─────────────────────────────────────────────┐
@@ -570,11 +743,11 @@ GITOPS_SESSION_TTL=1800       # 30 minutes
 # Run all tests
 pytest tests/ -v
 
-# Specific test files
-pytest tests/test_repo_discovery.py -v     # 18 tests
-pytest tests/test_commit_generator.py -v   # 20 tests
+# Specific test files (68 tests total)
+pytest tests/test_repo_discovery.py -v     # 13 tests
+pytest tests/test_commit_generator.py -v   # 19 tests
 pytest tests/test_log_parser.py -v         # 18 tests
-pytest tests/test_github_integration.py -v # 20 tests
+pytest tests/test_github_integration.py -v # 18 tests
 ```
 
 ---
@@ -593,9 +766,29 @@ pytest tests/test_github_integration.py -v # 20 tests
 
 ---
 
-**Version:** 0.8.2  
-**Last Updated:** February 26, 2026  
+**Version:** 0.8.0
+**Manifest Version:** 0.11.0
+**Last Updated:** 2026-05-15
 **Maintainer:** DevForge Team
+
+---
+
+## Changelog
+
+### 2026-05-15 — Live verification + doc reconciliation
+
+- **Verified** every documented claim against `localhost:8001` (gateway + MCP) using the demo PAT. See `_reviews/github_operation_review_verification_2026-05-15.md` for the verification log.
+- **Removed** fabricated `merge_pr()` row from the `GitHubTools` method table (no method, no schema, no dispatch — only forward-looking metadata in `RiskRegistry`/`RollbackMatrix`).
+- **Removed** non-existent env vars `GITOPS_ENABLE_CONFIDENCE_GATING` and `GITOPS_COMMIT_CONFIDENCE_THRESHOLD` from the feature-toggles section. Confidence gating is hard-coded `True` via `Feature.CONFIDENCE_GATING`; the 0.90 commit-message threshold is in `ConfidencePolicy.THRESHOLDS`.
+- **Added** missing env vars: `GITOPS_ENABLE_WORKFLOWS`, `GITOPS_ENABLE_ROLLBACK`, `GITOPS_ENABLE_ASYNC_JOBS`, `GITOPS_AUTO_FIX_THRESHOLD`, `GITOPS_LLM_TIMEOUT`, `GITOPS_UNDO_WINDOW_MINUTES`, `GITOPS_JOB_CLEANUP_HOURS`, `GITOPS_STORAGE`.
+- **Documented** the MCP-vs-gateway response shape divergence in the API Request Format section (gateway = flat `data`, MCP = `result.content[0].text` JSON string, risk-gate blocks on MCP collapse to JSON-RPC `error -32603`).
+- **Replaced** the aspirational response-structure example with the live-verified gateway envelope shape (no top-level `operation` key).
+- **Added** `apiName` alias note on the request format — `GatewayRequest` now accepts either `name` or `apiName`.
+- **Documented** the corresponding Pydantic-tightening on `arguments: null` (now HTTP 422 instead of silent coercion).
+
+### 2026-05-08 — Initial review baseline
+
+- See `_reviews/github_operation_review.md`. Diverged verdict; most P0/P1 items have been resolved in this revision. Outstanding: `scaffold_repo`/`scaffold_repository` manifest mismatch, MCP Phase-2 names still not gateway-callable (by design, documented).
 
 
 

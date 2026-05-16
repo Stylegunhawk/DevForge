@@ -10,7 +10,7 @@ Clean 3-layer architecture:
 import json
 import logging
 import re
-from typing import Any, Literal, Optional, List, Dict
+from typing import Any, Literal, Optional, List, Dict, Tuple
 from dataclasses import dataclass
 
 import pandas as pd
@@ -88,7 +88,9 @@ class AdvancedGeneratorV2:
         user_prompt: str = None,
         realism_level: str = "basic",
         *,
-        progress_callback: Optional[Any] = None
+        progress_callback: Optional[Any] = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None
     ) -> dict:
         """
         Generate data with semantic awareness and relationship integrity.
@@ -117,10 +119,51 @@ class AdvancedGeneratorV2:
         
         try:
             # Step 1: Semantic analysis
-            semantic_info = await self._analyze_schema_semantically(schema, user_prompt)
+            # NOTE: user_id is intentionally NOT forwarded here. `generate()`
+            # does not accept user_id in its signature; threading it from the
+            # outer wrapper is the responsibility of the wrapper. Forwarding
+            # an undefined name here caused a NameError that silently failed
+            # every V2 call.
+            semantic_info = await self._analyze_schema_semantically(
+                schema,
+                user_prompt,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+            )
             analysis_end_time = time.time()
             self._report("semantic_analysis", 40, "Schema semantic analysis complete")
-            
+
+            # v0.9: precompute one batched catalog per entity. Cached at
+            # L1+L2 in CatalogFactory; subsequent rows sample from these
+            # in-memory dicts. Per-entity LLM call; falls back to Faker
+            # heuristics per-field on LLM failure.
+            self._entity_catalogs: Dict[str, Dict[str, List[str]]] = {}
+            if self.enable_semantic and self.catalog_factory:
+                for entity_name, entity_schema in schema.items():
+                    field_pairs: List[Tuple[str, str]] = []
+                    fields = entity_schema.get("fields", entity_schema.get("properties", {}))
+                    for fname, fcfg in fields.items():
+                        ftype = (fcfg.get("type") or "string") if isinstance(fcfg, dict) else "string"
+                        if ftype == "string":
+                            field_pairs.append((fname, "string"))
+                    if not field_pairs:
+                        continue
+                    try:
+                        catalogs = await self.catalog_factory.get_entity_catalogs(
+                            entity_name=entity_name,
+                            fields=field_pairs,
+                            user_prompt=user_prompt or "",
+                            count=50,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name,
+                        )
+                        self._entity_catalogs[entity_name] = catalogs
+                    except Exception as e:
+                        logger.warning(
+                            f"Entity catalog precompute failed for {entity_name}: {e}"
+                        )
+                        self._entity_catalogs[entity_name] = {}
+
             # Step 2: Generate data with relationship awareness if schema_design provided
             self._report("catalog_generation", 60, "Generating domain-specific catalogs")
             if schema_design and schema_design.relationships:
@@ -144,11 +187,6 @@ class AdvancedGeneratorV2:
             if schema_design and schema_design.relationships:
                 fk_integrity = self._validate_fk_integrity(generated_data, schema_design)
             
-            # Step 5: Apply realism (if needed) - must respect schema constraints
-            if realism_level != "basic":
-                generated_data = self._apply_realism(
-                    generated_data, realism_level, semantic_info, schema
-                )
         except Exception as e:
             logger.error(f"Pipeline failure during data generation: {e}", exc_info=True)
             return {
@@ -157,13 +195,21 @@ class AdvancedGeneratorV2:
                 "data": {},
                 "metadata": {"error": True}
             }
-        
-        # Step 5: Apply realism (if needed) - must respect schema constraints
+
+        # v0.9: realism is applied exactly once via the consolidated
+        # realism_engine.apply_realism_to_data. Routes nulls/duplicates/
+        # outliers per REALISM_CONFIGS. The schema_design's nullable flag
+        # is the gate — see domain template updates (Task 7).
         if realism_level != "basic":
-            generated_data = self._apply_realism(
-                generated_data, realism_level, semantic_info, schema
-            )
-        
+            try:
+                from src.tools.datagen.realism_engine import apply_realism_to_data
+                if schema_design is not None:
+                    generated_data = apply_realism_to_data(
+                        generated_data, schema_design, realism_level,
+                    )
+            except Exception as e:
+                logger.warning(f"Realism application failed: {e}")
+
         # Step 6: Build metadata with actual enforcement status
         metadata = self._build_metadata(
             semantic_info, generated_data, schema, constraint_violations
@@ -206,7 +252,10 @@ class AdvancedGeneratorV2:
     async def _analyze_schema_semantically(
         self, 
         schema: dict, 
-        user_prompt: str = None
+        user_prompt: str = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> dict[str, List[SemanticFieldInfo]]:
         """
         Analyze schema using semantic analyzer.
@@ -224,7 +273,12 @@ class AdvancedGeneratorV2:
         
         try:
             logger.info("Running semantic analysis...")
-            result = self.semantic_analyzer.analyze_schema(schema, user_prompt)
+            result = await self.semantic_analyzer.analyze_schema(
+                schema,
+                user_prompt,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+            )
             
             # Log analysis results
             total_fields = sum(len(fields) for fields in result.values())
@@ -246,29 +300,35 @@ class AdvancedGeneratorV2:
         # Build field generator adapter that uses semantic router
         class SemanticFieldGeneratorAdapter:
             """Adapter to bridge RelationshipEngine with semantic router."""
-            def __init__(self, router, semantic_info, faker):
+            def __init__(self, router, semantic_info, faker, entity_catalogs):
                 self.router = router
                 self.semantic_info = semantic_info
                 self.faker = faker
-            
+                self.entity_catalogs = entity_catalogs
+
             def get_generator(self, entity_name: str, field_name: str):
                 """Return a generator function for a field."""
                 entity_semantic = self.semantic_info.get(entity_name, [])
                 semantic_map = {info.field_name: info for info in entity_semantic}
-                
+
                 if field_name in semantic_map:
                     sem_info = semantic_map[field_name]
+                    entity_cats = self.entity_catalogs.get(entity_name, {})
+                    field_cat = entity_cats.get(field_name)
                     return lambda: self.router.generate_value(
                         semantic_type=sem_info.semantic_type,
                         entity_name=entity_name,
-                        constraints=sem_info.constraints
+                        constraints=sem_info.constraints,
+                        field_name=field_name,
+                        field_catalog=field_cat,
                     )
                 else:
                     return lambda: self.faker.word()
-        
+
         # Create adapter
         field_generator = SemanticFieldGeneratorAdapter(
-            self.semantic_router, semantic_info, self.faker
+            self.semantic_router, semantic_info, self.faker,
+            getattr(self, "_entity_catalogs", {}),
         )
         
         # Use RelationshipEngine for generation (it handles FK sampling)
@@ -303,10 +363,14 @@ class AdvancedGeneratorV2:
                     # Use semantic routing if available
                     if field_name in semantic_map:
                         sem_info = semantic_map[field_name]
+                        entity_cats = getattr(self, "_entity_catalogs", {}).get(entity_name, {})
+                        field_cat = entity_cats.get(field_name)
                         row[field_name] = self.semantic_router.generate_value(
                             semantic_type=sem_info.semantic_type,
                             entity_name=entity_name,
-                            constraints=sem_info.constraints
+                            constraints=sem_info.constraints,
+                            field_name=field_name,
+                            field_catalog=field_cat,
                         )
                     else:
                         # Fallback to simple generation
@@ -507,60 +571,12 @@ class AdvancedGeneratorV2:
         else:
             return self.faker.word()
     
-    def _apply_realism(
-        self,
-        data: dict,
-        level: str,
-        semantic_info: dict = None,
-        schema: dict = None
-    ) -> dict:
-        """Apply data quality realism (nulls, duplicates, outliers) respecting schema constraints."""
-        import random
-        
-        null_rate = {"medium": 0.05, "high": 0.10}.get(level, 0)
-        
-        # Critical fields that should never be null
-        critical_semantic_types = {
-            "email_address", "phone_number", "uuid", "numeric_id",
-            "timestamp", "date", "bank_account_number", "transaction_id"
-        }
-        
-        for entity_name, rows in data.items():
-            # Get schema info for this entity
-            entity_schema = schema.get(entity_name, {}) if schema else {}
-            fields = entity_schema.get("fields", entity_schema.get("properties", {}))
-            
-            # Get semantic map for this entity
-            entity_semantic = semantic_info.get(entity_name, []) if semantic_info else []
-            semantic_map = {info.field_name: info for info in entity_semantic}
-            
-            for row in rows:
-                for field_name in list(row.keys()):
-                    # Skip IDs and foreign keys
-                    if field_name == "id" or field_name.endswith("_id"):
-                        continue
-                    
-                    # Check schema nullable flag
-                    field_config = fields.get(field_name, {})
-                    if not field_config.get("nullable", False):
-                        continue  # Skip non-nullable fields
-                    
-                    # Check semantic constraints
-                    if field_name in semantic_map:
-                        info = semantic_map[field_name]
-                        # Skip enum fields
-                        if info.constraints.get("enum"):
-                            continue
-                        # Skip critical semantic types
-                        if info.semantic_type in critical_semantic_types:
-                            continue
-                    
-                    # Apply null injection only to nullable, non-critical fields
-                    if random.random() < null_rate:
-                        row[field_name] = None
-        
-        return data
-    
+    # v0.9: _apply_realism was deleted. Realism is now applied via
+    # realism_engine.apply_realism_to_data from a single call site in
+    # `generate()` (post-try, only on success). The realism_engine module
+    # handles nulls + duplicates + outliers in one pass, and respects
+    # schema_design's nullable flag.
+
     def _build_metadata(
         self,
         semantic_info: dict[str, List[SemanticFieldInfo]],
@@ -743,89 +759,165 @@ async def generate_advanced_data_v2(
     default_rows: int = 100,
     output_format: Literal["json", "csv"] = "json",
     enable_semantic_generation: bool = True,
-    *,
-    progress_callback: Optional[Any] = None
+    progress_callback: Optional[Any] = None,
+    tenant_id: str = "unknown",
+    integration_name: str = "unknown",
+    user_id: Optional[str] = None  # NEW: Phase 4 analytics support
 ) -> dict[str, Any]:
     """
     Generate advanced synthetic data using Phase 1 components.
     Drop-in replacement for legacy generate_advanced_data.
     """
-    # Step 1: Design Schema
-    if prompt or domain:
-        schema = await schema_designer.design_schema(
-            prompt=prompt or f"Generate {domain} data",
-            domain=domain,
-            default_rows=default_rows
-        )
-    else:
-        schema = create_minimal_schema(default_rows)
-    
-    # Convert Pydantic schema to dict for V2 generator
-    # AdvancedGeneratorV2 expects dict: {entity: {fields: ...}}
-    # SchemaDesign has .entities which is dict of EntitySchema
-    # EntitySchema has .fields which is list of FieldSchema
-    
-    schema_dict = {}
-    for entity_name, entity in schema.entities.items():
-        fields_dict = {}
-        for field in entity.fields:
-            fields_dict[field.name] = {
-                "type": field.type,
-                "nullable": field.nullable
+    try:
+        # Input validation
+        if default_rows is not None and (not isinstance(default_rows, int) or default_rows < 1 or default_rows > 100000):
+            return {
+                "success": False,
+                "error": f"Invalid rows parameter: {default_rows}. Must be integer between 1 and 100000",
+                "data": {},
+                "schema": {},
+                "rows_generated": 0
             }
-            if field.constraints:
-                fields_dict[field.name]["constraints"] = field.constraints
         
-        schema_dict[entity_name] = {
-            "fields": fields_dict
+        if output_format not in ["json", "csv"]:
+            return {
+                "success": False,
+                "error": f"Unsupported output format: {output_format}. Supported: json, csv",
+                "data": {},
+                "schema": {},
+                "rows_generated": 0
+            }
+        
+        # Step 1: Design Schema
+        if prompt or domain:
+            try:
+                schema = await schema_designer.design_schema(
+                    prompt=prompt or f"Generate {domain} data",
+                    domain=domain,
+                    default_rows=default_rows,
+                    tenant_id=tenant_id,
+                    integration_name=integration_name,
+                    user_id=user_id  # NEW: Pass user_id to schema_designer
+                )
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Schema design failed: {str(e)}",
+                    "data": {},
+                    "schema": {},
+                    "rows_generated": 0
+                }
+        else:
+            schema = create_minimal_schema(default_rows)
+
+        # v0.9: post-LLM schema validation (enum-swap fix + range inference).
+        # Pure function — no LLM call, no side effects. Runs after both the
+        # LLM-designed and the template/minimal-fallback paths so both
+        # benefit from range inference.
+        try:
+            from src.tools.datagen.schema_validator import SchemaValidator
+            schema = SchemaValidator().validate_and_fix(
+                schema, user_prompt=(prompt or domain or ""),
+            )
+        except Exception as e:
+            logger.warning(f"SchemaValidator failed (continuing with raw schema): {e}")
+
+        # Convert Pydantic schema to dict for V2 generator
+        # AdvancedGeneratorV2 expects dict: {entity: {fields: ...}}
+        # SchemaDesign has .entities which is dict of EntitySchema
+        # EntitySchema has .fields which is list of FieldSchema
+        
+        schema_dict = {}
+        for entity_name, entity in schema.entities.items():
+            fields_dict = {}
+            for field in entity.fields:
+                fields_dict[field.name] = {
+                    "type": field.type,
+                    "nullable": field.nullable
+                }
+                if field.constraints:
+                    fields_dict[field.name]["constraints"] = field.constraints
+            
+            schema_dict[entity_name] = {
+                "fields": fields_dict
+            }
+            
+        # Step 2: Initialize Generator V2
+        llm_client = None
+        if enable_semantic_generation:
+            try:
+                # Use 'routing' or 'complex_reasoning' task for classification
+                model_name = model_router.select_model_by_task("routing") 
+                llm_client = model_router.get_chat_model(model_name)
+            except Exception as e:
+                logger.warning(f"Could not get LLM client for semantic analysis: {e}")
+        
+        generator = AdvancedGeneratorV2(
+            llm_client=llm_client,
+            enable_semantic=enable_semantic_generation
+        )
+        
+        # Step 3: Generate with relationship awareness
+        result = await generator.generate(
+            schema=schema_dict,
+            schema_design=schema,  # Pass SchemaDesign for FK integrity
+            row_count=default_rows,
+            user_prompt=prompt,
+            realism_level=realism_level,
+            progress_callback=progress_callback,
+            tenant_id=tenant_id,
+            integration_name=integration_name
+        )
+        
+        # Step 4: Format output (JSON returns native arrays, CSV returns strings)
+        formatted_data = generator.format_output(result["data"], output_format)
+        
+        # Step 5: Determine success based on metadata and violations.
+        # Fail-closed on any upstream pipeline error: the inner generate()
+        # returns {success: False, metadata: {error: True}} on exceptions, and
+        # earlier the success calc here ignored both signals and reported
+        # success=True with empty data. Check the upstream failure flags
+        # first, then fall through to the constraint/FK checks.
+        upstream_failed = (
+            result.get("success") is False
+            or result.get("metadata", {}).get("error") is True
+        )
+        if upstream_failed:
+            success = False
+        else:
+            success = (
+                len(result.get("constraint_violations", [])) == 0
+                and result.get("fk_integrity", {}).get("valid", True)
+                and result["metadata"].get("constraint_enforcement", {}).get("enforced", True)
+            )
+        
+        return {
+            "entities": list(result["data"].keys()),
+            "schema": {
+                "domain": schema.domain,
+                "entity_count": len(schema.entities),
+                "relationship_count": len(schema.relationships)
+            },
+            "data": formatted_data,
+            "semantic_generation_used": enable_semantic_generation,
+            "metadata": result["metadata"],
+            "constraint_violations": result.get("constraint_violations", []),
+            "fk_integrity": result.get("fk_integrity", {}),
+            "_internal_success": success  # Internal flag for agent to check
         }
         
-    # Step 2: Initialize Generator V2
-    llm_client = None
-    if enable_semantic_generation:
-        try:
-            # Use 'routing' or 'complex_reasoning' task for classification
-            model_name = model_router.select_model_by_task("routing") 
-            llm_client = model_router.get_chat_model(model_name)
-        except Exception as e:
-            logger.warning(f"Could not get LLM client for semantic analysis: {e}")
-    
-    generator = AdvancedGeneratorV2(
-        llm_client=llm_client,
-        enable_semantic=enable_semantic_generation
-    )
-    
-    # Step 3: Generate with relationship awareness
-    result = await generator.generate(
-        schema=schema_dict,
-        schema_design=schema,  # Pass SchemaDesign for FK integrity
-        row_count=default_rows,
-        user_prompt=prompt,
-        realism_level=realism_level,
-        progress_callback=progress_callback
-    )
-    
-    # Step 4: Format output (JSON returns native arrays, CSV returns strings)
-    formatted_data = generator.format_output(result["data"], output_format)
-    
-    # Step 5: Determine success based on metadata and violations
-    success = (
-        len(result.get("constraint_violations", [])) == 0 and
-        result.get("fk_integrity", {}).get("valid", True) and
-        result["metadata"].get("constraint_enforcement", {}).get("enforced", True)
-    )
-    
-    return {
-        "entities": list(result["data"].keys()),
-        "schema": {
-            "domain": schema.domain,
-            "entity_count": len(schema.entities),
-            "relationship_count": len(schema.relationships)
-        },
-        "data": formatted_data,
-        "semantic_generation_used": enable_semantic_generation,
-        "metadata": result["metadata"],
-        "constraint_violations": result.get("constraint_violations", []),
-        "fk_integrity": result.get("fk_integrity", {}),
-        "_internal_success": success  # Internal flag for agent to check
-    }
+    except Exception as e:
+        logger.error(f"Advanced data generation failed: {str(e)}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Data generation failed: {str(e)}",
+            "data": {},
+            "schema": {},
+            "entities": [],
+            "semantic_generation_used": False,
+            "metadata": {},
+            "constraint_violations": [],
+            "fk_integrity": {"valid": False, "error": str(e)},
+            "_internal_success": False
+        }
+

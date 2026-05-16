@@ -20,7 +20,14 @@ ENABLE_SEMANTIC_ANALYZER = os.getenv("ENABLE_SEMANTIC_ANALYZER", "true").lower()
 
 
 
-async def datagen_agent(args: dict[str, Any], *, progress_callback: Optional[Any] = None) -> dict[str, Any]:
+async def datagen_agent(
+    args: dict[str, Any], 
+    *, 
+    progress_callback: Optional[Any] = None,
+    tenant_id: str = "unknown",
+    integration_name: str = "unknown",
+    user_id: str = None  # NEW: Phase 4 analytics support
+) -> dict[str, Any]:
     """Execute DataGen agent with provided arguments.
 
     Supports two modes:
@@ -79,7 +86,10 @@ async def datagen_agent(args: dict[str, Any], *, progress_callback: Optional[Any
                 default_rows=datagen_args.rows,
                 output_format=datagen_args.format,
                 enable_semantic_generation=semantic_enabled,  # Phase 1: Pass semantic flag
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to advanced generator
             )
             
             # Check for pipeline failure
@@ -99,8 +109,11 @@ async def datagen_agent(args: dict[str, Any], *, progress_callback: Optional[Any
             )
             
             # Invariant 8: Deterministic Success Semantics
-            # Trust the generator's internal success flag
-            success = result.get("_internal_success", True)
+            # Trust the generator's internal success flag. Default to False
+            # (fail-closed) so that any future code path that forgets to set
+            # _internal_success surfaces as a visible failure rather than a
+            # silent empty-data success.
+            success = result.get("_internal_success", False)
             
             return {
                 "success": success,

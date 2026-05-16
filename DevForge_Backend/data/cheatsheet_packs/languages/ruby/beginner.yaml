@@ -1,0 +1,114 @@
+pack:
+  language: ruby
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: variable-assignment
+  title: Variable Assignment
+  explanation: Assign values to variables using the equals sign. Ruby creates the
+    variable on first assignment.
+  tags:
+  - variables
+  when_to_use: Use when you need to store a value for later use.
+  examples:
+  - title: Basic assignment
+    language: ruby
+    code: 'x = 10
+
+      y = "Ruby"
+
+      puts x
+
+      puts y
+
+      '
+  pitfalls:
+  - Using a variable name that shadows a built-in method can lead to confusing behavior.
+  - Forgetting to initialize a variable before use results in nil values.
+- id: string-interpolation
+  title: String Interpolation
+  explanation: Embed variable values inside double-quoted strings with
+  tags:
+  - strings
+  when_to_use: Use when you need to construct a string that includes variable values.
+  examples:
+  - title: Interpolating a name
+    language: ruby
+    code: 'name = "Alice"
+
+      greeting = "Hello, #{name}!"
+
+      puts greeting
+
+      '
+  pitfalls:
+  - Using single quotes prevents interpolation; the string will contain the literal
+  - Forgetting the
+- id: array-iteration
+  title: Array Iteration
+  explanation: Loop over array elements with each, executing a block for each item.
+  tags:
+  - loops
+  when_to_use: Use when you need to perform an action on every element of a collection.
+  examples:
+  - title: Uppercasing fruits
+    language: ruby
+    code: "fruits = [\"apple\", \"banana\", \"cherry\"]\nfruits.each do |fruit|\n\
+      \  puts fruit.upcase\nend\n"
+  pitfalls:
+  - Forgetting the block variable results in a SyntaxError.
+  - Using map when you want side effects, producing an unused array instead of printing.
+- id: hash-access
+  title: Hash Access
+  explanation: Retrieve values from a hash using keys, commonly symbols or strings.
+  tags:
+  - hashes
+  when_to_use: Use when you need to associate keys with values and quickly look them
+    up.
+  examples:
+  - title: Accessing person data
+    language: ruby
+    code: 'person = { name: "Bob", age: 30 }
+
+      puts "Name: #{person[:name]}, Age: #{person[:age]}"
+
+      '
+  pitfalls:
+  - Mixing symbol and string keys leads to missing values (e.g., person["name"] returns
+    nil).
+  - Forgetting brackets when accessing a key causes a SyntaxError.
+- id: method-definition
+  title: Method Definition
+  explanation: Define reusable code blocks with def, optional parameters, and return
+    the last evaluated expression.
+  tags:
+  - methods
+  when_to_use: Use when you want to encapsulate logic that will be reused.
+  examples:
+  - title: Greeting method
+    language: ruby
+    code: "def greet(name)\n  \"Hello, #{name}!\"\nend\nputs greet(\"Eve\")\n"
+  pitfalls:
+  - Omitting parentheses for parameters can lead to ambiguous method calls.
+  - Not returning a value explicitly may leave the caller with nil if the last expression
+    is nil.
+- id: exception-handling
+  title: Exception Handling
+  explanation: Wrap risky code in begin/rescue to gracefully handle errors and prevent
+    crashes.
+  tags:
+  - error-handling
+  when_to_use: Use when performing operations that can raise exceptions, such as division
+    or file I/O.
+  examples:
+  - title: Safe division
+    language: ruby
+    code: "begin\n  result = 1 / 0\nrescue ZeroDivisionError => e\n  puts \"Error:\
+      \ #{e.message}\"\nend\n"
+  pitfalls:
+  - Rescuing the wrong exception type misses the error being handled.
+  - Forgetting the rescue block means the script will terminate on an exception.

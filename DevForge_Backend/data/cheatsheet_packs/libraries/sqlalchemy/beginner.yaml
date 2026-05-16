@@ -1,0 +1,135 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: sqlalchemy
+  library_version_floor: 2.2.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: create-engine
+  title: Create an Engine
+  explanation: Instantiate a SQLAlchemy engine to connect to a database.
+  tags:
+  - engine
+  - connection
+  when_to_use: When you need to establish a connection to any DB.
+  examples:
+  - title: SQLite in-memory
+    language: python
+    code: 'from sqlalchemy import create_engine
+
+      engine = create_engine(''sqlite:///:memory:'', echo=True)
+
+      '
+  pitfalls:
+  - Using an incorrect URL format
+  - Forgetting to dispose the engine
+- id: define-model
+  title: Define a Declarative Model
+  explanation: Use declarative_base to define ORM classes.
+  tags:
+  - model
+  - orm
+  - declarative
+  when_to_use: When modeling tables as Python classes.
+  examples:
+  - title: Simple User model
+    language: python
+    code: "from sqlalchemy import Column, Integer, String\nfrom sqlalchemy.orm import\
+      \ declarative_base\nBase = declarative_base()\nclass User(Base):\n    __tablename__\
+      \ = 'users'\n    id = Column(Integer, primary_key=True)\n    name = Column(String,\
+      \ nullable=False)\n    email = Column(String, unique=True)\n"
+  pitfalls:
+  - Forgetting to set __tablename__
+  - Misusing Column types
+- id: create-tables
+  title: Create Tables
+  explanation: Create database tables from models.
+  tags:
+  - schema
+  - create
+  when_to_use: After defining models and before inserting data.
+  examples:
+  - title: Create all tables
+    language: python
+    code: 'engine = create_engine(''sqlite:///:memory:'')
+
+      Base.metadata.create_all(engine)
+
+      '
+  pitfalls:
+  - Running create_all on the wrong engine
+  - Ignoring migration best practices
+- id: insert-record
+  title: Insert a Record
+  explanation: Add a new row to a table via a session.
+  tags:
+  - session
+  - insert
+  when_to_use: When adding new data.
+  examples:
+  - title: Add a new user
+    language: python
+    code: 'from sqlalchemy.orm import sessionmaker
+
+      Session = sessionmaker(bind=engine)
+
+      session = Session()
+
+      new_user = User(name=''Alice'', email=''alice@example.com'')
+
+      session.add(new_user)
+
+      session.commit()
+
+      '
+  pitfalls:
+  - Forgetting to commit the transaction
+  - Using the same session across threads without isolation
+- id: query-record
+  title: Query Records
+  explanation: Retrieve rows using session.query or select.
+  tags:
+  - query
+  - select
+  when_to_use: When reading data.
+  examples:
+  - title: Retrieve all users
+    language: python
+    code: 'users = session.query(User).filter(User.name == ''Alice'').all()
+
+      '
+  pitfalls:
+  - Using deprecated query() syntax in newer SQLAlchemy versions
+  - Not closing the session after use
+- id: update-record
+  title: Update a Record
+  explanation: Modify existing rows and commit.
+  tags:
+  - update
+  - session
+  when_to_use: When changing data.
+  examples:
+  - title: Update user email
+    language: python
+    code: "user = session.query(User).filter(User.name == 'Alice').first()\nif user:\n\
+      \    user.email = 'alice_new@example.com'\n    session.commit()\n"
+  pitfalls:
+  - Assuming automatic flushing without commit
+  - Updating without fetching the instance first
+- id: delete-record
+  title: Delete a Record
+  explanation: Remove rows via delete.
+  tags:
+  - delete
+  - session
+  when_to_use: When removing data.
+  examples:
+  - title: Delete a user
+    language: python
+    code: "user = session.query(User).filter(User.name == 'Alice').first()\nif user:\n\
+      \    session.delete(user)\n    session.commit()\n"
+  pitfalls:
+  - Deleting without checking existence
+  - Forgetting to commit the deletion

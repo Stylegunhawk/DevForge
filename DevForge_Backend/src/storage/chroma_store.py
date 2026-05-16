@@ -146,7 +146,12 @@ class ChromaVectorStore(BaseVectorStore):
             
         return chunk_results
         
-    async def get_chunk_by_qualified_id(self, qid: str) -> Optional[ChunkResult]:
+    async def get_chunk_by_qualified_id(
+        self,
+        qid: str,
+        tenant_id: str = "default",
+        collection_name: Optional[str] = None
+    ) -> Optional[ChunkResult]:
         """
         Get chunk by qualified ID (file::entity).
         
@@ -154,17 +159,23 @@ class ChromaVectorStore(BaseVectorStore):
         
         Args:
             qid: Qualified ID (file::entity)
+            tenant_id: Tenant context for data isolation
+            collection_name: Optional explicit collection name
         
         Returns:
             ChunkResult if found, None otherwise
         """
-        # Parse QID
         if "::" not in qid:
-            logger.warning(f"Invalid QID format: {qid}")
             return None
-        
-        file_path, entity_name = qid.split("::", 1)
-        
+
+        # Parse QID properly taking into account new and old formats
+        if qid.count("::") == 1:
+            file_path, entity_name = qid.split("::", 1)
+            tenant = tenant_id
+        else:
+            tenant, rest = qid.split("::", 1)
+            file_path, entity_name = rest.rsplit("::", 1)
+
         # Query ChromaDB by metadata
         results = await asyncio.to_thread(
             self._collection.get,
@@ -172,6 +183,7 @@ class ChromaVectorStore(BaseVectorStore):
                 "$and": [
                     {"source": {"$eq": file_path}},
                     {"name": {"$eq": entity_name}},
+                    {"tenant_id": {"$eq": tenant}},
                 ]
             },
             limit=1,
@@ -189,7 +201,12 @@ class ChromaVectorStore(BaseVectorStore):
             score=None,
         )
     
-    async def iter_chunk_metadata(self, batch_size: int = 500) -> AsyncIterator[List[Dict]]:
+    async def iter_chunk_metadata(
+        self,
+        batch_size: int = 500,
+        tenant_id: str = "default",
+        collection_name: Optional[str] = None
+    ) -> AsyncIterator[List[Dict]]:
         """
         Iterate over chunk metadata in batches.
         
@@ -197,6 +214,8 @@ class ChromaVectorStore(BaseVectorStore):
         
         Args:
             batch_size: Chunks per batch
+            tenant_id: Tenant context for data isolation
+            collection_name: Optional explicit collection name
         
         Yields:
             Batches of metadata dictionaries
@@ -217,8 +236,10 @@ class ChromaVectorStore(BaseVectorStore):
             if not metadatas:
                 break
             
-            logger.debug(f"iter_chunk_metadata: yielding batch of {len(metadatas)}")
-            yield metadatas
+            # Filter by tenant_id in metadata (additional safety)
+            filtered = [m for m in metadatas if m.get("tenant_id") == tenant_id]
+            if filtered:
+                yield filtered
             
             # Check if we've reached the end
             if len(metadatas) < batch_size:
@@ -226,20 +247,27 @@ class ChromaVectorStore(BaseVectorStore):
             
             offset += batch_size
     
-    async def delete_by_source(self, source: str) -> int:
+    async def delete_by_source(self, source: str, tenant_id: str = "default", collection_name: Optional[str] = None) -> int:
         """
-        Delete all chunks from a source file.
+        Delete all chunks from a source file (tenant-scoped).
         
         Args:
             source: Source file path
+            tenant_id: Tenant context for data isolation
+            collection_name: Optional explicit collection name
         
         Returns:
             Number of chunks deleted
         """
-        # Get IDs to delete
+        # Get IDs to delete (with tenant scoping)
         results = await asyncio.to_thread(
             self._collection.get,
-            where={"source": {"$eq": source}},
+            where={
+                "$and": [
+                    {"source": {"$eq": source}},
+                    {"tenant_id": {"$eq": tenant_id}}
+                ]
+            },
             include=[],  # Only need IDs
         )
         
@@ -247,8 +275,53 @@ class ChromaVectorStore(BaseVectorStore):
         
         if ids:
             await asyncio.to_thread(self._collection.delete, ids=ids)
-            logger.info(f"Deleted {len(ids)} chunks from {source}")
+            logger.info(f"Deleted {len(ids)} chunks from {source} (tenant={tenant_id})")
         
+        return len(ids)
+
+    async def delete_by_file_id(self, file_id: str, tenant_id: str = "default", collection_name: Optional[str] = None) -> int:
+        """
+        Delete all chunks for a specific file by its ID (tenant-scoped).
+        
+        Args:
+            file_id: File UUID
+            tenant_id: Tenant context for data isolation
+            collection_name: Optional explicit collection name
+            
+        Returns:
+            Number of chunks deleted
+        """
+        # Get IDs to delete (with tenant scoping)
+        results = await asyncio.to_thread(
+            self._collection.get,
+            where={
+                "$and": [
+                    {"file_id": {"$eq": file_id}},
+                    {"tenant_id": {"$eq": tenant_id}}
+                ]
+            },
+            include=[],  # Only need IDs
+        )
+        
+        ids = results.get("ids", [])
+        
+        if ids:
+            await asyncio.to_thread(self._collection.delete, ids=ids)
+            logger.info(f"Deleted {len(ids)} orphaned chunks for file_id={file_id} (tenant={tenant_id})")
+        
+        return len(ids)
+
+    async def delete_collection(self, tenant_id: str, collection_name: str) -> int:
+        """Dev-only: Drop all vectors for a tenant collection."""
+        results = await asyncio.to_thread(
+            self._collection.get,
+            where={"tenant_id": {"$eq": tenant_id}},
+            include=[],
+        )
+        ids = results.get("ids", [])
+        if ids:
+            await asyncio.to_thread(self._collection.delete, ids=ids)
+            logger.warning(f"DEV PURGE: Deleted {len(ids)} chunks for tenant={tenant_id}")
         return len(ids)
 
     async def get_chunks_by_file_id(

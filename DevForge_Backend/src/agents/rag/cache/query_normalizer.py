@@ -61,32 +61,27 @@ def normalize_query(query: str, sort_threshold: int = 6) -> str:
     return normalized
 
 
-def cache_key_from_query(query: str, top_k: int) -> str:
+def cache_key_from_query(query: str, top_k: int, tenant_id: str = "default") -> str:
     """
-    Generate SHA256 cache key from query + retrieval params.
+    Generate SHA256 cache key from query + retrieval params + tenant.
     
     Cache key includes:
     - Normalized query (lowercase, dedupe whitespace, conditional sort)
     - top_k (different results for different k values)
+    - tenant_id (cross-tenant isolation)
     
     Args:
         query: User query string
         top_k: Number of results requested
+        tenant_id: Tenant identifier
     
     Returns:
         SHA256 hash (64 hex chars)
-    
-    Example:
-        >>> cache_key_from_query("JWT auth", top_k=5)
-        'a3f5d9e2b7c4f1a8...'  # 64-char hex
-        
-        >>> cache_key_from_query("JWT auth", top_k=10)
-        'f8e2c1a9d4b7f6...'  # Different key (different top_k)
     """
     normalized = normalize_query(query)
     
-    # Include top_k in key (different results for different k)
-    cache_input = f"{normalized}::{top_k}"
+    # Include tenant_id and top_k in key
+    cache_input = f"{tenant_id}::{normalized}::{top_k}"
     
     # SHA256 for collision resistance
     return hashlib.sha256(cache_input.encode('utf-8')).hexdigest()

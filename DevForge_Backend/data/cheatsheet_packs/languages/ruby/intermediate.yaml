@@ -1,0 +1,119 @@
+pack:
+  language: ruby
+  skill_level: intermediate
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: map-each
+  title: 'Enumerable#map vs #each'
+  explanation: Use map to transform collections; use each for side effects.
+  tags:
+  - enumerable
+  - transformation
+  when_to_use: When you need a new array of transformed elements.
+  examples:
+  - title: Transform array
+    language: ruby
+    code: 'numbers = [1, 2, 3]
+
+      doubled = numbers.map { |n| n * 2 }
+
+      # doubled => [2, 4, 6]
+
+      '
+  pitfalls:
+  - Using map when you only need side effects leads to an unused array.
+  - Using each inside map can cause confusion about intent.
+- id: uniq-uniq!
+  title: Array#uniq! vs Array#uniq
+  explanation: uniq! mutates the array in place; uniq returns a new array.
+  tags:
+  - array
+  - mutation
+  when_to_use: When you want to remove duplicates without allocating a new array.
+  examples:
+  - title: Remove duplicates in place
+    language: ruby
+    code: 'fruits = ["apple", "banana", "apple"]
+
+      fruits.uniq!   # fruits => ["apple", "banana"]
+
+      '
+  pitfalls:
+  - uniq! returns nil if no changes were made; check the return value.
+  - Calling uniq! on a frozen array raises RuntimeError.
+- id: hash-dig
+  title: Hash#dig for nested hashes
+  explanation: dig retrieves nested values safely without raising KeyError.
+  tags:
+  - hash
+  - nested
+  when_to_use: When accessing deep keys in optional structures.
+  examples:
+  - title: Safe access
+    language: ruby
+    code: 'user = { name: "Alice", address: { city: "Wonderland" } }
+
+      city = user.dig(:address, :city)   # city => "Wonderland"
+
+      zip  = user.dig(:address, :zip)     # zip => nil
+
+      '
+  pitfalls:
+  - dig returns nil on missing key; if you rely on a default, use a block.
+  - Using dig on an array index incorrectly throws ArgumentError.
+- id: pattern-matching
+  title: Pattern Matching with case
+  explanation: Pattern matching allows structural matching in case statements.
+  tags:
+  - pattern
+  - case
+  when_to_use: When you need to match complex data structures.
+  examples:
+  - title: Match nested array
+    language: ruby
+    code: "data = [1, [:a, :b], 3]\ncase data\nin [1, [:a, :b], 3]\n  puts \"Matched!\"\
+      \nelse\n  puts \"No match\"\nend\n"
+  pitfalls:
+  - Syntax error if 'in' keyword is omitted.
+  - Overly broad patterns can match unintended data.
+- id: openstruct
+  title: OpenStruct for flexible objects
+  explanation: OpenStruct gives dynamic attributes without defining a class.
+  tags:
+  - struct
+  - dynamic
+  when_to_use: When you need a quick, mutable object with named attributes.
+  examples:
+  - title: Create user struct
+    language: ruby
+    code: 'require ''ostruct''
+
+      user = OpenStruct.new(name: "Bob", age: 30)
+
+      puts user.name   # => Bob
+
+      '
+  pitfalls:
+  - OpenStruct uses method_missing, which can be slower than a normal class.
+  - Attribute names can collide with existing OpenStruct methods.
+- id: enumerator-lazy
+  title: Lazy Enumerators for efficient pipelines
+  explanation: Lazy chains avoid intermediate arrays for large data.
+  tags:
+  - enumerator
+  - lazy
+  when_to_use: When processing large or infinite sequences.
+  examples:
+  - title: Generate primes lazily
+    language: ruby
+    code: "primes = Enumerator.new do |y|\n  n = 2\n  loop do\n    prime = true\n\
+      \    (2..Math.sqrt(n)).each { |i| prime = false if n % i == 0 }\n    y << n\
+      \ if prime\n    n += 1\n  end\nend.lazy\nfirst_five = primes.take(5).to_a  \
+      \ # => [2, 3, 5, 7, 11]\n"
+  pitfalls:
+  - Calling to_a forces evaluation, defeating laziness.
+  - Missing .force or .each leads to no execution of the generator.

@@ -38,7 +38,13 @@ class SemanticAnalyzer:
         self.context = ContextClassifier()
         self.llm = LLMClassifier(llm_client) if llm_client else None
     
-    def analyze_field(self, ctx: FieldContext) -> SemanticFieldInfo:
+    async def analyze_field(
+        self, 
+        ctx: FieldContext,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
+    ) -> SemanticFieldInfo:
         """
         Analyze a single field using multi-tier pipeline.
         
@@ -65,7 +71,12 @@ class SemanticAnalyzer:
         
         # Tier 4: LLM (if available)
         if self.llm:
-            result = self.llm.classify(ctx)
+            result = await self.llm.classify(
+                ctx,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to LLM classifier
+            )
             if result and result.confidence >= self.LLM_THRESHOLD:
                 logger.debug(f"Field {ctx.entity_name}.{ctx.field_name} classified via LLM: {result.semantic_type}")
                 return result
@@ -73,10 +84,13 @@ class SemanticAnalyzer:
         # Tier 5: Fallback
         return self._fallback_classification(ctx)
     
-    def analyze_schema(
+    async def analyze_schema(
         self, 
         schema: dict, 
-        user_prompt: str = None
+        user_prompt: str = None,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> dict[str, List[SemanticFieldInfo]]:
         """
         Analyze all fields in a schema.
@@ -109,7 +123,12 @@ class SemanticAnalyzer:
                 )
                 
                 # Analyze
-                result = self.analyze_field(ctx)
+                result = await self.analyze_field(
+                    ctx,
+                    tenant_id=tenant_id,
+                    integration_name=integration_name,
+                    user_id=user_id  # NEW: Pass user_id to analyze_field
+                )
                 results[entity_name].append(result)
         
         return results

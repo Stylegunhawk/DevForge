@@ -101,6 +101,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
+    DEBUG: bool = True  # Enable dev-only endpoints and debugging features
 
     # Ollama Configuration
     OLLAMA_HOST: str
@@ -196,6 +197,9 @@ class Settings(BaseSettings):
     GRAPH_CONTEXT_DEPTH: int = 2  # BFS depth for related functions
     GRAPH_MAX_CONTEXT_CHUNKS:int = 3  # Limit per expanded function
     
+    # Phase 12: RAG Configuration
+    RAG_MAX_FILE_SIZE: int = 52428800  # 50MB default (52,428,800 bytes)
+    
     # Phase 11: Reranking
     ENABLE_RERANKING: bool = True
     RERANK_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -242,6 +246,15 @@ class Settings(BaseSettings):
     ENABLE_SEMANTIC_CACHE: bool = True
     SEMANTIC_CACHE_THRESHOLD: float = 0.92  # Cosine similarity threshold
     SEMANTIC_CACHE_MAX_SIZE_PER_INTENT: int = 100  # Max cached queries per intent
+
+    # Phase 1 (API Key Auth Phase): Security Configuration
+    ADMIN_SECRET: str | None = None  # Protected admin endpoints
+    API_KEY_CACHE_TTL: int = 300      # 5 minutes cache
+
+    # Phase 3: Dashboard Authentication
+    DASHBOARD_JWT_SECRET: str | None = None
+    GOOGLE_DASHBOARD_CLIENT_ID: str | None = None
+    GOOGLE_DASHBOARD_SECRET: str | None = None
 
     @property
     def cors_origins_list(self) -> List[str]:

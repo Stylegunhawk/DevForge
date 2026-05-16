@@ -1,0 +1,140 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+/* ── Light theme — warm cream like claude docs ── */
+:root {
+  --radius: 0.5rem;
+  --background: 250 249 245;          /* #FAF9F5 — warm cream */
+  --foreground: 26 24 21;             /* #1A1815 — warm near-black */
+  --card: 255 255 255;
+  --card-foreground: 26 24 21;
+  --popover: 255 255 255;
+  --popover-foreground: 26 24 21;
+  --primary: 204 120 92;              /* #CC785C — Anthropic coral */
+  --primary-foreground: 255 255 255;
+  --secondary: 240 238 230;           /* #F0EEE6 */
+  --secondary-foreground: 58 53 48;   /* warm gray-800 */
+  --muted: 240 238 230;
+  --muted-foreground: 117 113 107;    /* #75716B — warm gray-500 */
+  --accent: 240 234 224;              /* #F0EAE0 — warm cream hover */
+  --accent-foreground: 153 86 65;     /* darker coral */
+  --destructive: 196 69 54;
+  --border: 229 226 215;              /* #E5E2D7 — warm border */
+  --input: 229 226 215;
+  --ring: 204 120 92;
+  --chart-1: 204 120 92;              /* coral */
+  --chart-2: 184 164 124;             /* warm gold */
+  --chart-3: 124 144 130;             /* sage */
+  --chart-4: 155 123 149;             /* dusty mauve */
+  --chart-5: 196 165 123;             /* caramel */
+  --sidebar: 245 243 237;             /* slightly distinct from bg */
+  --sidebar-foreground: 26 24 21;
+  --sidebar-primary: 204 120 92;
+  --sidebar-primary-foreground: 255 255 255;
+  --sidebar-accent: 240 234 224;
+  --sidebar-accent-foreground: 153 86 65;
+  --sidebar-border: 229 226 215;
+  --sidebar-ring: 204 120 92;
+}
+
+/* ── Dark theme — warm charcoal with coral accent (claude docs style) ── */
+.dark {
+  --background: 26 24 21;             /* #1A1815 — warm dark */
+  --foreground: 232 230 221;          /* #E8E6DD — warm off-white */
+  --card: 38 37 34;                   /* #262522 — flat, subtle lift */
+  --card-foreground: 232 230 221;
+  --popover: 45 44 41;                /* #2D2C29 */
+  --popover-foreground: 232 230 221;
+  --primary: 217 119 87;              /* #D97757 — Anthropic coral */
+  --primary-foreground: 26 24 21;
+  --secondary: 38 37 34;
+  --secondary-foreground: 198 192 178;
+  --muted: 38 37 34;
+  --muted-foreground: 163 158 148;    /* #A39E94 — warm gray */
+  --accent: 58 53 48;                 /* #3A3530 — warm hover */
+  --accent-foreground: 232 230 221;
+  --destructive: 225 123 110;
+  --border: 54 51 48;                 /* #363330 — warm border */
+  --input: 38 37 34;
+  --ring: 217 119 87;
+  --chart-1: 217 119 87;              /* coral */
+  --chart-2: 200 178 134;             /* warm gold */
+  --chart-3: 142 168 152;             /* sage */
+  --chart-4: 178 145 173;             /* mauve */
+  --chart-5: 212 184 142;             /* caramel */
+  --sidebar: 22 20 18;                /* #161412 — slightly deeper */
+  --sidebar-foreground: 198 192 178;
+  --sidebar-primary: 217 119 87;
+  --sidebar-primary-foreground: 26 24 21;
+  --sidebar-accent: 50 45 41;         /* #322D29 — warm hover */
+  --sidebar-accent-foreground: 232 196 178; /* warm coral text */
+  --sidebar-border: 45 42 39;         /* subtle warm */
+  --sidebar-ring: 217 119 87;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Flat cards — no shadow, just border (claude docs style) */
+  [data-slot="card"] {
+    box-shadow: none;
+  }
+
+  /* Code blocks — slightly inset surface */
+  pre, code {
+    @apply font-mono;
+  }
+  pre {
+    background: rgb(var(--muted));
+  }
+}

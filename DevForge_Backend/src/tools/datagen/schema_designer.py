@@ -54,10 +54,14 @@ Rules:
 1. Use snake_case for all names
 2. Allowed types: string, int, float, date, datetime, boolean, uuid
 3. faker_provider options: name, email, phone_number, address, company, job, city, country, url, text, uuid4, date, date_time
-4. Use "constraints" for enums, numeric ranges (min/max), and regex patterns
-4. For relationships: from_entity is the child (has FK), to_entity is the parent
-5. Add appropriate primary keys (default: "id" with uuid type)
-6. Be realistic with counts (10-1000 typical, max 10000)
+4. Mark `nullable: true` for fields that represent optional or often-missing information in real production data.
+   Always nullable: middle_name, address_line_2, description, comment, last_login, deleted_at, deactivation_reason, suffix, extension, error_message, notes
+   Often nullable (mark true if the domain suggests it): phone, alternate_email, referral_code, promo_code, attachment_url, cancellation_reason
+   Never nullable: id, primary_key, the primary email when it is the contact key, created_at, foreign keys
+5. Use "constraints" for enums, numeric ranges (min/max), and regex patterns
+6. For relationships: from_entity is the child (has FK), to_entity is the parent
+7. Add appropriate primary keys (default: "id" with uuid type)
+8. Be realistic with counts (10-1000 typical, max 10000)
 
 Now design a schema for this request:
 """
@@ -98,7 +102,10 @@ class SchemaDesigner:
         self,
         prompt: str,
         domain: Optional[str] = None,
-        default_rows: int = 100
+        default_rows: int = 100,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> SchemaDesign:
         """Design a schema from natural language prompt.
         
@@ -121,7 +128,13 @@ class SchemaDesigner:
         
         # Try LLM-based schema design
         try:
-            schema = await self._design_with_llm(prompt, default_rows)
+            schema = await self._design_with_llm(
+                prompt, 
+                default_rows,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to _design_with_llm
+            )
             if schema:
                 logger.info(f"LLM schema design successful: {len(schema.entities)} entities")
                 return schema
@@ -143,7 +156,10 @@ class SchemaDesigner:
     async def _design_with_llm(
         self, 
         prompt: str, 
-        default_rows: int
+        default_rows: int,
+        tenant_id: Optional[str] = None,
+        integration_name: Optional[str] = None,
+        user_id: Optional[str] = None  # NEW: Phase 4 analytics support
     ) -> Optional[SchemaDesign]:
         """Call LLM to design schema.
         
@@ -164,13 +180,18 @@ class SchemaDesigner:
             
             logger.info(f"Calling LLM for schema design with model: {model_name}")
             
-            # Call LLM
-            response = await chat_model.ainvoke([
-                {"role": "user", "content": full_prompt}
-            ])
+            # Call LLM with auto-logging
+            usage_result = await model_router.invoke_with_usage(
+                prompt=full_prompt,
+                model_name=model_name,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                task_type="datagen_schema_design",
+                user_id=user_id  # NEW: Pass user_id to ModelRouter
+            )
             
             # Extract content
-            content = response.content if hasattr(response, "content") else str(response)
+            content = usage_result.content
             
             # Parse JSON from response
             schema_dict = self._extract_json(content)

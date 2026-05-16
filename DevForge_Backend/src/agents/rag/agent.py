@@ -228,16 +228,20 @@ def get_rag_agent(tenant_id: str = "default", collection_name: Optional[str] = N
     if not collection_name:
         collection_name = f"user_{tenant_id}"
         
-    # 2. Check Cache
-    if collection_name in _agent_cache:
-        return _agent_cache[collection_name]
+    # 2. Cache key must include tenant_id to prevent cross-tenant agent reuse
+    cache_key = f"{tenant_id}::{collection_name}"
+    
+    logger.info(f"[AGENT-CACHE] {'HIT' if cache_key in _agent_cache else 'MISS'}: {cache_key}")
+    
+    if cache_key in _agent_cache:
+        return _agent_cache[cache_key]
     
     # 3. Create New Instance
     logger.info(f"Initializing new RAGAgent for collection: {collection_name}")
     agent = RAGAgent(collection_name=collection_name)
     agent.tenant_id = tenant_id 
     
-    _agent_cache[collection_name] = agent
+    _agent_cache[cache_key] = agent
     return agent
 
 # ✅ FIX: EXPORT ONLY WHAT IS NEEDED
@@ -429,20 +433,40 @@ class RAGAgent:
 
         
         # 0. Try Redis Cache
-        cache_key = f"rag_graph:{self.collection_name}"
+        cache_key = f"rag_graph:v2:{self.collection_name}"
+        old_cache_key = f"rag_graph:{self.collection_name}"
         redis_client = self._init_redis()
         
         if redis_client:
             try:
+                # Cleanup legacy cache key
+                old_data = await redis_client.get(old_cache_key)
+                if old_data:
+                    logger.warning(f"Deleting legacy graph cache key: {old_cache_key}")
+                    await redis_client.delete(old_cache_key)
+
                 cached_data = await redis_client.get(cache_key)
                 if cached_data:
                     graph_dict = json.loads(cached_data)
-                    self._code_graph = CodeGraph.from_dict(graph_dict)
-                    logger.info(f"Graph loaded from cache: {self._code_graph.size()} nodes")
-                    await redis_client.close()
-                    return
+                    # Validate QID format in cached graph
+                    needs_rebuild = False
+                    for node in graph_dict.get("nodes", []):
+                        if node.get("id", "").count("::") < 2:
+                            logger.warning("Legacy QID format detected, forcing rebuild")
+                            needs_rebuild = True
+                            break
+                            
+                    if not needs_rebuild:
+                        self._code_graph = CodeGraph.from_dict(graph_dict)
+                        logger.info(f"Graph loaded from cache: {self._code_graph.size()} nodes")
+                        await redis_client.close()
+                        return
             except Exception as e:
-                logger.warning(f"Graph cache load failed: {e}")
+                logger.warning(
+                    "Graph cache load failed",
+                    exc_info=True,
+                    extra={"error": str(e), "collection_name": self.collection_name, "tenant_id": getattr(self, 'tenant_id', 'default')}
+                )
         
         # 1. Fallback: Rebuild from Chroma
         logger.info("Building graph from vector store metadata (Cold Start)...")
@@ -450,7 +474,11 @@ class RAGAgent:
         
         count = 0
         try:
-            async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
+            async for batch in self.vector_store.iter_chunk_metadata(
+                batch_size=500,
+                tenant_id=getattr(self, 'tenant_id', 'default'),
+                collection_name=self.collection_name
+            ):
                 # Validate metadata hygiene
                 valid_batch = []
                 for meta in batch:
@@ -461,7 +489,7 @@ class RAGAgent:
                     valid_batch.append({"metadata": meta})
 
                 if valid_batch:
-                    self._code_graph.add_chunks_batch(valid_batch)
+                    self._code_graph.add_chunks_batch(valid_batch, tenant_id=getattr(self, 'tenant_id', 'default'))
                     count += len(valid_batch)
             
             logger.info(f"Graph initialized: {count} chunks → {self._code_graph.size()} nodes")
@@ -474,7 +502,11 @@ class RAGAgent:
                     logger.info("Graph cached to Redis")
                     await redis_client.close()
                 except Exception as e:
-                    logger.warning(f"Graph cache save failed: {e}")
+                    logger.warning(
+                        "Graph cache save failed",
+                        exc_info=True,
+                        extra={"error": str(e), "cache_key": cache_key, "tenant_id": getattr(self, 'tenant_id', 'default')}
+                    )
             
         except Exception as e:
             logger.warning(f"Graph rebuild failed: {e}, using empty graph")
@@ -509,7 +541,8 @@ class RAGAgent:
             # Build BM25 index from vector store
             await self._bm25_index.build(
                 self.vector_store,
-                batch_size=settings.BM25_INDEX_BATCH_SIZE
+                batch_size=settings.BM25_INDEX_BATCH_SIZE,
+                collection_name=self.collection_name
             )
             
             # Initialize hybrid retriever if BM25 ready
@@ -598,11 +631,25 @@ class RAGAgent:
             collection_name=collection_name or self.collection_name,
         )
         
-        # FIX: Problem 1 - Graph Freshness
-        # Invalidate graph so it rebuilds on next query with new data
+        # FIX: Problem 1 - Graph Freshness (Phase 16: Redis Invalidation)
+        # 1. Invalidate in-memory instance
         self._code_graph = None
+        
+        # 2. Delete Redis cache key to force rebuild from new metadata
+        redis_client = self._init_redis()
+        if redis_client:
+            try:
+                # Use current collection name
+                coll = collection_name or self.collection_name
+                cache_key = f"rag_graph:v2:{coll}"
+                await redis_client.delete(cache_key)
+                await redis_client.close()
+                logger.info(f"Invalidated Redis graph cache for {coll}")
+            except Exception as e:
+                logger.warning(f"Failed to invalidate Redis graph cache: {e}")
+
         logger.info(
-            f"Document ingested: {file_path}. Graph invalidated.",
+            f"Document ingested: {file_path}. Graph and Cache invalidated.",
             extra={"chunks": result.get("chunks_created", 0)}
         )
         
@@ -624,6 +671,127 @@ class RAGAgent:
         """
         # Phase 14: Use _vector_search directly (breaking circular dependency)
         return await self._vector_search(query=query, top_k=top_k)
+
+    async def delete_file_cascade(
+        self,
+        file_path: str,
+        tenant_id: str,
+        collection_name: str
+    ) -> dict:
+        """Delete file and invalidate all caches."""
+        results = {"vector_deleted": 0, "caches_cleared": []}
+
+        # 1. Delete from vector store
+        deleted_count = await self.vector_store.delete_by_source(
+            file_path, tenant_id=tenant_id, collection_name=collection_name
+        )
+        results["vector_deleted"] = deleted_count
+
+        # 2. Invalidate in-memory graph
+        self._code_graph = None
+        results["caches_cleared"].append("memory_graph")
+
+        # 3. Invalidate Redis graph cache
+        redis_client = self._init_redis()
+        if redis_client:
+            try:
+                cache_key = f"rag_graph:v2:{collection_name}"
+                await redis_client.delete(cache_key)
+                results["caches_cleared"].append("redis_graph_v2")
+            finally:
+                await redis_client.close()
+
+        # 4. Rebuild BM25 index (removes deleted file's tokens)
+        try:
+            from src.workers.tasks.rag_tasks import async_rebuild_bm25
+            async_rebuild_bm25.delay(tenant_id, collection_name)
+            results["caches_cleared"].append("bm25_index_async")
+        except Exception as e:
+            logger.warning(
+                "Failed to queue BM25 rebuild",
+                exc_info=True,
+                extra={"error": str(e), "tenant_id": tenant_id}
+            )
+
+        # 5. Clear semantic cache for this collection
+        if self._semantic_cache:
+            try:
+                if hasattr(self._semantic_cache, 'clear'):
+                    await self._semantic_cache.clear(collection_name)
+                    results["caches_cleared"].append("semantic_cache")
+            except Exception as e:
+                logger.warning(f"Failed to clear semantic cache: {e}")
+
+        # 6. Clear query cache for this collection
+        if self._query_cache:
+            try:
+                if hasattr(self._query_cache, 'clear_collection'):
+                    await self._query_cache.clear_collection(collection_name)
+                    results["caches_cleared"].append("query_cache")
+            except Exception as e:
+                logger.warning(f"Failed to clear query cache: {e}")
+
+        return results
+
+    async def delete_orphaned_file(
+        self,
+        file_id: str,
+        tenant_id: str,
+        collection_name: str
+    ) -> dict:
+        """Delete orphaned chunks by file_id and invalidate all caches."""
+        results = {"vector_deleted": 0, "caches_cleared": []}
+
+        # 1. Delete from vector store by file_id
+        if hasattr(self.vector_store, "delete_by_file_id"):
+            deleted_count = await self.vector_store.delete_by_file_id(
+                file_id, tenant_id=tenant_id, collection_name=collection_name
+            )
+            results["vector_deleted"] = deleted_count
+        else:
+            logger.warning(f"Vector store {type(self.vector_store).__name__} does not support delete_by_file_id")
+
+        # 2. Invalidate in-memory graph
+        self._code_graph = None
+        results["caches_cleared"].append("memory_graph")
+
+        # 3. Invalidate Redis graph cache
+        redis_client = self._init_redis()
+        if redis_client:
+            try:
+                cache_key = f"rag_graph:v2:{collection_name}"
+                await redis_client.delete(cache_key)
+                results["caches_cleared"].append("redis_graph")
+            except Exception as e:
+                logger.warning(f"Failed to clear Redis graph cache: {e}")
+
+        # 4. Clear abstract BM25 index
+        if self._bm25_index:
+            try:
+                await self._bm25_index.rebuild(self.vector_store)
+                results["caches_cleared"].append("bm25_index")
+            except Exception as e:
+                logger.warning(f"Failed to rebuild BM25 index: {e}")
+
+        # 5. Clear semantic cache for this collection
+        if self._semantic_cache:
+            try:
+                if hasattr(self._semantic_cache, 'clear'):
+                    await self._semantic_cache.clear(collection_name)
+                    results["caches_cleared"].append("semantic_cache")
+            except Exception as e:
+                logger.warning(f"Failed to clear semantic cache: {e}")
+
+        # 6. Clear query cache for this collection
+        if self._query_cache:
+            try:
+                if hasattr(self._query_cache, 'clear_collection'):
+                    await self._query_cache.clear_collection(collection_name)
+                    results["caches_cleared"].append("query_cache")
+            except Exception as e:
+                logger.warning(f"Failed to clear query cache: {e}")
+
+        return results
     
     async def _vector_search(self, query: str, top_k: int, score_threshold: float = 0.0) -> List:
         """
@@ -728,7 +896,7 @@ class RAGAgent:
         # Step 2: Semantic Cache Check (intent-aware)
         if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
             try:
-                cached_result = await self._semantic_cache.get(query, intent)
+                cached_result = await self._semantic_cache.get(query, intent, tenant_id=getattr(self, 'tenant_id', 'default'))
                 if cached_result:
                     logger.info(f"[PHASE 12A] ✅ SEMANTIC CACHE HIT (intent={intent})")
                     return {
@@ -739,7 +907,11 @@ class RAGAgent:
                     }
                 logger.debug(f"[PHASE 12A] Semantic cache miss (intent={intent})")
             except Exception as e:
-                logger.warning(f"Semantic cache check failed: {e}")
+                logger.warning(
+                    "Semantic cache check failed",
+                    exc_info=True,
+                    extra={"error": str(e), "query": query, "intent": intent, "tenant_id": getattr(self, 'tenant_id', 'default')}
+                )
         
         # Step 3: Query Expansion (intent-aware)
         expanded_queries = [query]  # default: just original query
@@ -749,11 +921,19 @@ class RAGAgent:
                 # ExpansionResult is a dataclass, use attribute access
                 if hasattr(expansion_result, 'success') and expansion_result.success:
                     expanded_queries = expansion_result.expanded_queries if hasattr(expansion_result, 'expanded_queries') else [query]
+                    # FALLBACK: if expansion failed or returned empty, use original query
+                    if not expanded_queries:
+                        logger.warning("Query expansion returned empty — falling back to original query")
+                        expanded_queries = [query]
                     logger.info(f"[PHASE 12A] Query expanded: {len(expanded_queries)} queries")
                     for i, eq in enumerate(expanded_queries):
                         logger.debug(f"  [{i}] {eq[:60]}...")
             except Exception as e:
-                logger.warning(f"Query expansion failed: {e}, using original query only")
+                logger.warning(
+                    "Query expansion failed",
+                    exc_info=True,
+                    extra={"error": str(e), "query": query, "intent": intent, "tenant_id": getattr(self, 'tenant_id', 'default')}
+                )
         
         # ========================================
         # End of Phase 12A Query Intelligence
@@ -763,7 +943,7 @@ class RAGAgent:
         if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
             from src.agents.rag.cache import cache_key_from_query
             
-            cache_key = cache_key_from_query(query, top_k)
+            cache_key = cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default'))
             cached = await self._query_cache.get(cache_key)
             
             if cached:
@@ -859,13 +1039,18 @@ class RAGAgent:
                             id=cand_id,
                             content=cand.get("content"),
                             metadata=cand.get("metadata"),
-                            score=0.0 # Neutral score (Constraint C)
+                            score=0.0, # Neutral score (Constraint C)
+                            is_graph_expansion=True # ✅ Propagate flag
                         )
                         initial_results.append(new_chunk)
                         seen_ids.add(cand_id)
                         
             except Exception as e:
-                logger.warning(f"Graph expansion failed: {e}")
+                logger.warning(
+                    "Graph expansion failed (silent fallback)",
+                    exc_info=True,
+                    extra={"error": str(e), "anchors_count": len(initial_results), "tenant_id": getattr(self, 'tenant_id', 'default')}
+                )
         
         # If reranking disabled, return vector results
         if not use_reranking or not settings.ENABLE_RERANKING or self.reranker is None:
@@ -879,15 +1064,19 @@ class RAGAgent:
             # Cache the result (exact-match cache)
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
-                await self._query_cache.set(cache_key_from_query(query, top_k), result)
+                await self._query_cache.set(cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default')), result)
             
             # Phase 12A: Update semantic cache
             if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
                 try:
-                    await self._semantic_cache.set(query, intent, result)
+                    await self._semantic_cache.set(query, intent, result, tenant_id=getattr(self, 'tenant_id', 'default'))
                     logger.debug(f"[PHASE 12A] Cached result for intent={intent}")
                 except Exception as e:
-                    logger.warning(f"Failed to update semantic cache: {e}")
+                    logger.warning(
+                        "Failed to update semantic cache",
+                        exc_info=True,
+                        extra={"error": str(e), "query": query, "intent": intent, "tenant_id": getattr(self, 'tenant_id', 'default')}
+                    )
             
             return result
         
@@ -904,23 +1093,29 @@ class RAGAgent:
                         id=r.get("id", str(i)),
                         content=r.get("content", r.get("page_content", "")),
                         metadata=r.get("metadata", {}),
-                        score=r.get("score")
+                        score=r.get("score"),
+                        is_graph_expansion=r.get("is_graph_expansion", False) # ✅ Propagate flag
                     )
                     for i, r in enumerate(initial_results)
                 ]
             else:
                 chunk_candidates = initial_results
             
-            # Rerank all candidates
+            # Rerank all candidates (CrossEncoder will recalibrate)
             reranked = await self.reranker.rerank(query, chunk_candidates, top_k=top_k*2)
             
-            # Phase 11 Day 3: Apply code-aware boosting
+            # Phase 11 Day 3 (FIXED): Apply code-aware boosting AFTER reranking
             boosted = self.reranker.apply_code_boost(reranked)
-            # Re-sort after boosting
-            boosted.sort(key=lambda c: c.rerank_score, reverse=True)
             
-            # Apply threshold filter (after boosting)
-            filtered = [c for c in boosted if c.rerank_score >= settings.RERANK_SCORE_THRESHOLD]
+            # Re-sort based on boosted scores
+            boosted.sort(key=lambda c: getattr(c, 'rerank_score', 0), reverse=True)
+            
+            # Apply threshold filter (Exempt graph chunks - Task 2)
+            filtered = [
+                c for c in boosted 
+                if getattr(c, 'rerank_score', 0) >= settings.RERANK_SCORE_THRESHOLD
+                or getattr(c, 'is_graph_expansion', False)
+            ]
             
             # MANDATORY FALLBACK: Never return zero results
             if len(filtered) >= 3:
@@ -978,20 +1173,28 @@ class RAGAgent:
             # Phase 11.2: Cache the final result (exact-match)
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
-                await self._query_cache.set(cache_key_from_query(query, top_k), result)
+                await self._query_cache.set(cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default')), result)
             
             # Phase 12A: Update semantic cache
             if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
                 try:
-                    await self._semantic_cache.set(query, intent, result)
+                    await self._semantic_cache.set(query, intent, result, tenant_id=getattr(self, 'tenant_id', 'default'))
                     logger.debug(f"[PHASE 12A] Cached reranked result for intent={intent}")
                 except Exception as e:
-                    logger.warning(f"Failed to update semantic cache: {e}")
+                    logger.warning(
+                        "Failed to update semantic cache",
+                        exc_info=True,
+                        extra={"error": str(e), "query": query, "intent": intent, "tenant_id": getattr(self, 'tenant_id', 'default')}
+                    )
             
             return result
         
         except Exception as e:
-            logger.error(f"Reranking failed: {e}, falling back to vector results")
+            logger.error(
+                "Reranking failed",
+                exc_info=True,
+                extra={"error": str(e), "query": query, "tenant_id": getattr(self, 'tenant_id', 'default')}
+            )
             result = {
                 "documents": initial_results[:top_k],
                 "reranked": False,
@@ -1003,7 +1206,7 @@ class RAGAgent:
             # Cache even error fallback results
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
-                await self._query_cache.set(cache_key_from_query(query, top_k), result)
+                await self._query_cache.set(cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default')), result)
             
             return result
     
@@ -1088,23 +1291,26 @@ class RAGAgent:
         # Build QIDs from initial results (Anchors)
         for result in results:
             metadata = result.get("metadata", {})
+            tenant_id = metadata.get("tenant_id") or getattr(self, 'tenant_id', 'default')
             source = metadata.get("source", "")
             name = metadata.get("name", "")
             
             if source and name:
-                qid = f"{source}::{name}"  # CRITICAL: :: separator
+                qid = f"{tenant_id}::{source}::{name}"  # NEW format
                 seen_qids.add(qid)
         
         # Find related chunks via graph
         for result in results:
             metadata = result.get("metadata", {})
+            tenant_id = metadata.get("tenant_id") or getattr(self, 'tenant_id', 'default')
             source = metadata.get("source", "")
             name = metadata.get("name", "")
             
             if not source or not name:
                 continue
             
-            qid = f"{source}::{name}"
+            qid = f"{tenant_id}::{source}::{name}"
+            logger.info(f"[GRAPH-DEBUG] anchor qid={qid}, in_graph={qid in self.code_graph._graph}")
             
             # Constraint D: Respect Bounds (Depth & Max Chunks)
             related_qids = self.code_graph.get_related(
@@ -1112,6 +1318,10 @@ class RAGAgent:
                 depth=settings.GRAPH_CONTEXT_DEPTH,
                 max_results=settings.GRAPH_MAX_CONTEXT_CHUNKS,
             )
+            logger.info(f"[GRAPH-DEBUG] related for {name}: {related_qids[:3]}")
+            
+            if related_qids:
+                logger.debug(f"[GRAPH] Anchor {qid} -> Found {len(related_qids)} related QIDs")
             
             # Fetch related chunks
             for related_qid in related_qids:
@@ -1121,7 +1331,11 @@ class RAGAgent:
                 seen_qids.add(related_qid)
                 
                 # CRITICAL: Fetch actual code using the now-implemented storage method
-                related_chunk = await self.vector_store.get_chunk_by_qualified_id(related_qid)
+                related_chunk = await self.vector_store.get_chunk_by_qualified_id(
+                    related_qid,
+                    tenant_id=getattr(self, 'tenant_id', 'default'),
+                    collection_name=self.collection_name
+                )
                 
                 if related_chunk:
                     # Constraint E: Fetch candidate, do not assume importance

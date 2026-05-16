@@ -7,19 +7,139 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ValidationError, model_validator
 
 from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
+from src.core.rate_limiter import rate_limiter
+from src.agents.github.schemas import OPERATION_SCHEMAS
+
+# Build the enum list and human-readable string once at import time
+_GH_OP_NAMES = sorted(OPERATION_SCHEMAS.keys())
+_GH_OP_LIST_STR = ", ".join(_GH_OP_NAMES)
+
+# JSON Schema for github_operation tool — exposed via tools/list.
+# oneOf union: Branch 1 = NL query, Branch 2 = typed structured call.
+GITHUB_OPERATION_INPUT_SCHEMA = {
+    "type": "object",
+    "oneOf": [
+        {
+            "title": "Natural-language",
+            "description": "Free-form English query — the LLM extracts intent and parameters.",
+            "required": ["query"],
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language description of the GitHub action to perform.",
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Optional context (github_token, diff, error_log, files, risk_confirmed, risk_reason, session_id).",
+                    "additionalProperties": True,
+                },
+            },
+            "additionalProperties": False,
+        },
+        {
+            "title": "Structured",
+            "description": (
+                "Typed operation + parameters — skips the LLM intent step (~1-2s faster per call). "
+                "Per-operation parameter validation runs at the gateway."
+            ),
+            "required": ["operation"],
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": _GH_OP_NAMES,
+                    "description": "GitHub operation to execute. Per-op parameters are validated at runtime.",
+                },
+                "context": {
+                    "type": "object",
+                    "description": "github_token (required), risk_confirmed/risk_reason (for HIGH/CRITICAL ops), diff, error_log, etc.",
+                    "additionalProperties": True,
+                },
+            },
+            "additionalProperties": True,  # per-op params vary; enforced at runtime by OPERATION_SCHEMAS
+        },
+    ],
+}
+
+
+class GithubOperationArgs(BaseModel):
+    """MCP-only validator for github_operation arguments.
+
+    Enforces:
+      - When `operation` is absent, `query` is required (natural-language path).
+      - When `operation` is set, it must be in `OPERATION_SCHEMAS` and all required
+        fields for that op must be present and well-typed (validated via the per-op
+        Pydantic model). The top-level `query` field is interpreted as a per-op
+        parameter when the operation's schema defines its own `query` field
+        (e.g. `search_code.query`); otherwise specifying both is rejected.
+    """
+    query: Optional[str] = None
+    operation: Optional[str] = None
+    context: Optional[dict] = None
+    # Catch-all for per-op parameter fields (e.g., repo, title, body) — validated below
+    model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def _validate_exactly_one_and_op_schema(self) -> "GithubOperationArgs":
+        has_query = bool(self.query)
+        has_op = bool(self.operation)
+
+        if not has_op:
+            if not has_query:
+                raise ValueError("Must specify either 'query' or 'operation' in arguments")
+            return self  # Natural-language path — no further checks
+
+        # Structured path
+        if self.operation not in OPERATION_SCHEMAS:
+            raise ValueError(
+                f"Unknown operation '{self.operation}'. Valid operations: [{_GH_OP_LIST_STR}]"
+            )
+        op_model_cls = OPERATION_SCHEMAS[self.operation]
+        op_field_names = set(op_model_cls.model_fields.keys())
+
+        # If the op's schema does not define its own `query` field, specifying both
+        # `query` and `operation` is almost certainly a caller mistake.
+        if has_query and "query" not in op_field_names:
+            raise ValueError(
+                f"Cannot specify both 'query' and 'operation' — operation "
+                f"'{self.operation}' does not accept a 'query' parameter"
+            )
+
+        # Build the per-op params payload — keep `query` when it's a valid op field
+        excluded = {"operation", "context"}
+        if "query" not in op_field_names:
+            excluded.add("query")
+        op_params = self.model_dump(exclude=excluded)
+        # Filter out None values so missing-required fields are correctly flagged
+        op_params = {k: v for k, v in op_params.items() if v is not None}
+        # Normalize shorthand "repo" → "repo_name" so MCP callers can use the
+        # compact key without triggering a validation error. The agent layer
+        # performs the same normalization during enhance_with_intelligence, but
+        # the schema check here runs first, so we pre-promote it.
+        if "repo" in op_params and "repo_name" not in op_params:
+            op_params["repo_name"] = op_params.pop("repo")
+        try:
+            op_model_cls(**op_params)
+        except ValidationError as e:
+            field_msgs = []
+            for err in e.errors():
+                field = ".".join(str(p) for p in err["loc"])
+                msg = err["msg"]
+                field_msgs.append(f"'{field}': {msg}")
+            combined = "; ".join(field_msgs)
+            raise ValueError(f"Operation '{self.operation}' validation errors: {combined}") from e
+        return self
 
 # Import agents
 from src.agents.datagen.agent import datagen_agent
 from src.agents.github.agent import github_agent_invoke
 from src.agents.prompt_refiner.agent import refine_prompt_invoke
-from src.agents.rag.agent import rag_agent_invoke
-from src.agents.reranker import rerank_docs_invoke
 
 # Import RAG models for type hints
 from src.api.rag_models import (
@@ -45,9 +165,7 @@ mcp_router = APIRouter()
 # Map tool names to agent invoke functions
 SUPPORTED_TOOLS = {
     "generate_data": datagen_agent,
-    "retrieve_docs": rag_agent_invoke,
     "github_operation": github_agent_invoke,
-    "rerank_docs": rerank_docs_invoke,
     "refine_prompt": refine_prompt_invoke,
     "generate_cheatsheet": generate_cheatsheet_invoke,
     # Phase 2: Specialized GitHub Tools (Integrated into github_operation)
@@ -59,33 +177,109 @@ SUPPORTED_TOOLS = {
 # Factual tool descriptions (Sync with devforge.json manifest)
 TOOL_DESCRIPTIONS = {
     "generate_data": (
-        "Generate realistic synthetic data with two modes. "
-        "V1 (Simple): Faker-based mock data. "
-        "V2 (Advanced): LLM-powered semantic analysis, domain templates (ecommerce, saas), "
-        "multi-entity relationships, and data quality simulation."
-        "For custom data, always pass user description as 'prompt' parameter to trigger V2 semantic mode."
+        "Synthetic data generator with three modes: "
+
+        "V1 (Faker, fast): no prompt, no domain — returns CSV/JSON Faker rows in "
+        "under 1s. Use for quick mock users in unit tests. "
+
+        "V2 DOMAIN TEMPLATE: domain='ecommerce'|'saas'|'iot_devices' — pre-built "
+        "multi-entity schema with FK integrity (no schema-design LLM call). "
+        "~5-10s warm-cache / 15-25s cold-cache. Use for realistic ecommerce / saas / "
+        "iot-devices data with valid foreign-key linkage. "
+
+        "V2 PROMPT MODE: prompt='...' — LLM designs the schema, SchemaValidator "
+        "fixes enum-swap + range inference, per-entity LLM catalog generates "
+        "domain-realistic values for every string field (cached L1/L2 with 1h TTL). "
+        "~15-30s cold-cache / ~5-10s warm. Use for novel domains the templates "
+        "don't cover (e.g. 'vintage motorcycles', 'scientific instruments'). "
+        "Pass the user's prompt verbatim. "
+
+        "ARGS: rows (1-10000), format ('json'|'csv'), realism_level "
+        "('basic'|'medium'|'high'). realism_level='high' injects ~10% nulls into "
+        "nullable business fields (phone, address, last_login, description, "
+        "cancellation_reason, error_message, last_seen, error_code) and ~2% "
+        "duplicates / ~1% outliers; critical fields (id, email, created_at, "
+        "uuid, *_id foreign keys) NEVER get nulls. Default 'basic' = no injection. "
+
+        "OUTPUT: data.entities (entity names), data.data (per-entity row arrays "
+        "for JSON or CSV strings for CSV), data.fk_integrity (per-relationship "
+        "orphan counts), data.constraint_violations (empty on success), "
+        "data._internal_success (boolean). Constraint violations clear data "
+        "and set success=false."
     ),
     "github_operation": (
-        "Intelligent GitHub automation with natural language. "
-        "Supports: list repos, browse files, read file, search code, create issues, commit files, create PRs. "
-        "v0.8 features: fuzzy repo matching, AI commit messages from diffs, "
-        "log-to-issue parsing (Python/JS/Java/Go), confidence-based safety gating."
+        "Unified GitHub automation tool for repo analysis, branch management, "
+        "issue tracking, commits, and PRs. "
+        
+        "FILE COMMITS: When committing uploaded files, use context.available_files "
+        "which is AUTO-INJECTED by the system. Never call retrieve_docs first. "
+        "Simply reference the filename in your query: "
+        "'commit verify_tree_sitter.py to dev branch of owner/repo' — "
+        "the system resolves the file URL automatically. "
+        
+        "COMMIT MODES: "
+        "(1) Direct text: include content in query for small snippets. "
+        "(2) File URL: system auto-injects file_url from available_files for uploads. "
+        
+        "RISK LEVELS: "
+        "HIGH ops (delete_branch, create_repo) → context.confirmed=true required. "
+        "CRITICAL ops (delete_repo) → context.confirmed=true + context.reason required. "
+        "delete_repo requires EXACT owner/repo format — no fuzzy matching. "
+        
+        "ENVIRONMENT: GITOPS_ENV=production blocks irreversible operations entirely."
     ),
     "refine_prompt": (
-        "Evidence-based prompt optimization for specific domains. "
-        "Analyzes tech stack (dependencies, code, chat) to provide context-aware "
-        "refinements with deterministic confidence and security sanitization."
+        "Refines a user prompt into a detailed, production-ready specification, "
+        "with optional tech-stack grounding from project files, conversation "
+        "history, or attached code. "
+
+        "ITERATIVE USE (recommended for agents): Call once with the user's raw "
+        "prompt. The response's `quality.prompt_grounding` field returns 'low', "
+        "'medium', or 'high'. If 'low' or 'medium', re-call with the inputs "
+        "named in `quality.suggested_inputs` (e.g. project_files, "
+        "attached_files, conversation_history). Each enrichment cycle improves "
+        "the refined prompt's grounding. "
+
+        "OUTPUT: data.refined_prompt is the refined prompt text. "
+        "data.chosen_stack splits detected tech into languages, frameworks, "
+        "libraries, services, and databases — use these typed lists, not the "
+        "legacy denormalized `frameworks` field. "
+        "data.sanitization_log lists redacted secrets and blocked prompt "
+        "injection attempts (metadata only — actual secrets are never logged). "
+
+        "SUPPORTED MANIFEST FILES for project_files: requirements.txt, "
+        "package.json, go.mod, Cargo.toml, pom.xml, build.gradle, "
+        "build.gradle.kts, Gemfile, composer.json, *.csproj. "
+
+        "DOMAINS: code, image, rag, llm, general (default)."
     ),
     "generate_cheatsheet": (
-        "Context-aware dynamic cheat sheet generator. "
-        "Analyzes code to detect libraries, complexity, and generates "
-        "relevant markdown references with best practices and pitfalls."
+        "Generates an activity-aware programming cheat sheet from curated, "
+        "human-reviewed knowledge packs (one LLM call for personalization). "
+
+        "SUPPORTED LANGUAGES: python, javascript, typescript, go, rust, java, "
+        "ruby, php, csharp. Unsupported languages return success:false with a "
+        "clear message — DO NOT retry with a different value, ask the user. "
+
+        "INPUTS you should provide: "
+        "  - language (one of the above, or omit to auto-detect from code_context) "
+        "  - skill_level (beginner|intermediate|expert; default beginner) "
+        "  - code_context (paste the user's actual code if available — enables "
+        "    library detection and activity-aware ranking) "
+        "  - intent (1-line description of what the user is trying to do, e.g. "
+        "    'debugging async deadlock' — strongly improves relevance when code "
+        "    is unavailable or short). "
+
+        "OUTPUTS: data.markdown (rendered sheet), data.ranked_entries (structured), "
+        "data.packs_used (provenance for citing), data.quality ('curated' = LLM-"
+        "personalized; 'curated_unpersonalized' = deterministic fallback fired "
+        "because LLM returned bad JSON — content is still trustworthy but not "
+        "tailored), data.detected_libraries, data.complexity_score, "
+        "data.complexity_suggested_level. "
+
+        "LATENCY: 5–15s warm-cache, 20–30s cold-cache (free Ollama). Suggest a "
+        "loading indicator to the user."
     ),
-    "retrieve_docs": (
-        "Search documents using RAG (ChromaDB / Qdrant). "
-        "Ingest documents and query them semantically."
-    ),
-    "rerank_docs": "Rerank retrieved documents by relevance using cross-encoder",
 }
 
 
@@ -112,30 +306,30 @@ async def get_job_status(job_id: str):
 
 
 @router.post("/rag/ingest-async")
-async def ingest_documents_async(request: IngestAsyncRequest) -> IngestAsyncResponse:
+async def ingest_documents_async(http_req: Request, body: IngestAsyncRequest) -> IngestAsyncResponse:
     """
     Queue documents for async ingestion via Celery.
 
+    Requires JWT auth (tenant_id extracted by JWTAuthMiddleware). The target
+    collection is always derived from the authenticated tenant — the caller's
+    collection_name field is ignored to prevent cross-tenant writes.
+
     ARCHITECTURE: Calls async_ingest_documents Celery task → RAGAgent.
-
-    Args:
-        request: IngestAsyncRequest with file_paths and collection_name
-
-    Returns:
-        IngestAsyncResponse with task_id for tracking
     """
     from src.workers.tasks.rag_tasks import async_ingest_documents
 
+    tenant_id = http_req.state.tenant_id
+    collection_name = f"user_{tenant_id}"
+
     logging.info(
-        f"Queueing async ingestion: {len(request.file_paths)} files",
-        extra={"collection": request.collection_name, "files": len(request.file_paths)},
+        f"Queueing async ingestion: {len(body.file_paths)} files",
+        extra={"tenant": tenant_id, "collection": collection_name, "files": len(body.file_paths)},
     )
 
-    # Queue Celery task
     task = async_ingest_documents.delay(
-        file_paths=request.file_paths,
-        collection_name=request.collection_name,
-        embed_model=request.embed_model,
+        file_paths=body.file_paths,
+        collection_name=collection_name,
+        embed_model=body.embed_model,
     )
 
     logging.info(f"Task queued: {task.id}")
@@ -143,8 +337,8 @@ async def ingest_documents_async(request: IngestAsyncRequest) -> IngestAsyncResp
     return IngestAsyncResponse(
         task_id=task.id,
         status="queued",
-        collection=request.collection_name,
-        total_files=len(request.file_paths),
+        collection=collection_name,
+        total_files=len(body.file_paths),
     )
 
 
@@ -422,6 +616,7 @@ async def rebuild_bm25_index():
         if not settings.ENABLE_HYBRID_SEARCH:
             return {"status": "disabled", "message": "Hybrid search is not enabled"}
 
+        # Admin route: isolate from user caching by instantiating directly
         agent = RAGAgent()
 
         if agent._bm25_index:
@@ -459,6 +654,7 @@ async def get_fallback_usage():
     try:
         from src.agents.rag.agent import RAGAgent
 
+        # Admin route: isolate from user caching by instantiating directly
         agent = RAGAgent()
 
         if not hasattr(agent, "_intent_classifier") or not agent._intent_classifier:
@@ -480,9 +676,10 @@ async def get_fallback_usage():
 async def get_expansion_quality():
     """Get query expansion quality metrics."""
     try:
-        from src.agents.rag.agent import get_rag_agent
+        from src.agents.rag.agent import RAGAgent
 
-        agent = get_rag_agent()
+        # Admin route: isolate from user caching by instantiating directly
+        agent = RAGAgent()
 
         if not hasattr(agent, "_query_expander") or not agent._query_expander:
             return {"enabled": False, "message": "Query expansion not initialized"}
@@ -498,9 +695,10 @@ async def get_expansion_quality():
 async def get_intent_distribution():
     """Get intent classification distribution."""
     try:
-        from src.agents.rag.agent import get_rag_agent
+        from src.agents.rag.agent import RAGAgent
 
-        agent = get_rag_agent()
+        # Admin route: isolate from user caching by instantiating directly
+        agent = RAGAgent()
 
         if not hasattr(agent, "_intent_classifier") or not agent._intent_classifier:
             return {
@@ -524,9 +722,10 @@ async def get_intent_distribution():
 async def get_cache_by_intent():
     """Get semantic cache effectiveness by intent."""
     try:
-        from src.agents.rag.agent import get_rag_agent
+        from src.agents.rag.agent import RAGAgent
 
-        agent = get_rag_agent()
+        # Admin route: isolate from user caching by instantiating directly
+        agent = RAGAgent()
 
         if not hasattr(agent, "_semantic_cache") or not agent._semantic_cache:
             return {"enabled": False, "message": "Semantic cache not initialized"}
@@ -625,10 +824,10 @@ def _generate_default_manifest() -> dict:
 
 
 @router.post("/gateway")
-async def gateway_endpoint(request: GatewayRequest):
+async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
     """Universal gateway for all tools - simplified and cleaner"""
-    tool_name = request.get_tool_name()
-    args = request.arguments or {}
+    tool_name = gateway_req.get_tool_name()
+    args = gateway_req.arguments or {}
     start_time = time.time()
 
     if tool_name not in SUPPORTED_TOOLS:
@@ -645,13 +844,67 @@ async def gateway_endpoint(request: GatewayRequest):
 
     try:
         # ------------------------------------------------------------------- #
+        # Phase 4: Extract user_id and request context for analytics
+        # ------------------------------------------------------------------- #
+        user_id = getattr(request.state, "user_id", None)
+        tenant_id = getattr(request.state, "tenant_id", "unknown")
+        integration_name = getattr(request.state, "integration_name", "unknown")
+        
+        # ------------------------------------------------------------------- #
+        # Rate Limiting Check (Phase 4)
+        # ------------------------------------------------------------------- #
+        api_key_id = getattr(request.state, "api_key_id", None)
+        tier = getattr(request.state, "tier", "free")
+        
+        if api_key_id:
+            allowed, limit_info = await rate_limiter.check_limits(
+                api_key_id, 
+                tier,
+                hourly_override=getattr(request.state, "hourly_limit_override", None),
+                monthly_override=getattr(request.state, "monthly_limit_override", None)
+            )
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "success": False,
+                        "error": "rate_limit_exceeded",
+                        "message": f"Rate limit exceeded for {tier} tier",
+                        "limit_info": {
+                            "hourly_used": limit_info["hourly_used"],
+                            "hourly_limit": limit_info["hourly_limit"],
+                            "monthly_used": limit_info["monthly_used"],
+                            "monthly_limit": limit_info["monthly_limit"],
+                            "hourly_reset_at": limit_info["hourly_reset_at"],
+                            "monthly_reset_at": limit_info["monthly_reset_at"],
+                            "upgrade_url": "http://localhost:3000/dashboard/settings"
+                        }
+                    },
+                    headers={
+                        "X-RateLimit-Limit-Hourly": str(limit_info["hourly_limit"] or "unlimited"),
+                        "X-RateLimit-Used-Hourly": str(limit_info["hourly_used"]),
+                        "X-RateLimit-Reset-Hourly": limit_info["hourly_reset_at"],
+                        "X-RateLimit-Limit-Monthly": str(limit_info["monthly_limit"] or "unlimited"),
+                        "X-RateLimit-Used-Monthly": str(limit_info["monthly_used"]),
+                        "Retry-After": limit_info["hourly_reset_at"],
+                    }
+                )
+
+        # ------------------------------------------------------------------- #
         # Special handling for github_operation (v0.8 with context support)
         # ------------------------------------------------------------------- #
         if tool_name == "github_operation":
             query = args.get("query")
             if not query:
                 error_msg = "github_operation requires 'query' parameter"
-                logging.error(error_msg, extra={"tool": tool_name, "args": args})
+                # Scrub the github_token from args before logging — it's nested in `context`
+                # and would otherwise leak into log handlers attached to the root logger.
+                _safe_args = {
+                    k: ({kk: vv for kk, vv in v.items() if kk != "github_token"}
+                        if k == "context" and isinstance(v, dict) else v)
+                    for k, v in (args or {}).items()
+                }
+                logging.error(error_msg, extra={"tool": tool_name, "args": _safe_args})
                 return JSONResponse(
                     status_code=400,
                     content={
@@ -665,11 +918,23 @@ async def gateway_endpoint(request: GatewayRequest):
             # Strip token from context BEFORE any logging — never log raw tokens
             github_token = context.pop("github_token", None)
 
-            logging.info(f"Calling {tool_name} with query: {query[:100]}...")
-            result = await agent_func(query=query, context=context, github_token=github_token)
+            logging.info(f"Calling {tool_name} for tenant {tenant_id} with query: {query[:100]}...")
+            result = await agent_func(
+                query=query, 
+                context=context, 
+                github_token=github_token,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to agent
+            )
         else:
-            logging.info(f"Calling {tool_name} with args: {args}")
-            result = await agent_func(args)  # ← dict, no extra parsing
+            logging.info(f"Calling {tool_name} for tenant {tenant_id} with args: {args}")
+            result = await agent_func(
+                args, 
+                tenant_id=tenant_id, 
+                integration_name=integration_name,
+                user_id=user_id  # NEW: Pass user_id to agent
+            )
 
         exec_time = time.time() - start_time
 
@@ -715,6 +980,64 @@ async def gateway_endpoint(request: GatewayRequest):
             extra={"tool": tool_name, "success": success, "execution_time": exec_time},
         )
 
+        # ------------------------------------------------------------------- #
+        # Phase 4: Rate Limiting Increment (after successful execution)
+        # ------------------------------------------------------------------- #
+        tokens_used = 1  # Default fallback
+        if success and api_key_id:
+            try:
+                # Try to extract actual token usage from result if available
+                if isinstance(result, dict) and "tokens_used" in result:
+                    tokens_used = result["tokens_used"]
+                elif isinstance(result_data, dict) and "tokens_used" in result_data:
+                    tokens_used = result_data["tokens_used"]
+                
+                await rate_limiter.check_and_increment(
+                    api_key_id, tier, tokens_used,
+                    hourly_override=getattr(request.state, "hourly_limit_override", None),
+                    monthly_override=getattr(request.state, "monthly_limit_override", None)
+                )
+            except Exception as e:
+                logging.warning(f"Failed to increment rate limit: {e}")
+
+        # ------------------------------------------------------------------- #
+        # Phase 4: Async request logging for analytics
+        # ------------------------------------------------------------------- #
+        try:
+            from src.workers.tasks.analytics_tasks import log_request_call
+            from src.utils.sanitization import truncate_input
+            
+            input_summary = truncate_input(args)
+            log_request_call.delay(
+                user_id=user_id,
+                tenant_id=tenant_id,
+                integration_name=integration_name,
+                tool_name=tool_name,
+                input_summary=input_summary,
+                success=success,
+                duration_ms=int(exec_time * 1000)
+            )
+        except Exception as e:
+            # Never block tool response for analytics logging
+            logging.warning(f"Failed to queue analytics logging: {e}")
+
+        # ------------------------------------------------------------------- #
+        # Build response with rate limit headers
+        # ------------------------------------------------------------------- #
+        response_headers = {}
+        if api_key_id:
+            try:
+                usage = await rate_limiter.get_usage(api_key_id, tier)
+                response_headers = {
+                    "X-RateLimit-Limit-Hourly": str(usage["hourly_limit"] or "unlimited"),
+                    "X-RateLimit-Used-Hourly": str(usage["hourly_used"]),
+                    "X-RateLimit-Reset-Hourly": usage["hourly_reset_at"],
+                    "X-RateLimit-Limit-Monthly": str(usage["monthly_limit"] or "unlimited"),
+                    "X-RateLimit-Used-Monthly": str(usage["monthly_used"]),
+                }
+            except Exception as e:
+                logging.warning(f"Failed to get rate limit usage for headers: {e}")
+
         # Return standardized response format
         return JSONResponse(
             content={
@@ -722,6 +1045,7 @@ async def gateway_endpoint(request: GatewayRequest):
                 "data": result_data,
                 "message": message,
             },
+            headers=response_headers
         )
 
     except Exception as e:
@@ -743,6 +1067,28 @@ async def gateway_endpoint(request: GatewayRequest):
             extra={"tool": tool_name, "error": str(e), "execution_time": exec_time},
             exc_info=True,
         )
+        
+        # ------------------------------------------------------------------- #
+        # Phase 4: Log failed requests too
+        # ------------------------------------------------------------------- #
+        try:
+            from src.workers.tasks.analytics_tasks import log_request_call
+            from src.utils.sanitization import truncate_input
+            
+            input_summary = truncate_input(args)
+            log_request_call.delay(
+                user_id=getattr(request.state, "user_id", None),
+                tenant_id=getattr(request.state, "tenant_id", "unknown"),
+                integration_name=getattr(request.state, "integration_name", "unknown"),
+                tool_name=tool_name,
+                input_summary=input_summary,
+                success=False,
+                duration_ms=int(exec_time * 1000)
+            )
+        except Exception as log_e:
+            # Never block tool response for analytics logging
+            logging.warning(f"Failed to queue analytics logging for error: {log_e}")
+        
         return JSONResponse(
             status_code=500,
             content={
@@ -833,7 +1179,7 @@ async def mcp_endpoint(request: Request):
                         "protocolVersion": "2024-11-05",
                         "serverInfo": {
                             "name": "DevForge",
-                            "version": "0.8.0",
+                            "version": "0.9.0",
                         },
                         "capabilities": {
                             "tools": {},
@@ -904,27 +1250,119 @@ async def mcp_endpoint(request: Request):
             try:
                 agent_func = SUPPORTED_TOOLS[tool_name]
 
-                # Special handling for github_operation
-                if tool_name == "github_operation":
-                    query = arguments.get("query")
-                    if not query:
+                # Phase 4: Extract user_id and request context for analytics
+                user_id = getattr(request.state, "user_id", None)
+                tenant_id = getattr(request.state, "tenant_id", "unknown")
+                integration_name = getattr(request.state, "integration_name", "unknown")
+
+                # ------------------------------------------------------------------- #
+                # Rate Limiting Check (Phase 4) - MCP Endpoint
+                # ------------------------------------------------------------------- #
+                api_key_id = getattr(request.state, "api_key_id", None)
+                tier = getattr(request.state, "tier", "free")
+                
+                if api_key_id:
+                    allowed, limit_info = await rate_limiter.check_limits(
+                        api_key_id, 
+                        tier,
+                        hourly_override=getattr(request.state, "hourly_limit_override", None),
+                        monthly_override=getattr(request.state, "monthly_limit_override", None)
+                    )
+                    if not allowed:
                         return JSONResponse(
                             content={
                                 "jsonrpc": "2.0",
                                 "id": req_id,
                                 "error": {
-                                    "code": -32602,
-                                    "message": "github_operation requires 'query'",
-                                },
+                                    "code": -32000,
+                                    "message": "Rate limit exceeded",
+                                    "data": {
+                                        "error": "rate_limit_exceeded",
+                                        "message": f"Rate limit exceeded for {tier} tier",
+                                        "limit_info": {
+                                            "hourly_used": limit_info["hourly_used"],
+                                            "hourly_limit": limit_info["hourly_limit"],
+                                            "monthly_used": limit_info["monthly_used"],
+                                            "monthly_limit": limit_info["monthly_limit"],
+                                            "hourly_reset_at": limit_info["hourly_reset_at"],
+                                            "monthly_reset_at": limit_info["monthly_reset_at"],
+                                            "upgrade_url": "http://localhost:3000/dashboard/settings"
+                                        }
+                                    }
+                                }
+                            },
+                            headers={
+                                "X-RateLimit-Limit-Hourly": str(limit_info["hourly_limit"] or "unlimited"),
+                                "X-RateLimit-Used-Hourly": str(limit_info["hourly_used"]),
+                                "X-RateLimit-Reset-Hourly": limit_info["hourly_reset_at"],
+                                "X-RateLimit-Limit-Monthly": str(limit_info["monthly_limit"] or "unlimited"),
+                                "X-RateLimit-Used-Monthly": str(limit_info["monthly_used"]),
+                                "Retry-After": limit_info["hourly_reset_at"],
                             }
                         )
 
-                    context = arguments.get("context", {})
+                # Special handling for github_operation
+                if tool_name == "github_operation":
+                    try:
+                        validated_args = GithubOperationArgs(**arguments)
+                    except ValidationError as e:
+                        # Collect all errors for a comprehensive message
+                        msgs = []
+                        for err in e.errors():
+                            msg = err.get("msg", "Invalid params")
+                            # Pydantic v2 prefixes ValueError messages with "Value error, " — strip it
+                            if isinstance(msg, str) and msg.startswith("Value error, "):
+                                msg = msg[len("Value error, "):]
+                            msgs.append(msg)
+                        combined_msg = "; ".join(msgs)
+                        return JSONResponse(content={
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {
+                                "code": -32602,
+                                "message": combined_msg,
+                            },
+                        })
+
                     # Strip token from context BEFORE any logging — never log raw tokens
+                    context = dict(validated_args.context or {})
                     github_token = context.pop("github_token", None)
-                    result = await agent_func(query=query, context=context, github_token=github_token)
+
+                    start_time = time.time()
+                    # Dispatch on operation: when set, route through the structured path
+                    # (the validator already enforced that `query` only coexists with
+                    # `operation` when the op schema accepts a `query` field, e.g. search_code).
+                    if validated_args.operation:
+                        op_params = validated_args.model_dump(
+                            exclude={"operation", "context"}
+                        )
+                        op_params = {k: v for k, v in op_params.items() if v is not None}
+                        # Normalize shorthand repo → repo_name to match per-op Pydantic schemas
+                        if "repo" in op_params and "repo_name" not in op_params:
+                            op_params["repo_name"] = op_params.pop("repo")
+                        result = await agent_func(
+                            operation=validated_args.operation,
+                            parameters=op_params,
+                            context=context,
+                            github_token=github_token,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name,
+                            user_id=user_id
+                        )
+                    else:
+                        # Natural-language path (existing behavior)
+                        result = await agent_func(
+                            query=validated_args.query,
+                            context=context,
+                            github_token=github_token,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name,
+                            user_id=user_id
+                        )
 
                 else:
+                    start_time = time.time()
+
                     if tool_name == "generate_data":
                         # Refinement: Include request_id in log messages as requested
                         def progress_callback(stage: str, percent: int, message: str):
@@ -933,9 +1371,63 @@ async def mcp_endpoint(request: Request):
                                 extra={"req_id": req_id, "stage": stage, "percent": percent}
                             )
                         
-                        result = await agent_func(arguments, progress_callback=progress_callback)
+                        result = await agent_func(
+                            arguments, 
+                            progress_callback=progress_callback,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name,
+                            user_id=user_id  # NEW: Pass user_id to agent
+                        )
                     else:
-                        result = await agent_func(arguments)
+                        result = await agent_func(
+                            arguments,
+                            tenant_id=tenant_id,
+                            integration_name=integration_name,
+                            user_id=user_id  # NEW: Pass user_id to agent
+                        )
+
+                exec_time = time.time() - start_time
+
+                # ------------------------------------------------------------------- #
+                # Phase 4: Rate Limiting Increment (after successful execution) - MCP
+                # ------------------------------------------------------------------- #
+                tokens_used = 1  # Default fallback
+                success = result.get("success", True)
+                if success and api_key_id:
+                    try:
+                        # Try to extract actual token usage from result if available
+                        if isinstance(result, dict) and "tokens_used" in result:
+                            tokens_used = result["tokens_used"]
+                        
+                        await rate_limiter.check_and_increment(
+                            api_key_id, tier, tokens_used,
+                            hourly_override=getattr(request.state, "hourly_limit_override", None),
+                            monthly_override=getattr(request.state, "monthly_limit_override", None)
+                        )
+                    except Exception as e:
+                        logging.warning(f"Failed to increment rate limit for MCP: {e}")
+
+                # ------------------------------------------------------------------- #
+                # Phase 4: Async request logging for analytics (MCP endpoint)
+                # ------------------------------------------------------------------- #
+                try:
+                    from src.workers.tasks.analytics_tasks import log_request_call
+                    from src.utils.sanitization import truncate_input
+                    
+                    input_summary = truncate_input(arguments)
+                    
+                    log_request_call.delay(
+                        user_id=user_id,
+                        tenant_id=tenant_id,
+                        integration_name=integration_name,
+                        tool_name=tool_name,
+                        input_summary=input_summary,
+                        success=success,
+                        duration_ms=int(exec_time * 1000)
+                    )
+                except Exception as e:
+                    # Never block tool response for analytics logging
+                    logging.warning(f"Failed to queue analytics logging for MCP: {e}")
 
                 # If tool returns error
                 if result.get("error"):
@@ -976,6 +1468,23 @@ async def mcp_endpoint(request: Request):
                 # (constraint violations / FK failures → isError=True)
                 is_error = not result.get("success", True)
 
+                # ------------------------------------------------------------------- #
+                # Build response with rate limit headers - MCP Endpoint
+                # ------------------------------------------------------------------- #
+                response_headers = {}
+                if api_key_id:
+                    try:
+                        usage = await rate_limiter.get_usage(api_key_id, tier)
+                        response_headers = {
+                            "X-RateLimit-Limit-Hourly": str(usage["hourly_limit"] or "unlimited"),
+                            "X-RateLimit-Used-Hourly": str(usage["hourly_used"]),
+                            "X-RateLimit-Reset-Hourly": usage["hourly_reset_at"],
+                            "X-RateLimit-Limit-Monthly": str(usage["monthly_limit"] or "unlimited"),
+                            "X-RateLimit-Used-Monthly": str(usage["monthly_used"]),
+                        }
+                    except Exception as e:
+                        logging.warning(f"Failed to get rate limit usage for MCP headers: {e}")
+
                 return JSONResponse(
                     content={
                         "jsonrpc": "2.0",
@@ -984,7 +1493,8 @@ async def mcp_endpoint(request: Request):
                             "content": [{"type": "text", "text": result_json_str}],
                             "isError": is_error,
                         },
-                    }
+                    },
+                    headers=response_headers
                 )
 
             except Exception as e:
@@ -1081,89 +1591,44 @@ def _get_tool_schema(tool_name: str) -> dict:
             },
             "required": ["rows"],
         },
-        "github_operation": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Natural language GitHub operation (e.g., 'create PR for bug fix', 'list recent commits')",
-                },
-                "context": {
-                    "type": "object",
-                    "description": "Optional context for enhanced intelligence",
-                    "properties": {
-                        "session_id": {
-                            "type": "string",
-                            "description": "Session ID for tracking",
-                        },
-                        "diff": {"type": "string", "description": "Git diff content"},
-                        "error_log": {
-                            "type": "string",
-                            "description": "Error log for debugging",
-                        },
-                        "files": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Related file paths",
-                        },
-                        "github_token": {
-                            "type": "string",
-                            "description": (
-                                "Optional GitHub Personal Access Token (PAT). "
-                                "Overrides the server-level GITHUB_TOKEN env var. "
-                                "Stripped from context before any logging or auditing."
-                            ),
-                        },
-                    },
-                },
-            },
-            "required": ["query"],
-        },
-        "rerank_docs": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Query for reranking documents",
-                },
-                "documents": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "content": {"type": "string"},
-                            "metadata": {"type": "object"},
-                        },
-                    },
-                    "description": "Documents to rerank (with content and metadata)",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Number of top results to return (default: 5)",
-                },
-            },
-            "required": ["query", "documents"],
-        },
+        "github_operation": GITHUB_OPERATION_INPUT_SCHEMA,
         "refine_prompt": {
             "type": "object",
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "Original user prompt to refine and optimize",
+                    "minLength": 1,
+                    "description": (
+                        "The user's original prompt to refine. Required, non-empty. "
+                        "Pass the raw prompt verbatim — do not pre-summarize."
+                    ),
                 },
                 "domain": {
                     "type": "string",
                     "enum": ["general", "image", "code", "rag", "llm"],
-                    "description": "Target domain for refinement (default: general)",
+                    "description": (
+                        "Refinement domain. 'code' triggers tech-stack detection and "
+                        "evidence-based templates. 'image' produces Midjourney / Stable "
+                        "Diffusion style prompts. 'rag' produces vector-search-friendly "
+                        "queries. 'llm' and 'general' produce general-purpose refined "
+                        "prompts. Default: general."
+                    ),
                 },
                 "skill_level": {
                     "type": "string",
                     "enum": ["beginner", "intermediate", "expert"],
-                    "description": "User skill level (default: intermediate)",
+                    "description": (
+                        "Adjusts depth and assumed prior knowledge in the refined "
+                        "prompt. Default: intermediate."
+                    ),
                 },
                 "file_context": {
                     "type": "string",
-                    "description": "Optional context from files",
+                    "description": (
+                        "Free-form text context. Prefer attached_files (array of code) "
+                        "and project_files (manifests) for stronger evidence. "
+                        "Sanitized before use."
+                    ),
                 },
                 "conversation_history": {
                     "type": "array",
@@ -1174,16 +1639,34 @@ def _get_tool_schema(tool_name: str) -> dict:
                             "content": {"type": "string"},
                         },
                     },
-                    "description": "Recent conversation messages for context",
+                    "description": (
+                        "Recent chat messages providing context (last 5 considered). "
+                        "Weak evidence by default (weight 0.4) — useful when "
+                        "project_files and attached_files are unavailable."
+                    ),
                 },
                 "attached_files": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Code file contents for context-aware refinement",
+                    "description": (
+                        "Source code file contents (as strings, one per array element). "
+                        "Used to detect imported frameworks and existing class / "
+                        "function names that the refined prompt should integrate with. "
+                        "Pair with project_files when both are available."
+                    ),
                 },
                 "project_files": {
                     "type": "object",
-                    "description": "Project configuration files (requirements.txt, package.json, etc.)",
+                    "description": (
+                        "Dependency manifest files keyed by filename. Strongly "
+                        "recommended for the 'code' domain — without these the "
+                        "response's quality.prompt_grounding will be 'low' and the "
+                        "refined prompt will ask clarifying questions instead of "
+                        "producing a specification. Supported filenames: "
+                        "requirements.txt, package.json, go.mod, Cargo.toml, pom.xml, "
+                        "build.gradle, build.gradle.kts, Gemfile, composer.json, "
+                        "*.csproj. Pass the file content as a string value."
+                    ),
                     "additionalProperties": {"type": "string"},
                 },
             },
@@ -1194,7 +1677,14 @@ def _get_tool_schema(tool_name: str) -> dict:
             "properties": {
                 "language": {
                     "type": "string",
-                    "description": "Programming language (python, javascript, go, etc.)",
+                    "enum": [
+                        "python", "javascript", "typescript", "go", "rust",
+                        "java", "ruby", "php", "csharp",
+                    ],
+                    "description": (
+                        "Programming language. One of the 9 supported ecosystems. "
+                        "Omit to auto-detect from code_context."
+                    ),
                 },
                 "skill_level": {
                     "type": "string",
@@ -1203,7 +1693,19 @@ def _get_tool_schema(tool_name: str) -> dict:
                 },
                 "code_context": {
                     "type": "string",
-                    "description": "Code snippet for context-aware cheatsheet generation",
+                    "description": (
+                        "Code snippet for context-aware cheatsheet generation. "
+                        "Enables library detection and activity-driven ranking."
+                    ),
+                },
+                "intent": {
+                    "type": "string",
+                    "description": (
+                        "Short description of what the user is trying to do "
+                        "(e.g., 'debugging async deadlock', 'refactoring to typed "
+                        "dataclasses'). Strongly improves relevance, especially "
+                        "when code_context is short or unavailable."
+                    ),
                 },
             },
             "required": [],

@@ -1,0 +1,139 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: requests
+  library_version_floor: 2.31.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: get-with-params
+  title: GET with Query Params
+  explanation: Retrieve data by passing key/value pairs as URL parameters.
+  tags:
+  - http
+  - get
+  - params
+  when_to_use: When you need to filter or search resources on the server.
+  examples:
+  - title: Basic GET with params
+    language: python
+    code: 'import requests
+
+      params = {''q'': ''python'', ''page'': 2}
+
+      response = requests.get(''https://api.example.com/search'', params=params)
+
+      print(response.json())
+
+      '
+  pitfalls:
+  - Forgetting to URL-encode special characters; use the params argument instead of
+    string interpolation.
+  - Not checking response status before processing data.
+- id: post-json
+  title: POST JSON Payload
+  explanation: Send structured data to the server using application/json.
+  tags:
+  - http
+  - post
+  - json
+  when_to_use: When creating or updating resources on the API.
+  examples:
+  - title: Create a new user
+    language: python
+    code: 'import requests
+
+      payload = {''name'': ''Alice'', ''email'': ''alice@example.com''}
+
+      response = requests.post(''https://api.example.com/users'', json=payload)
+
+      print(response.status_code)
+
+      '
+  pitfalls:
+  - Using data= instead of json= which sends form-encoded data.
+  - Forgetting to set the Content-Type header manually when using json=.
+- id: session-pooling
+  title: Session for Connection Pooling
+  explanation: Reuse TCP connections to improve performance across multiple requests.
+  tags:
+  - http
+  - session
+  - performance
+  when_to_use: When making many requests to the same host.
+  examples:
+  - title: Reusing a session
+    language: python
+    code: "import requests\nwith requests.Session() as s:\n    s.headers.update({'User-Agent':\
+      \ 'my-app/1.0'})\n    r1 = s.get('https://api.example.com/endpoint1')\n    r2\
+      \ = s.get('https://api.example.com/endpoint2')\n    print(r1.ok, r2.ok)\n"
+  pitfalls:
+  - Keeping a session open indefinitely without closing it, leading to resource leaks.
+  - Forgetting that cookies are persisted across requests within a session.
+- id: retries-timeouts
+  title: Automatic Retries with Timeouts
+  explanation: Configure requests to retry on transient failures and enforce time
+    limits.
+  tags:
+  - http
+  - retries
+  - timeout
+  when_to_use: When network reliability is uncertain, e.g., public APIs.
+  examples:
+  - title: Session with retry
+    language: python
+    code: "import requests\nfrom requests.adapters import HTTPAdapter\nfrom urllib3.util.retry\
+      \ import Retry\nsession = requests.Session()\nretry = Retry(total=3, backoff_factor=0.5,\
+      \ status_forcelist=[500, 502, 504])\nadapter = HTTPAdapter(max_retries=retry)\n\
+      session.mount('https://', adapter)\ntry:\n    r = session.get('https://api.example.com/data',\
+      \ timeout=5)\n    r.raise_for_status()\nexcept requests.exceptions.RequestException\
+      \ as e:\n    print('Request failed:', e)\n"
+  pitfalls:
+  - Setting total=0 which disables retries.
+  - Using timeout=None which disables timeouts and can hang indefinitely.
+- id: stream-download
+  title: Streaming Large Downloads
+  explanation: Read data in chunks to avoid loading the entire content into memory.
+  tags:
+  - http
+  - stream
+  - download
+  when_to_use: When downloading large files such as images or binaries.
+  examples:
+  - title: Stream a file
+    language: python
+    code: "import requests\nurl = 'https://example.com/largefile.zip'\nwith requests.get(url,\
+      \ stream=True) as r:\n    r.raise_for_status()\n    with open('largefile.zip',\
+      \ 'wb') as f:\n        for chunk in r.iter_content(chunk_size=8192):\n     \
+      \       if chunk:\n                f.write(chunk)\n"
+  pitfalls:
+  - Forgetting to call raise_for_status after the initial request.
+  - Using stream=True but not iterating over chunks, which still buffers the entire
+    response.
+- id: auth-header
+  title: Bearer Token Authentication
+  explanation: Attach a JWT or OAuth token in the Authorization header for protected
+    endpoints.
+  tags:
+  - http
+  - auth
+  - bearer
+  when_to_use: When accessing endpoints that require token-based authentication.
+  examples:
+  - title: GET with bearer token
+    language: python
+    code: 'import requests
+
+      token = ''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...''
+
+      headers = {''Authorization'': f''Bearer {token}''}
+
+      r = requests.get(''https://api.example.com/secure'', headers=headers)
+
+      print(r.status_code)
+
+      '
+  pitfalls:
+  - Hardcoding the token in source code instead of using environment variables.
+  - Forgetting the space after 'Bearer' in the header value.

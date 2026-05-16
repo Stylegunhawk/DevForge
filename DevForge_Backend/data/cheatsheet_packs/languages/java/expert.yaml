@@ -1,0 +1,132 @@
+pack:
+  language: java
+  skill_level: expert
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: java-streams
+  title: Stream API
+  explanation: Use java.util.stream to declaratively process collections with lazy
+    pipelines.
+  tags:
+  - streams
+  - functional
+  - collections
+  when_to_use: When you need concise, parallelizable transformations on large collections.
+  examples:
+  - title: Basic pipeline
+    language: java
+    code: "List<Integer> nums = List.of(1, 2, 3, 4, 5);\nint sum = nums.stream()\n\
+      \              .filter(n -> n % 2 == 0)\n              .mapToInt(Integer::intValue)\n\
+      \              .sum();\n"
+  pitfalls:
+  - Forcing intermediate collections with .collect() in the middle of a pipeline.
+  - Using .parallel() on IO-bound streams, causing thread contention.
+- id: completable-future
+  title: CompletableFuture
+  explanation: Non-blocking async tasks with combinators for composition and error
+    handling.
+  tags:
+  - async
+  - concurrency
+  - future
+  when_to_use: When you need to chain asynchronous operations without blocking threads.
+  examples:
+  - title: Simple async chain
+    language: java
+    code: "CompletableFuture.supplyAsync(() -> fetchData())\n                 .thenApply(data\
+      \ -> process(data))\n                 .exceptionally(ex -> handleError(ex));\n"
+  pitfalls:
+  - Blocking on CompletableFuture.get() defeats its purpose.
+  - Not propagating checked exceptions through supplyAsync.
+- id: varhandle
+  title: VarHandle
+  explanation: Low-level atomic field operations that replace sun.misc.Unsafe in Java
+    9+.
+  tags:
+  - concurrency
+  - unsafe
+  - atomic
+  when_to_use: When you need fine-grained volatile or compare-and-swap semantics on
+    fields or array elements.
+  examples:
+  - title: Atomic field update
+    language: java
+    code: "import java.lang.invoke.VarHandle;\nimport java.lang.invoke.MethodHandles;\n\
+      \nclass Counter {\n    private volatile int value;\n    private static final\
+      \ VarHandle VALUE;\n\n    static {\n        try {\n            VALUE = MethodHandles.lookup().findVarHandle(Counter.class,\
+      \ \"value\", int.class);\n        } catch (ReflectiveOperationException e) {\n\
+      \            throw new Error(e);\n        }\n    }\n\n    void increment() {\n\
+      \        VALUE.getAndAdd(this, 1);\n    }\n}\n"
+  pitfalls:
+  - Using VarHandle on non-volatile fields; the operation may not provide visibility
+    guarantees.
+  - Misunderstanding the expected type; e.g., using getAndSet with incompatible types.
+- id: records
+  title: Records
+  explanation: Concise immutable data carriers with auto-generated equals, hashCode,
+    and toString.
+  tags:
+  - data
+  - immutable
+  - boilerplate
+  when_to_use: When you need a simple value object or DTO without mutability.
+  examples:
+  - title: Simple record
+    language: java
+    code: 'public record User(String name, int age) {}
+
+
+      User u = new User("Alice", 30);
+
+      System.out.println(u);
+
+      '
+  pitfalls:
+  - Adding mutable fields to a record; violates immutability.
+  - Using records for large classes with many fields; may lead to excessive constructor
+    arguments.
+- id: sealed-classes
+  title: Sealed Classes
+  explanation: Restrict which classes may extend or implement a base type for safer
+    hierarchies.
+  tags:
+  - inheritance
+  - safety
+  - polymorphism
+  when_to_use: When designing a closed type hierarchy that should not be extended
+    outside the module.
+  examples:
+  - title: Sealed hierarchy
+    language: java
+    code: "public sealed interface Shape permits Circle, Rectangle, Triangle {}\n\n\
+      public final class Circle implements Shape {\n    private final double radius;\n\
+      \    public Circle(double radius) { this.radius = radius; }\n}\n\npublic final\
+      \ class Rectangle implements Shape {\n    private final double width, height;\n\
+      \    public Rectangle(double w, double h) { this.width = w; this.height = h;\
+      \ }\n}\n\npublic final class Triangle implements Shape {\n    private final\
+      \ double base, height;\n    public Triangle(double b, double h) { this.base\
+      \ = b; this.height = h; }\n}\n"
+  pitfalls:
+  - Overusing sealed classes; they restrict extensibility unnecessarily.
+  - Misplacing the permits clause, leading to compilation errors.
+- id: pattern-matching-switch
+  title: Pattern Matching for Switch
+  explanation: Enhanced switch to match types and patterns, returning values.
+  tags:
+  - switch
+  - pattern-matching
+  - java-21
+  when_to_use: When you need concise type-based dispatch in a switch.
+  examples:
+  - title: Type-based switch
+    language: java
+    code: "Object obj = \"Hello\";\nint result = switch (obj) {\n    case String s\
+      \ -> s.length();\n    case Integer i -> i * 2;\n    case null -> 0;\n    default\
+      \ -> throw new IllegalStateException();\n};\n"
+  pitfalls:
+  - Using fall-through syntax in the new switch; it always requires a result expression.
+  - Mixing old and new switch forms in the same method, causing confusion.

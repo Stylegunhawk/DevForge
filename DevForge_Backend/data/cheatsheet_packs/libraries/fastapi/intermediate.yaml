@@ -1,0 +1,109 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: fastapi
+  library_version_floor: 0.110.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: create-endpoint-sync
+  title: Synchronous Endpoint
+  explanation: Define a simple GET endpoint that returns JSON synchronously.
+  tags:
+  - routing
+  - sync
+  - basics
+  when_to_use: Use when request processing is CPU-bound and blocking I/O is minimal.
+  examples:
+  - title: Basic GET
+    language: python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/items/{item_id}\"\
+      )\ndef read_item(item_id: int):\n    return {\"item_id\": item_id}\n"
+  pitfalls:
+  - Not using async when I/O bound leads to thread starvation
+  - Forgetting to return a dict or Pydantic model
+- id: create-endpoint-async
+  title: Asynchronous Endpoint
+  explanation: Define an endpoint using async def to handle I/O-bound tasks efficiently.
+  tags:
+  - routing
+  - async
+  - I/O
+  when_to_use: Use when performing async I/O such as database calls or HTTP requests.
+  examples:
+  - title: Async GET with sleep
+    language: python
+    code: "import asyncio\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"\
+      /sleep\")\nasync def delayed_response():\n    await asyncio.sleep(1)\n    return\
+      \ {\"message\": \"Slept for 1 second\"}\n"
+  pitfalls:
+  - Mixing sync and async code without care can block the event loop
+  - Forgetting to await coroutines
+- id: path-parameters
+  title: Path Parameters
+  explanation: Capture dynamic segments of the URL path into function arguments.
+  tags:
+  - routing
+  - path-parameters
+  when_to_use: When resource identifiers are part of the URL.
+  examples:
+  - title: Path Parameter
+    language: python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/users/{user_id}\"\
+      )\ndef get_user(user_id: str):\n    return {\"user_id\": user_id}\n"
+  pitfalls:
+  - Using wrong type hints leads to validation errors
+  - Forgetting to wrap the path parameter in curly braces
+- id: query-parameters
+  title: Query Parameters
+  explanation: Accept optional or required query string parameters for filtering.
+  tags:
+  - routing
+  - query-parameters
+  when_to_use: When you need to filter or paginate results via query string.
+  examples:
+  - title: Query Params
+    language: python
+    code: "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/items\")\n\
+      def read_items(skip: int = 0, limit: int = 10):\n    return {\"skip\": skip,\
+      \ \"limit\": limit}\n"
+  pitfalls:
+  - Forgetting default values makes parameters required
+  - Using wrong data types causes validation errors
+- id: request-body-pydantic
+  title: Request Body with Pydantic
+  explanation: Parse and validate JSON request bodies using Pydantic models.
+  tags:
+  - validation
+  - pydantic
+  - request-body
+  when_to_use: When you need structured data with validation.
+  examples:
+  - title: Create Item
+    language: python
+    code: "from fastapi import FastAPI\nfrom pydantic import BaseModel\n\napp = FastAPI()\n\
+      \nclass Item(BaseModel):\n    name: str\n    price: float\n    description:\
+      \ str | None = None\n\n@app.post(\"/items\")\nasync def create_item(item: Item):\n\
+      \    return item\n"
+  pitfalls:
+  - Not defining required fields leads to missing data errors
+  - Returning a Pydantic model without converting to dict can cause serialization
+    issues
+- id: dependency-injection
+  title: Dependency Injection
+  explanation: Inject reusable components like database connections or authentication.
+  tags:
+  - routing
+  - dependency-injection
+  when_to_use: When an endpoint needs shared or expensive resources.
+  examples:
+  - title: Simple Dependency
+    language: python
+    code: "from fastapi import Depends, FastAPI\n\napp = FastAPI()\n\ndef get_db():\n\
+      \    db = {\"user\": \"alice\"}\n    try:\n        yield db\n    finally:\n\
+      \        db.clear()\n\n@app.get(\"/users/me\")\nasync def read_current_user(db=Depends(get_db)):\n\
+      \    return db\n"
+  pitfalls:
+  - Yielding without finally block leads to resource leaks
+  - Using global state instead of proper dependency can cause concurrency issues

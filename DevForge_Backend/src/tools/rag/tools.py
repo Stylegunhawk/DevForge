@@ -30,7 +30,6 @@ SUPPORTED_EXTENSIONS = {
     ".pdf", ".md", ".txt", ".docx",
     ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".rst"
 }
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 def get_embedding_model(model_name: str) -> OllamaEmbeddings:
@@ -206,9 +205,9 @@ async def read_document(file_path: str) -> str:
 
     # Check file size
     file_size = path.stat().st_size
-    if file_size > MAX_FILE_SIZE:
+    if file_size > settings.RAG_MAX_FILE_SIZE:
         raise ValueError(
-            f"File too large: {file_size} bytes (max: {MAX_FILE_SIZE} bytes). File: {file_path}"
+            f"File too large: {file_size} bytes (max: {settings.RAG_MAX_FILE_SIZE} bytes). File: {file_path}"
         )
 
     logger.info(
@@ -464,11 +463,10 @@ async def ingest_documents(
                         meta["knowledge_id"] = knowledge_id
                     
                     # 4. Flatten metadata (ChromaDB requirement)
-                    import json
                     flat_meta = {}
                     for k, v in meta.items():
                         if isinstance(v, (list, dict)):
-                            flat_meta[k] = json.dumps(v)
+                            flat_meta[k] = json.dumps(v) if backend != "postgres" else v
                         elif v is None:
                             flat_meta[k] = ""
                         else:

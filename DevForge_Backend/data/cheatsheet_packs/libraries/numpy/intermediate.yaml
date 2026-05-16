@@ -1,0 +1,154 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: numpy
+  library_version_floor: 2.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: array-creation
+  title: Create Arrays
+  explanation: Use np.array, np.zeros, np.ones, or np.arange to construct n-dimensional
+    arrays.
+  tags:
+  - creation
+  - basic
+  when_to_use: Whenever you need a numerical array from raw data or a simple shape.
+  examples:
+  - title: Simple array from list
+    language: python
+    code: 'import numpy as np
+
+      arr = np.array([1, 2, 3])
+
+      print(arr)
+
+      '
+  pitfalls:
+  - Using a list of lists with inconsistent inner lengths leads to an object array
+    instead of a numeric array.
+  - Failing to specify dtype may cause unexpected type promotion.
+- id: broadcasting
+  title: Broadcasting Rules
+  explanation: NumPy automatically expands arrays of smaller shape to match larger
+    ones for element-wise operations.
+  tags:
+  - broadcasting
+  - operations
+  when_to_use: When applying operations between arrays of different shapes.
+  examples:
+  - title: Add scalar to array
+    language: python
+    code: 'import numpy as np
+
+      a = np.arange(5)
+
+      a_plus_two = a + 2
+
+      print(a_plus_two)
+
+      '
+  pitfalls:
+  - Assuming broadcasting works for incompatible shapes; e.g., adding a (3,1) and
+    (2,3) array raises ValueError.
+  - Relying on broadcasting for large arrays can lead to memory inefficiency if an
+    explicit copy is needed.
+- id: linear-algebra
+  title: Solve Linear Systems
+  explanation: Use np.linalg.solve to solve Ax = b for x, where A is square and invertible.
+  tags:
+  - linalg
+  - solve
+  when_to_use: When you need the exact solution of a linear system.
+  examples:
+  - title: Solve 2x2 system
+    language: python
+    code: 'import numpy as np
+
+      A = np.array([[3, 1], [1, 2]])
+
+      b = np.array([9, 8])
+
+      x = np.linalg.solve(A, b)
+
+      print(x)
+
+      '
+  pitfalls:
+  - Attempting to solve a singular matrix results in a LinAlgError.
+  - Using np.linalg.lstsq for exact solutions can be misleading if the matrix is rank-deficient.
+- id: random-sampling
+  title: Random Sampling
+  explanation: np.random.choice and np.random.rand provide random values for statistical
+    experiments.
+  tags:
+  - random
+  - statistics
+  when_to_use: When generating synthetic data or Monte Carlo simulations.
+  examples:
+  - title: Random integers
+    language: python
+    code: 'import numpy as np
+
+      rng = np.random.default_rng()
+
+      samples = rng.integers(low=0, high=10, size=5)
+
+      print(samples)
+
+      '
+  pitfalls:
+  - Using the global np.random functions leads to non-reproducible results without
+    setting a seed.
+  - Choosing a seed inside a function can create identical arrays across calls, masking
+    bugs.
+- id: advanced-indexing
+  title: Fancy Indexing
+  explanation: Use integer arrays or boolean masks to select arbitrary elements from
+    an array.
+  tags:
+  - indexing
+  - advanced
+  when_to_use: When you need non-contiguous or conditional selection.
+  examples:
+  - title: Boolean mask
+    language: python
+    code: 'import numpy as np
+
+      arr = np.array([10, 20, 30, 40, 50])
+
+      mask = arr > 25
+
+      print(arr[mask])
+
+      '
+  pitfalls:
+  - Modifying the result of fancy indexing creates a copy, not a view; changes won't
+    affect the original.
+  - Using a list of indices that contains duplicates may lead to unexpected element
+    duplication.
+- id: universal-operations
+  title: Universal Functions (ufuncs)
+  explanation: NumPy's ufuncs perform element-wise operations efficiently, such as
+    np.exp, np.sin, or np.add.
+  tags:
+  - ufunc
+  - performance
+  when_to_use: When applying the same operation across all elements of large arrays.
+  examples:
+  - title: Element-wise exponentiation
+    language: python
+    code: 'import numpy as np
+
+      a = np.array([1, 2, 3])
+
+      exp_a = np.exp(a)
+
+      print(exp_a)
+
+      '
+  pitfalls:
+  - Using a Python loop instead of a ufunc can drastically slow down computation.
+  - Applying a ufunc to incompatible types may silently cast data, leading to precision
+    loss.

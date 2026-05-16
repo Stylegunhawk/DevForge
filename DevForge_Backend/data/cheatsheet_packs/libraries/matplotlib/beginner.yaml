@@ -1,0 +1,175 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: matplotlib
+  library_version_floor: 3.7.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic.line-plot
+  title: Line Plot
+  explanation: Create a simple line plot with x and y data points.
+  tags:
+  - line
+  - basic
+  when_to_use: When visualizing a sequence of values over a continuous domain.
+  examples:
+  - title: Simple Line Plot
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      plt.plot([0, 1, 2, 3], [0, 1, 4, 9])
+
+      plt.title(''Quadratic'')
+
+      plt.xlabel(''x'')
+
+      plt.ylabel(''y'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Forgetting to call plt.show() to render the figure.
+  - Not setting axis labels, which can make the plot unclear.
+- id: basic.scatter-plot
+  title: Scatter Plot
+  explanation: Display discrete data points in a Cartesian plane.
+  tags:
+  - scatter
+  - basic
+  when_to_use: When comparing two variables with individual data points.
+  examples:
+  - title: Simple Scatter Plot
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      plt.scatter([1, 2, 3], [4, 5, 6], color=''red'')
+
+      plt.title(''Scatter Example'')
+
+      plt.xlabel(''X'')
+
+      plt.ylabel(''Y'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Using the same marker size for too many points, causing clutter.
+  - Forgetting to set a legend when multiple series are plotted.
+- id: basic.histogram
+  title: Histogram
+  explanation: Visualize the distribution of a single numeric variable.
+  tags:
+  - histogram
+  - basic
+  when_to_use: When summarizing the frequency of data ranges.
+  examples:
+  - title: Simple Histogram
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      data = [1, 2, 2, 3, 4, 4, 4, 5]
+
+      plt.hist(data, bins=5, edgecolor=''black'')
+
+      plt.title(''Histogram'')
+
+      plt.xlabel(''Value'')
+
+      plt.ylabel(''Frequency'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Not specifying bins, leading to an overly smooth or jagged histogram.
+  - Forgetting to set edgecolor, making bars blend together.
+- id: basic.bar-chart
+  title: Bar Chart
+  explanation: Show categorical data with rectangular bars proportional to values.
+  tags:
+  - bar
+  - basic
+  when_to_use: When comparing discrete categories.
+  examples:
+  - title: Simple Bar Chart
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      categories = [''A'', ''B'', ''C'']
+
+      values = [10, 15, 7]
+
+      plt.bar(categories, values, color=''skyblue'')
+
+      plt.title(''Bar Chart'')
+
+      plt.xlabel(''Category'')
+
+      plt.ylabel(''Value'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Mismatching lengths of categories and values, causing index errors.
+  - Overlapping labels on the x‑axis if categories are long.
+- id: basic.pie-chart
+  title: Pie Chart
+  explanation: Represent parts of a whole as slices of a circle.
+  tags:
+  - pie
+  - basic
+  when_to_use: When showing proportions of a single variable.
+  examples:
+  - title: Simple Pie Chart
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      labels = [''Red'', ''Blue'', ''Green'']
+
+      sizes = [30, 45, 25]
+
+      plt.pie(sizes, labels=labels, autopct=''%1.1f%%'', startangle=90)
+
+      plt.title(''Pie Chart Example'')
+
+      plt.axis(''equal'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Forgetting plt.axis('equal'), which can distort the circle.
+  - Using too many slices, making the chart unreadable.
+- id: basic.heatmap
+  title: Heatmap
+  explanation: Visualize a 2D matrix as a color‑coded grid.
+  tags:
+  - heatmap
+  - basic
+  when_to_use: When displaying correlation matrices or 2D data density.
+  examples:
+  - title: Simple Heatmap
+    language: python
+    code: 'import matplotlib.pyplot as plt
+
+      import numpy as np
+
+      data = np.random.rand(5, 5)
+
+      plt.imshow(data, cmap=''viridis'', interpolation=''nearest'')
+
+      plt.title(''Heatmap'')
+
+      plt.colorbar(label=''Value'')
+
+      plt.show()
+
+      '
+  pitfalls:
+  - Using a linear colormap for data with outliers, obscuring detail.
+  - Forgetting to add a colorbar, leaving scale ambiguous.

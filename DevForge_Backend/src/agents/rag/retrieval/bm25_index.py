@@ -25,14 +25,20 @@ class BM25Index:
     - Graceful failure → fallback to vector-only
     """
     
-    def __init__(self):
+    def __init__(self, tenant_id: str = "default"):
         """Initialize empty BM25 index."""
+        self.tenant_id = tenant_id
         self.index: Optional[BM25Okapi] = None
         self.documents: List[Dict] = []  # Metadata only (no embeddings)
         self._is_ready = False
         logger.info("BM25Index created (not yet built)")
     
-    async def build(self, vector_store, batch_size: int = 500):
+    async def build(
+        self,
+        vector_store,
+        batch_size: int = 500,
+        collection_name: Optional[str] = None
+    ):
         """
         Build BM25 index from vector store metadata.
         
@@ -44,20 +50,29 @@ class BM25Index:
         Args:
             vector_store: BaseVectorStore instance
             batch_size: Chunks per batch (default 500)
+            collection_name: Optional explicit collection name
         
         Returns:
             None (sets self._is_ready on success)
         """
-        logger.info("Building BM25 index from vector store...")
+        logger.info(f"Building BM25 index from vector store for tenant {self.tenant_id}...")
         
         self.documents = []
         tokenized_corpus = []
         
         count = 0
         try:
-            # Async-safe iteration over metadata
-            async for batch in vector_store.iter_chunk_metadata(batch_size=batch_size):
+            # Async-safe iteration over metadata with tenant filtering
+            async for batch in vector_store.iter_chunk_metadata(
+                batch_size=batch_size,
+                tenant_id=self.tenant_id,
+                collection_name=collection_name
+            ):
                 for meta in batch:
+                    # Defense in depth: Verify tenant match
+                    if meta.get("tenant_id", "default") != self.tenant_id:
+                        continue
+
                     # Extract document content and metadata
                     doc = {
                         "qualified_id": meta.get("qualified_id", meta.get("id", f"unknown_{count}")),

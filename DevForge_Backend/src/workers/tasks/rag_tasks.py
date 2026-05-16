@@ -107,3 +107,38 @@ def async_ingest_documents(
         asyncio.set_event_loop(loop)
         
     return loop.run_until_complete(_ingest())
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def async_rebuild_bm25(self, tenant_id: str, collection_name: str):
+    """Async task for rebuilding BM25 index after file deletion."""
+    
+    async def _rebuild():
+        try:
+            agent = get_rag_agent(
+                tenant_id=tenant_id, 
+                collection_name=collection_name
+            )
+            if agent._bm25_index:
+                await agent._bm25_index.rebuild(agent.vector_store)
+                logger.info(f"Successfully rebuilt BM25 for tenant={tenant_id}")
+            return {"status": "success", "collection": collection_name}
+        except Exception as e:
+            logger.warning(f"BM25 rebuild failed for tenant={tenant_id}: {e}. Retrying.")
+            try:
+                raise self.retry(exc=e)
+            except Exception as retry_e:
+                logger.error(f"Max retries exceeded for BM25 rebuild tenant={tenant_id}: {retry_e}")
+                raise e
+
+    # Run in async loop
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    if loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    return loop.run_until_complete(_rebuild())

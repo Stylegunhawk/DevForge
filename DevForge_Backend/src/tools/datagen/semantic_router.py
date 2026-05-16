@@ -4,7 +4,7 @@ Phase 1: Value generation is always done by Faker/catalogs, never by LLM.
 Invariant Enforced: Constraint-First Generation.
 """
 
-from typing import Any, Callable
+from typing import Any, Callable, List, Optional
 from faker import Faker
 import random
 import uuid
@@ -24,19 +24,33 @@ class SemanticRouter:
         self.generators = self._build_generator_registry()
     
     def generate_value(
-        self, 
+        self,
         semantic_type: str,
         entity_name: str = "",
-        constraints: dict = None
+        constraints: dict = None,
+        field_name: str = "",
+        field_catalog: Optional[List[str]] = None,
     ) -> Any:
         """
         Generate a value for a semantic type.
-        
+
         Args:
             semantic_type: Semantic type (e.g., "person_full_name")
             entity_name: Entity context (for catalog generation)
             constraints: Min/max/enum/pattern constraints
-            
+            field_name: Field name (used to make free_text / unknown
+                routing field-aware — e.g. ``instrument_name`` → product-like
+                value rather than lorem ipsum). Optional; falls back to the
+                old behaviour when empty.
+            field_catalog: v0.9 — optional list of domain-realistic values
+                supplied by ``CatalogFactory.get_entity_catalogs``. When
+                present AND the classifier landed on a loose semantic type
+                (``free_text`` / ``unknown`` / ``enum_value`` without enum
+                values), we sample from this catalog instead of falling
+                through to Faker heuristics. Known semantic types
+                (``email_address``, ``person_full_name`` etc.) ignore the
+                catalog — the classifier already pinned them confidently.
+
         Returns:
             Generated value (never LLM text!)
         """
@@ -50,33 +64,43 @@ class SemanticRouter:
             for key in ("pattern", "enum", "min", "max", "min_length", "max_length"):
                 if key in nested:
                     normalized_constraints[key] = nested[key]
-        
+
         constraints = normalized_constraints
-        
+
         # 2. Constraint-First: Enum overrides everything
         if "enum" in constraints and constraints["enum"]:
             return random.choice(constraints["enum"])
-        
+
         # 3. Constraint-First: Pattern overrides semantic type
         if "pattern" in constraints and constraints["pattern"]:
             return self._generate_pattern(constraints["pattern"])
-        
-        # Get generator
+
+        # 3a. v0.9 catalog-sandbox: if a field-specific catalog was supplied
+        # AND the classifier landed on a loose semantic type (free_text,
+        # unknown, or enum_value-without-values), sample from the catalog
+        # rather than falling through to the heuristic Faker generators.
+        # Known semantic types (email_address, person_full_name, etc.) are
+        # NOT affected — they keep using their dedicated generators because
+        # the classifier has already pinned the type with high confidence.
+        if field_catalog and semantic_type in {"free_text", "unknown", "enum_value"}:
+            return random.choice(field_catalog)
+
+        # Get generator (registry signature: (entity, constraints, field_name))
         generator_func = self.generators.get(semantic_type, self._fallback_generator)
-        
+
         # 4. Generate with retry to satisfy min/max/length
         # We try up to 10 times to get a value that fits constraints
         try:
             for _ in range(10):
-                value = generator_func(entity_name, constraints)
+                value = generator_func(entity_name, constraints, field_name)
                 if self._is_valid(value, constraints):
                     return value
-                    
+
             # If we fail to generate a valid value after retries, return it anyway
             return value
         except Exception as e:
             logger.error(f"Error in generation for {semantic_type}: {e}")
-            return self._fallback_generator(entity_name, constraints)
+            return self._fallback_generator(entity_name, constraints, field_name)
 
     def _is_valid(self, value: Any, constraints: dict) -> bool:
         """Check if value satisfies constraints (best effort check for retry loop)."""
@@ -96,82 +120,87 @@ class SemanticRouter:
         return True
     
     def _build_generator_registry(self) -> dict[str, Callable]:
-        """Build mapping of semantic types to generator functions."""
+        """Build mapping of semantic types to generator functions.
+
+        Every entry is a callable ``(entity_name, constraints, field_name)``.
+        Only ``free_text``, ``enum_value`` and ``unknown`` use ``field_name``
+        today; the rest accept it for signature uniformity.
+        """
         return {
             # People
-            "person_full_name": lambda e, c: self.faker.name(),
-            "person_first_name": lambda e, c: self.faker.first_name(),
-            "person_last_name": lambda e, c: self.faker.last_name(),
-            "email_address": lambda e, c: self.faker.email(),
-            "phone_number": lambda e, c: self.faker.phone_number(),
-            "job_title": lambda e, c: self.faker.job(),
-            "username": lambda e, c: self.faker.user_name(),
-            
+            "person_full_name": lambda e, c, f: self.faker.name(),
+            "person_first_name": lambda e, c, f: self.faker.first_name(),
+            "person_last_name": lambda e, c, f: self.faker.last_name(),
+            "email_address": lambda e, c, f: self.faker.email(),
+            "phone_number": lambda e, c, f: self.faker.phone_number(),
+            "job_title": lambda e, c, f: self.faker.job(),
+            "username": lambda e, c, f: self.faker.user_name(),
+
             # Organizations
-            "company_name": lambda e, c: self.faker.company(),
-            "product_name": lambda e, c: self._catalog_or_faker(
+            "company_name": lambda e, c, f: self.faker.company(),
+            "product_name": lambda e, c, f: self._catalog_or_faker(
                 "product_name", e, lambda: self.faker.catch_phrase()
             ),
-            "institution_name": lambda e, c: self._catalog_or_faker(
+            "institution_name": lambda e, c, f: self._catalog_or_faker(
                 "institution_name", e, lambda: self.faker.company() + " University"
             ),
-            "flower_name": lambda e, c: self._catalog_or_faker(
+            "flower_name": lambda e, c, f: self._catalog_or_faker(
                 "flower_name", e, lambda: self.faker.word().capitalize()
             ),
-            
+
             # Geographic
-            "country_name": lambda e, c: self.faker.country(),
-            "city_name": lambda e, c: self.faker.city(),
-            "street_address": lambda e, c: self.faker.street_address(),
-            "zip_code": lambda e, c: self.faker.zipcode(),
-            "geo_coordinate": lambda e, c: f"{self.faker.latitude()}, {self.faker.longitude()}",
-            
+            "country_name": lambda e, c, f: self.faker.country(),
+            "city_name": lambda e, c, f: self.faker.city(),
+            "street_address": lambda e, c, f: self.faker.street_address(),
+            "zip_code": lambda e, c, f: self.faker.zipcode(),
+            "geo_coordinate": lambda e, c, f: f"{self.faker.latitude()}, {self.faker.longitude()}",
+
             # Financial
-            "bank_account_number": lambda e, c: self._generate_account_number(c),
-            "transaction_id": lambda e, c: self._generate_transaction_id(c),
-            "order_code": lambda e, c: self._generate_order_code(c),
-            "identifier_code": lambda e, c: self.faker.bothify("???-###"),
-            "money_amount": lambda e, c: self._generate_money(c),
-            "percentage": lambda e, c: round(random.uniform(
+            "bank_account_number": lambda e, c, f: self._generate_account_number(c),
+            "transaction_id": lambda e, c, f: self._generate_transaction_id(c),
+            "order_code": lambda e, c, f: self._generate_order_code(c),
+            "identifier_code": lambda e, c, f: self.faker.bothify("???-###"),
+            "money_amount": lambda e, c, f: self._generate_money(c),
+            "percentage": lambda e, c, f: round(random.uniform(
                 float(c.get("min")) if c.get("min") is not None else 0.0,
                 float(c.get("max")) if c.get("max") is not None else 100.0
             ), 1),
-            "credit_card": lambda e, c: self.faker.credit_card_number(),
-            "currency_code": lambda e, c: self.faker.currency_code(),
-            
+            "credit_card": lambda e, c, f: self.faker.credit_card_number(),
+            "currency_code": lambda e, c, f: self.faker.currency_code(),
+
             # Identifiers
-            "uuid": lambda e, c: str(uuid.uuid4()),
-            "numeric_id": lambda e, c: random.randint(
+            "uuid": lambda e, c, f: str(uuid.uuid4()),
+            "numeric_id": lambda e, c, f: random.randint(
                 max(1, int(c.get("min")) if c.get("min") is not None else 1),
-                max(int(c.get("min")) + 1 if c.get("min") is not None else 2, 
+                max(int(c.get("min")) + 1 if c.get("min") is not None else 2,
                     int(c.get("max")) if c.get("max") is not None else 1000000)
             ),
-            
+
             # Temporal - Strict Min/Max Enforcement
-            "date": lambda e, c: self._generate_date(c),
-            "timestamp": lambda e, c: self._generate_timestamp(c),
-            
+            "date": lambda e, c, f: self._generate_date(c),
+            "timestamp": lambda e, c, f: self._generate_timestamp(c),
+
             # Boolean
-            "boolean_flag": lambda e, c: random.choice([True, False]),
-            
-            # Enum
-            "enum_value": lambda e, c: self._generate_enum(c),
-            
+            "boolean_flag": lambda e, c, f: random.choice([True, False]),
+
+            # Enum (uses _generate_enum which falls back safely if no values)
+            "enum_value": lambda e, c, f: self._generate_enum(c, e, f),
+
             # Tech/Web
-            "ip_address": lambda e, c: self.faker.ipv4(),
-            "ip_v6": lambda e, c: self.faker.ipv6(),
-            "mac_address": lambda e, c: self.faker.mac_address(),
-            "user_agent": lambda e, c: self.faker.user_agent(),
-            "url": lambda e, c: self.faker.url(),
-            "color_name": lambda e, c: self.faker.color_name(),
-            "file_extension": lambda e, c: self.faker.file_extension(),
-            "mime_type": lambda e, c: self.faker.mime_type(),
-            
-            # Free text
-            "free_text": lambda e, c: self.faker.sentence(),
-            
-            # Fallback
-            "unknown": lambda e, c: self.faker.word(),
+            "ip_address": lambda e, c, f: self.faker.ipv4(),
+            "ip_v6": lambda e, c, f: self.faker.ipv6(),
+            "mac_address": lambda e, c, f: self.faker.mac_address(),
+            "user_agent": lambda e, c, f: self.faker.user_agent(),
+            "url": lambda e, c, f: self.faker.url(),
+            "color_name": lambda e, c, f: self.faker.color_name(),
+            "file_extension": lambda e, c, f: self.faker.file_extension(),
+            "mime_type": lambda e, c, f: self.faker.mime_type(),
+
+            # Free text — field-name-aware routing (avoid lorem ipsum)
+            "free_text": lambda e, c, f: self._smart_free_text(e, f, c),
+
+            # Fallback for unrecognized semantic types
+            "unknown": lambda e, c, f: self._smart_free_text(e, f, c),
         }
     
     def _catalog_or_faker(self, semantic_type: str, entity_name: str, faker_fallback: Callable) -> str:
@@ -216,15 +245,98 @@ class SemanticRouter:
         value = random.uniform(min_val, max_val)
         return round(value, 2)
     
-    def _generate_enum(self, constraints: dict) -> str:
-        """Generate enum value from constraints or default."""
+    # Field-name suffixes / substrings that hint at the right Faker provider
+    # when the classifier returns the loose ``free_text`` semantic type.
+    _NAME_FIELD_HINTS = ("_name", "name_of", "title", "label", "product", "model")
+    _NUMERIC_FIELD_HINTS = (
+        # Cardinality / quantity
+        "_count", "_qty", "quantity", "_num", "_total",
+        # Time durations / cadences
+        "_days", "_hours", "_minutes", "_seconds", "_weeks", "_months",
+        "_year", "_age", "interval", "duration", "ttl",
+        # Sizes / physical measurements (the square_feet / sqft case)
+        "_size", "_length", "_width", "_height", "_depth", "_weight",
+        "_feet", "_ft", "_sqft", "square_feet", "_inches", "_in",
+        "_meters", "_m2", "_m3", "_km",
+        # Engineering units commonly seen in domain prompts
+        "_cc", "_mm", "_kg", "_ml", "_lb", "_oz", "_l", "_hp",
+        "_voltage", "_watts", "_amps",
+        # Rates / percentages
+        "_percent", "_pct", "_rate", "_ratio",
+        # Money / price (numeric but money_amount usually handles these — kept
+        # here as a safety net for novel suffixes the classifier may miss)
+        "_price", "_cost", "_fee", "_balance",
+    )
+    _DESCRIPTION_FIELD_HINTS = ("description", "comment", "note", "notes",
+                                "details", "summary", "bio", "biography",
+                                "remarks", "feedback")
+
+    def _smart_free_text(self, entity_name: str, field_name: str,
+                         constraints: dict) -> Any:
+        """Field-aware free-text generation.
+
+        Avoids the v0.8 "Agent every development say." problem by routing
+        the loose ``free_text`` / ``unknown`` semantic types based on the
+        field name shape instead of always returning ``faker.sentence()``
+        (lorem ipsum).
+
+        Rules:
+            * ``_name`` / title-like field  → ``faker.catch_phrase()``
+              (short, product-flavoured phrase)
+            * ``description`` / comment    → short sentence (6 words)
+            * numeric-suffix field (``_days``, ``_count``, ``_cc``,
+              ``_percent`` …)            → random int respecting min/max
+              (defaults to 1..1000)
+            * anything else                → ``faker.word()`` (single noun)
+
+        Field name matching is lowercase substring; empty field_name falls
+        back to ``faker.word()`` so the legacy code path is unchanged.
+        """
+        fn = (field_name or "").lower()
+        if not fn:
+            return self.faker.word()
+
+        if any(h in fn for h in self._NAME_FIELD_HINTS):
+            return self.faker.catch_phrase()
+
+        if any(h in fn for h in self._DESCRIPTION_FIELD_HINTS):
+            return self.faker.sentence(nb_words=6)
+
+        if any(h in fn for h in self._NUMERIC_FIELD_HINTS):
+            lo = int(constraints.get("min")) if constraints.get("min") is not None else 1
+            hi = int(constraints.get("max")) if constraints.get("max") is not None else 1000
+            if hi <= lo:
+                hi = lo + 1
+            return random.randint(lo, hi)
+
+        return self.faker.word()
+
+    def _generate_enum(self, constraints: dict,
+                       entity_name: str = "",
+                       field_name: str = "") -> Any:
+        """Generate enum value from constraints or fall back safely.
+
+        v0.8 fabricated ``{"active", "inactive", "pending", "completed"}`` whenever
+        the LLM classifier picked ``enum_value`` without supplying any actual enum
+        choices. That misled callers — the genre field in the doc's stress test
+        ended up with status-like values. Fall back to ``_smart_free_text`` so the
+        field at least looks plausible, and log a warning so the upstream miss is
+        visible.
+        """
         if "enum" in constraints and constraints["enum"]:
             return random.choice(constraints["enum"])
-        return random.choice(["active", "inactive", "pending", "completed"])
-    
-    def _fallback_generator(self, entity_name: str, constraints: dict) -> str:
+        logger.warning(
+            "Classifier picked enum_value for %s.%s but no enum values were supplied; "
+            "falling back to smart free-text routing.",
+            entity_name or "<entity>",
+            field_name or "<field>",
+        )
+        return self._smart_free_text(entity_name, field_name, constraints)
+
+    def _fallback_generator(self, entity_name: str, constraints: dict,
+                            field_name: str = "") -> str:
         """Fallback generator for unknown types."""
-        return self.faker.word()
+        return self._smart_free_text(entity_name, field_name, constraints)
     
     _rstr_warning_logged = False
     

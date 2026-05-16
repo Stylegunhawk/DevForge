@@ -1,0 +1,159 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: aiohttp
+  library_version_floor: 3.9.5
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: async-client-session
+  title: Async Client Session
+  explanation: Use aiohttp.ClientSession as a context manager to reuse connections
+    and manage resources.
+  tags:
+  - client
+  - session
+  - context
+  when_to_use: When making multiple HTTP requests in an async workflow.
+  examples:
+  - title: Simple GET
+    language: python
+    code: "import aiohttp\n\nasync with aiohttp.ClientSession() as session:\n    async\
+      \ with session.get('https://api.example.com/data') as resp:\n        data =\
+      \ await resp.json()\n        print(data)\n"
+  pitfalls:
+  - Forgetting to close the session, causing resource leaks
+  - Using blocking I/O inside the async context
+- id: async-requests
+  title: Making Async Requests
+  explanation: Use session.get/post/put/delete with await to fetch responses without
+    blocking.
+  tags:
+  - request
+  - async
+  - http
+  when_to_use: When you need to perform non-blocking HTTP calls.
+  examples:
+  - title: POST with JSON
+    language: python
+    code: "import aiohttp\n\nasync with aiohttp.ClientSession() as session:\n    async\
+      \ with session.post('https://api.example.com/items', json={'name': 'foo'}) as\
+      \ resp:\n        result = await resp.json()\n        print(result)\n"
+  pitfalls:
+  - Not handling HTTP error status codes
+  - Mixing sync and async code inside the request block
+- id: streaming-response
+  title: Streaming Response Body
+  explanation: Iterate over response.content to process large payloads without loading
+    into memory.
+  tags:
+  - streaming
+  - response
+  - content
+  when_to_use: When downloading big files or handling chunked responses.
+  examples:
+  - title: Chunked download
+    language: python
+    code: "import aiohttp\n\nasync with aiohttp.ClientSession() as session:\n    async\
+      \ with session.get('https://example.com/largefile.zip') as resp:\n        async\
+      \ for chunk in resp.content.iter_chunked(1024):\n            process(chunk)\
+      \  # replace with actual processing\n"
+  pitfalls:
+  - Ignoring the need to await the async iterator
+  - Writing chunks to disk without buffering
+- id: websocket-client
+  title: aiohttp WebSocket Client
+  explanation: Establish a WebSocket connection, send and receive messages asynchronously.
+  tags:
+  - websocket
+  - client
+  - real-time
+  when_to_use: When building a client that talks to a WebSocket server.
+  examples:
+  - title: Echo client
+    language: python
+    code: "import aiohttp\n\nasync with aiohttp.ClientSession() as session:\n    async\
+      \ with session.ws_connect('ws://echo.websocket.org') as ws:\n        await ws.send_str('Hello')\n\
+      \        msg = await ws.receive()\n        print(msg.data)\n"
+  pitfalls:
+  - Forgetting to close the WebSocket connection
+  - Mixing binary and text frames without proper handling
+- id: custom-client-middleware
+  title: Custom Client Middleware
+  explanation: Use aiohttp.TraceConfig to inject headers or retry logic into every
+    request.
+  tags:
+  - middleware
+  - headers
+  - retry
+  when_to_use: When you need to modify every request globally.
+  examples:
+  - title: Add Authorization header
+    language: python
+    code: "import aiohttp\n\nasync def on_request_start(session, trace_config_ctx,\
+      \ params):\n    params.headers['Authorization'] = 'Bearer token'\n\ntrace_config\
+      \ = aiohttp.TraceConfig()\ntrace_config.on_request_start.append(on_request_start)\n\
+      \nasync with aiohttp.ClientSession(trace_configs=[trace_config]) as session:\n\
+      \    async with session.get('https://api.example.com') as resp:\n        print(await\
+      \ resp.text())\n"
+  pitfalls:
+  - Overriding headers unintentionally
+  - Not handling exceptions in trace callbacks
+- id: server-route
+  title: aiohttp Web Server Route
+  explanation: Define async handler functions and register routes in web.Application.
+  tags:
+  - server
+  - route
+  - handler
+  when_to_use: When building an async web service.
+  examples:
+  - title: Hello World
+    language: python
+    code: "from aiohttp import web\n\nasync def hello(request):\n    return web.Response(text='Hello,\
+      \ world!')\n\napp = web.Application()\napp.add_routes([web.get('/', hello)])\n\
+      \nif __name__ == '__main__':\n    web.run_app(app)\n"
+  pitfalls:
+  - Returning plain strings instead of web.Response objects
+  - Forgetting to add routes to the application
+- id: server-middleware
+  title: aiohttp Server Middleware
+  explanation: Process requests/responses via middleware functions for logging, auth,
+    etc.
+  tags:
+  - middleware
+  - server
+  - logging
+  when_to_use: When you need cross-cutting concerns on the server side.
+  examples:
+  - title: Logging middleware
+    language: python
+    code: "from aiohttp import web\n\n@web.middleware\nasync def log_middleware(request,\
+      \ handler):\n    print(f\"Request: {request.method} {request.path}\")\n    response\
+      \ = await handler(request)\n    print(f\"Response status: {response.status}\"\
+      )\n    return response\n\napp = web.Application(middlewares=[log_middleware])\n\
+      \nasync def hello(request):\n    return web.Response(text='Hello')\n\napp.add_routes([web.get('/',\
+      \ hello)])\n\nif __name__ == '__main__':\n    web.run_app(app)\n"
+  pitfalls:
+  - Blocking the event loop inside middleware
+  - Not calling the handler when early termination is needed
+- id: graceful-shutdown
+  title: Graceful Shutdown of aiohttp Server
+  explanation: Use app.cleanup_ctx to run async cleanup tasks before shutdown.
+  tags:
+  - shutdown
+  - cleanup
+  - graceful
+  when_to_use: When you need to close database connections or workers cleanly.
+  examples:
+  - title: Cleanup database pool
+    language: python
+    code: "from aiohttp import web\n\nasync def db_context(app):\n    app['db'] =\
+      \ await create_pool()  # replace with actual pool creation\n    yield\n    await\
+      \ app['db'].close()\n\napp = web.Application()\napp.cleanup_ctx.append(db_context)\n\
+      \nasync def handler(request):\n    return web.Response(text='ok')\n\napp.add_routes([web.get('/',\
+      \ handler)])\n\nif __name__ == '__main__':\n    web.run_app(app)\n"
+  pitfalls:
+  - Not yielding in cleanup context leading to immediate shutdown
+  - Leaving resources open after app stops

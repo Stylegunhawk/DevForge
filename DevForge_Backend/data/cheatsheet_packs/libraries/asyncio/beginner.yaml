@@ -1,0 +1,111 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-event-loop
+  title: Basic Event Loop
+  explanation: Run a coroutine to completion using asyncio.run, which handles loop
+    creation and cleanup.
+  tags:
+  - event-loop
+  - basics
+  when_to_use: Use when you need to execute a coroutine from synchronous code.
+  examples:
+  - title: Run a simple coroutine
+    language: python
+    code: "import asyncio\n\nasync def greet():\n    print(\"Hello, world!\")\n\n\
+      asyncio.run(greet())\n"
+  pitfalls:
+  - Using asyncio.get_event_loop() in new code instead of asyncio.run().
+  - Calling asyncio.run() multiple times in the same process, which can raise a RuntimeError.
+- id: async-def
+  title: Declaring Async Functions
+  explanation: Define coroutines with async def so they can be awaited.
+  tags:
+  - coroutine
+  - definition
+  when_to_use: Use when a function needs to perform asynchronous operations or await
+    other coroutines.
+  examples:
+  - title: Simple async function
+    language: python
+    code: "import asyncio\n\nasync def add(a, b):\n    return a + b\n\nresult = asyncio.run(add(2,\
+      \ 3))\nprint(result)\n"
+  pitfalls:
+  - Forgetting the async keyword when a function contains await.
+  - Returning a non-awaitable object and then attempting to await it.
+- id: await-expression
+  title: Awaiting Coroutines
+  explanation: Pause execution until a coroutine completes, retrieving its result.
+  tags:
+  - await
+  - result
+  when_to_use: Use when you need the outcome of an async operation before proceeding.
+  examples:
+  - title: Await a coroutine
+    language: python
+    code: "import asyncio\n\nasync def fetch():\n    await asyncio.sleep(1)\n    return\
+      \ 42\n\nasync def main():\n    value = await fetch()\n    print(value)\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting the await keyword, which schedules but does not wait for the coroutine.
+  - Awaiting a non-awaitable value, causing a TypeError.
+- id: asyncio-gather
+  title: Running Coroutines Concurrently
+  explanation: Use asyncio.gather to run multiple coroutines in parallel and collect
+    their results.
+  tags:
+  - tasks
+  - concurrency
+  when_to_use: Use when you have several independent coroutines that can run simultaneously.
+  examples:
+  - title: Concurrent tasks with gather
+    language: python
+    code: "import asyncio\n\nasync def sleep_and_return(n):\n    await asyncio.sleep(n)\n\
+      \    return n\n\nasync def main():\n    results = await asyncio.gather(\n  \
+      \      sleep_and_return(1),\n        sleep_and_return(2),\n        sleep_and_return(3),\n\
+      \    )\n    print(results)\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Calling gather without awaiting the result, leaving coroutines unexecuted.
+  - Mixing coroutine objects and futures incorrectly in the gather arguments.
+- id: asyncio-task
+  title: Creating Independent Tasks
+  explanation: Schedule a coroutine to run as a Task that can run concurrently with
+    other code.
+  tags:
+  - tasks
+  - scheduling
+  when_to_use: Use when you want a coroutine to run in the background independently
+    of the current flow.
+  examples:
+  - title: Create and await tasks
+    language: python
+    code: "import asyncio\n\nasync def worker(id):\n    await asyncio.sleep(1)\n \
+      \   print(f\"Worker {id} done\")\n\nasync def main():\n    task1 = asyncio.create_task(worker(1))\n\
+      \    task2 = asyncio.create_task(worker(2))\n    await task1\n    await task2\n\
+      \nasyncio.run(main())\n"
+  pitfalls:
+  - Forgetting to await created tasks, causing unhandled exceptions.
+  - Creating tasks in a loop without keeping references, leading to memory leaks.
+- id: asyncio-timeout
+  title: Using Timeouts with wait_for
+  explanation: Wrap a coroutine with asyncio.wait_for to cancel it if it exceeds a
+    specified time limit.
+  tags:
+  - timeout
+  - error-handling
+  when_to_use: Use when you need to enforce a maximum duration for an async operation.
+  examples:
+  - title: Timeout example
+    language: python
+    code: "import asyncio\n\nasync def long_running():\n    await asyncio.sleep(5)\n\
+      \    return \"finished\"\n\nasync def main():\n    try:\n        result = await\
+      \ asyncio.wait_for(long_running(), timeout=2)\n        print(result)\n    except\
+      \ asyncio.TimeoutError:\n        print(\"Operation timed out\")\n\nasyncio.run(main())\n"
+  pitfalls:
+  - Not catching asyncio.TimeoutError, causing the program to crash.
+  - Setting an excessively short timeout, which cancels legitimate tasks prematurely.

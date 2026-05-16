@@ -1,0 +1,125 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: httpx
+  library_version_floor: 0.25.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-get
+  title: Basic GET
+  explanation: Perform a simple GET request and read the text response.
+  tags:
+  - sync
+  - get
+  - request
+  when_to_use: When you need a quick one‑off request without session reuse.
+  examples:
+  - title: Simple GET
+    language: python
+    code: 'import httpx
+
+      response = httpx.get("https://api.example.com/data")
+
+      print(response.text)
+
+      '
+  pitfalls:
+  - Ignoring non‑200 status codes
+  - Not handling network errors (e.g., timeouts)
+- id: post-json
+  title: POST JSON
+  explanation: Send structured data to an API using a JSON payload.
+  tags:
+  - sync
+  - post
+  - json
+  - request
+  when_to_use: When submitting JSON data to an endpoint.
+  examples:
+  - title: POST JSON
+    language: python
+    code: 'import httpx
+
+      payload = {"name": "Alice", "age": 30}
+
+      response = httpx.post("https://api.example.com/users", json=payload)
+
+      print(response.status_code)
+
+      '
+  pitfalls:
+  - Using data= instead of json= for JSON payloads
+  - Not checking response status
+- id: client-session
+  title: Client Session Reuse
+  explanation: Reuse a connection pool with httpx.Client for multiple requests.
+  tags:
+  - sync
+  - client
+  - session
+  - request
+  when_to_use: When making several requests to the same host.
+  examples:
+  - title: Reusing Client
+    language: python
+    code: "import httpx\nwith httpx.Client() as client:\n    r1 = client.get(\"https://api.example.com/users\"\
+      )\n    r2 = client.post(\"https://api.example.com/users\", json={\"name\": \"\
+      Bob\"})\n    print(r1.status_code, r2.status_code)\n"
+  pitfalls:
+  - Forgetting to close the Client (e.g., not using a context manager)
+  - Creating a new Client for each request, negating pooling benefits
+- id: async-client
+  title: Async Client
+  explanation: Perform concurrent network operations using httpx.AsyncClient.
+  tags:
+  - async
+  - client
+  - request
+  when_to_use: When you need to issue I/O‑bound requests concurrently.
+  examples:
+  - title: Async Request
+    language: python
+    code: "import httpx\nimport asyncio\n\nasync def fetch():\n    async with httpx.AsyncClient()\
+      \ as client:\n        response = await client.get(\"https://api.example.com/data\"\
+      )\n        print(response.text)\n\nasyncio.run(fetch())\n"
+  pitfalls:
+  - Calling sync functions inside async code (e.g., httpx.get instead of await client.get)
+  - Not awaiting the coroutine returned by client.get
+- id: streaming-response
+  title: Streaming Response
+  explanation: Process large responses incrementally to avoid memory overhead.
+  tags:
+  - sync
+  - stream
+  - download
+  when_to_use: When downloading large files or consuming a data stream.
+  examples:
+  - title: Streaming Download
+    language: python
+    code: "import httpx\nwith httpx.Client() as client:\n    with client.stream(\"\
+      GET\", \"https://api.example.com/largefile\") as response:\n        for chunk\
+      \ in response.iter_bytes():\n            process(chunk)  # replace with actual\
+      \ processing\n"
+  pitfalls:
+  - Reading the entire response into memory (e.g., response.read())
+  - Not handling HTTP errors before streaming
+- id: error-handling
+  title: HTTP Error Handling
+  explanation: Catch non‑2xx responses explicitly using httpx.HTTPStatusError.
+  tags:
+  - sync
+  - error
+  - request
+  when_to_use: When you need detailed error handling for HTTP status codes.
+  examples:
+  - title: HTTP Error Handling
+    language: python
+    code: "import httpx\ntry:\n    response = httpx.get(\"https://api.example.com/resource\"\
+      )\n    response.raise_for_status()\n    print(response.json())\nexcept httpx.HTTPStatusError\
+      \ as exc:\n    print(f\"Error {exc.response.status_code} for URL {exc.request.url}\"\
+      )\n"
+  pitfalls:
+  - Using response.ok and ignoring raise_for_status
+  - Catching generic Exception instead of httpx.HTTPStatusError

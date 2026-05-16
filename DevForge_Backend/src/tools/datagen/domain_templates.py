@@ -4,6 +4,8 @@ Provides pre-configured schemas with hardcoded distribution parameters.
 Templates are designed to be used as-is, not customized.
 """
 
+from typing import Optional
+
 from src.tools.datagen.schema_models import (
     EntitySchema,
     FieldSchema,
@@ -60,8 +62,8 @@ def get_ecommerce_template(
                 fields=[
                     FieldSchema(name="name", type="string", faker_provider="name"),
                     FieldSchema(name="email", type="string", faker_provider="email"),
-                    FieldSchema(name="phone", type="string", faker_provider="phone_number"),
-                    FieldSchema(name="address", type="string", faker_provider="address"),
+                    FieldSchema(name="phone", type="string", faker_provider="phone_number", nullable=True),
+                    FieldSchema(name="address", type="string", faker_provider="address", nullable=True),
                     FieldSchema(name="created_at", type="datetime"),
                 ],
                 count=customer_count,
@@ -71,7 +73,8 @@ def get_ecommerce_template(
                 name="products",
                 fields=[
                     FieldSchema(name="name", type="string", faker_provider="text"),
-                    FieldSchema(name="category", type="string"),
+                    FieldSchema(name="category", type="string", nullable=True),
+                    FieldSchema(name="description", type="string", nullable=True),
                     FieldSchema(name="price", type="float", distribution="lognormal"),
                     FieldSchema(name="in_stock", type="boolean"),
                     FieldSchema(name="created_at", type="datetime"),
@@ -162,6 +165,8 @@ def get_saas_template(
                     FieldSchema(name="username", type="string", faker_provider="user_name"),
                     FieldSchema(name="email", type="string", faker_provider="email"),
                     FieldSchema(name="full_name", type="string", faker_provider="name"),
+                    FieldSchema(name="phone", type="string", faker_provider="phone_number", nullable=True),
+                    FieldSchema(name="last_login", type="datetime", nullable=True),
                     FieldSchema(name="created_at", type="datetime"),
                     FieldSchema(name="is_active", type="boolean"),
                 ],
@@ -176,6 +181,7 @@ def get_saas_template(
                     FieldSchema(name="price_monthly", type="float"),
                     FieldSchema(name="started_at", type="datetime"),
                     FieldSchema(name="expires_at", type="datetime", nullable=True),
+                    FieldSchema(name="cancellation_reason", type="string", nullable=True),
                     FieldSchema(name="is_active", type="boolean"),
                 ],
                 count=subscription_count,
@@ -189,6 +195,7 @@ def get_saas_template(
                     FieldSchema(name="timestamp", type="datetime"),
                     FieldSchema(name="api_calls", type="int", distribution="pareto"),
                     FieldSchema(name="data_mb", type="float", distribution="lognormal"),
+                    FieldSchema(name="error_message", type="string", nullable=True),
                 ],
                 count=usage_log_count,
                 primary_key="id"
@@ -260,6 +267,7 @@ def get_iot_devices_template(
                     FieldSchema(name="firmware", type="string"),
                     FieldSchema(name="ip_address", type="string", faker_provider="ipv4"),
                     FieldSchema(name="status", type="string"),
+                    FieldSchema(name="last_seen", type="datetime", nullable=True),
                     FieldSchema(name="created_at", type="datetime"),
                 ],
                 count=device_count,
@@ -272,6 +280,7 @@ def get_iot_devices_template(
                     FieldSchema(name="sensor_type", type="string"),
                     FieldSchema(name="value", type="float", distribution="normal"),
                     FieldSchema(name="timestamp", type="datetime"),
+                    FieldSchema(name="error_code", type="string", nullable=True),
                 ],
                 count=reading_count,
                 primary_key="id"

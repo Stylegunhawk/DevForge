@@ -1,0 +1,117 @@
+pack:
+  language: Python
+  skill_level: beginner
+  version: 1
+  library: scikit-learn
+  library_version_floor: 1.4.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: train-test-split
+  title: Train/Test Split
+  explanation: Split data into training and test sets to evaluate model generalization.
+  tags:
+  - data-preprocessing
+  - evaluation
+  when_to_use: Use before any model training to prevent data leakage.
+  examples:
+  - title: Basic split with Iris
+    language: python
+    code: "from sklearn.datasets import load_iris\nfrom sklearn.model_selection import\
+      \ train_test_split\n\ndata = load_iris()\nX, y = data.data, data.target\nX_train,\
+      \ X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42)\n"
+  pitfalls:
+  - Splitting after preprocessing can leak information.
+  - Using a random state of None leads to non-reproducible splits.
+- id: standard-scaling
+  title: Standard Scaling
+  explanation: Standardize features to zero mean and unit variance for algorithms
+    sensitive to scale.
+  tags:
+  - data-preprocessing
+  - scaling
+  when_to_use: Apply before training models like logistic regression or SVM.
+  examples:
+  - title: Scale features with Iris
+    language: python
+    code: "from sklearn.preprocessing import StandardScaler\nfrom sklearn.datasets\
+      \ import load_iris\nfrom sklearn.model_selection import train_test_split\n\n\
+      data = load_iris()\nX, y = data.data, data.target\nX_train, X_test, y_train,\
+      \ y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42)\n\n\
+      scaler = StandardScaler()\nX_train_scaled = scaler.fit_transform(X_train)\n\
+      X_test_scaled = scaler.transform(X_test)\n"
+  pitfalls:
+  - Fitting the scaler on the entire dataset before splitting leaks test information.
+  - Forgetting to transform the test set with the same scaler.
+- id: logistic-regression
+  title: Logistic Regression
+  explanation: Simple linear classifier suitable for binary or multiclass classification.
+  tags:
+  - modeling
+  - classification
+  when_to_use: Use when you need a baseline linear model or interpretability.
+  examples:
+  - title: Fit and evaluate on Iris
+    language: python
+    code: "from sklearn.linear_model import LogisticRegression\nfrom sklearn.datasets\
+      \ import load_iris\nfrom sklearn.model_selection import train_test_split\nfrom\
+      \ sklearn.metrics import accuracy_score\n\ndata = load_iris()\nX, y = data.data,\
+      \ data.target\nX_train, X_test, y_train, y_test = train_test_split(\n    X,\
+      \ y, test_size=0.2, random_state=42)\n\nmodel = LogisticRegression(max_iter=200)\n\
+      model.fit(X_train, y_train)\npreds = model.predict(X_test)\nprint(\"Accuracy:\"\
+      , accuracy_score(y_test, preds))\n"
+  pitfalls:
+  - Relying on default solver with large datasets can lead to convergence warnings.
+  - Ignoring class imbalance may bias the model toward majority classes.
+- id: decision-tree
+  title: Decision Tree
+  explanation: Non-parametric model that splits on feature thresholds to predict classes.
+  tags:
+  - modeling
+  - classification
+  when_to_use: Use for interpretable models or when exploring feature importance.
+  examples:
+  - title: Train a decision tree on Iris
+    language: python
+    code: "from sklearn.tree import DecisionTreeClassifier\nfrom sklearn.datasets\
+      \ import load_iris\nfrom sklearn.model_selection import train_test_split\nfrom\
+      \ sklearn.metrics import accuracy_score\n\ndata = load_iris()\nX, y = data.data,\
+      \ data.target\nX_train, X_test, y_train, y_test = train_test_split(\n    X,\
+      \ y, test_size=0.2, random_state=42)\n\nclf = DecisionTreeClassifier(max_depth=3,\
+      \ random_state=42)\nclf.fit(X_train, y_train)\npreds = clf.predict(X_test)\n\
+      print(\"Accuracy:\", accuracy_score(y_test, preds))\n"
+  pitfalls:
+  - Overfitting occurs with very deep trees; use max_depth or min_samples_split.
+  - Not pruning or limiting tree size can lead to noisy predictions.
+- id: cross-validation
+  title: Cross-Validation
+  explanation: Evaluate model stability by training on multiple train/test splits.
+  tags:
+  - evaluation
+  - validation
+  when_to_use: Use to estimate generalization error when data is limited.
+  examples:
+  - title: 5‑fold CV with Logistic Regression
+    language: python
+    code: 'from sklearn.linear_model import LogisticRegression
+
+      from sklearn.datasets import load_iris
+
+      from sklearn.model_selection import cross_val_score
+
+
+      data = load_iris()
+
+      X, y = data.data, data.target
+
+
+      model = LogisticRegression(max_iter=200)
+
+      scores = cross_val_score(model, X, y, cv=5)
+
+      print("CV Accuracy:", scores.mean())
+
+      '
+  pitfalls:
+  - Using cross_val_score on already split data duplicates test data.
+  - Not setting a random_state can cause non-reproducible folds.

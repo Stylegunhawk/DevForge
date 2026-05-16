@@ -1,0 +1,114 @@
+pack:
+  language: python
+  skill_level: intermediate
+  version: 1
+  library: httpx
+  library_version_floor: 0.27.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-sync-get
+  title: Basic Sync GET
+  explanation: A straightforward synchronous GET request using httpx.Client to fetch
+    data.
+  tags:
+  - sync
+  - get
+  - client
+  when_to_use: When performing quick blocking HTTP calls in scripts or CLI tools.
+  examples:
+  - title: Simple GET
+    language: python
+    code: "import httpx\n\nwith httpx.Client() as client:\n    response = client.get(\"\
+      https://api.example.com\")\n    print(response.status_code)\n    print(response.json())\n"
+  pitfalls:
+  - Forgetting to close the client, which can leak sockets.
+  - Assuming response.json() always returns a dict; handle non-JSON responses.
+- id: basic-async-get
+  title: Basic Async GET
+  explanation: Demonstrates how to perform an async GET request using httpx.AsyncClient.
+  tags:
+  - async
+  - get
+  - client
+  when_to_use: When building asynchronous services or handling many concurrent requests.
+  examples:
+  - title: Async GET with asyncio
+    language: python
+    code: "import httpx, asyncio\n\nasync def fetch():\n    async with httpx.AsyncClient()\
+      \ as client:\n        response = await client.get(\"https://api.example.com\"\
+      )\n        print(response.status_code)\n        print(await response.json())\n\
+      \nasyncio.run(fetch())\n"
+  pitfalls:
+  - Mixing sync and async code; ensure all httpx calls match the mode.
+  - Not awaiting response.json(), causing a coroutine object to be printed.
+- id: json-post-auth
+  title: JSON POST with Basic Auth
+  explanation: Shows how to send JSON data and use HTTP Basic authentication in a
+    POST request.
+  tags:
+  - post
+  - json
+  - auth
+  when_to_use: When interacting with APIs that require credentials and JSON payloads.
+  examples:
+  - title: POST with auth
+    language: python
+    code: "import httpx\n\npayload = {\"name\": \"Alice\", \"age\": 30}\nwith httpx.Client()\
+      \ as client:\n    response = client.post(\n        \"https://api.example.com/users\"\
+      ,\n        json=payload,\n        auth=(\"user\", \"pass\")\n    )\n    print(response.status_code)\n\
+      \    print(response.text)\n"
+  pitfalls:
+  - Using auth parameter incorrectly; it expects a tuple of (user, pass).
+  - Sending large JSON payloads without setting a timeout.
+- id: custom-timeout
+  title: Custom Timeout Settings
+  explanation: Illustrates how to configure per-request and global timeouts with httpx.Timeout.
+  tags:
+  - timeout
+  - client
+  when_to_use: When communicating with services that may have variable latency.
+  examples:
+  - title: Timeout per request
+    language: python
+    code: "import httpx\n\ntimeout = httpx.Timeout(connect=5.0, read=10.0, pool=5.0)\n\
+      with httpx.Client(timeout=timeout) as client:\n    response = client.get(\"\
+      https://slow.example.com\")\n    print(response.status_code)\n"
+  pitfalls:
+  - Overly strict timeouts causing false negatives.
+  - Forgetting that httpx.Timeout also applies to connection establishment.
+- id: http2-request
+  title: HTTP/2-enabled Request
+  explanation: Demonstrates enabling HTTP/2 support for faster, multiplexed connections.
+  tags:
+  - http2
+  - client
+  when_to_use: When the server supports HTTP/2 and you want to benefit from better
+    performance.
+  examples:
+  - title: HTTP/2 GET
+    language: python
+    code: "import httpx\n\nwith httpx.Client(http2=True) as client:\n    response\
+      \ = client.get(\"https://www.http2-proxy.com\")\n    print(response.http_version)\n\
+      \    print(response.text)\n"
+  pitfalls:
+  - Using http2=True on servers that do not support it; the request will fall back
+    to HTTP/1.1.
+  - Forgetting that httpx may require the "httpx[http2]" extras to be installed.
+- id: streaming-response
+  title: Streaming Large Responses
+  explanation: Shows how to stream a response body to avoid loading it all into memory
+    at once.
+  tags:
+  - stream
+  - client
+  when_to_use: When downloading large files or handling big payloads.
+  examples:
+  - title: Streaming download
+    language: python
+    code: "import httpx\n\nwith httpx.Client() as client:\n    with client.stream(\"\
+      GET\", \"https://example.com/largefile.zip\") as r:\n        with open(\"largefile.zip\"\
+      , \"wb\") as f:\n            for chunk in r.iter_bytes():\n                f.write(chunk)\n"
+  pitfalls:
+  - Closing the stream prematurely; ensure the context manager wraps the request.
+  - Not handling HTTP errors before starting to write bytes.

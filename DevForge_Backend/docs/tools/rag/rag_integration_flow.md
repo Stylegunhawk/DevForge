@@ -1,9 +1,7 @@
 # RAG Integration Flow
 
-**Version:** 15.3 Complete ✅  
-**Phase:** Phase 15.3 Sequential Support  
-**Date:** 2026-02-26  
-**Status:** Production Ready
+**Version:** 0.8.0  
+**Last Updated:** 2026-05-08
 
 This document details the integration flow of the RAG pipeline, including Phase 12A query intelligence features.
 
@@ -15,7 +13,7 @@ This document details the integration flow of the RAG pipeline, including Phase 
 
 ```mermaid
 graph TD
-    A[User Uploads Documents] --> B[POST /rag/ingest-async]
+    A[User Uploads Documents] --> B[POST /api/rag/ingest-async]
     B --> C[Celery Task: async_ingest_documents]
     C --> D[RAGAgent.ingest_document]
     D --> E[tools.ingest_documents]
@@ -38,10 +36,10 @@ graph TD
 
 ```
 1. HTTP Request
-   POST /rag/ingest-async
+   POST /api/rag/ingest-async
    Body: {"file_paths": ["utils.py"], "collection_name": "devforge_docs"}
    
-2. API Endpoint (src/api/routers.py)
+2. API Endpoint (src/api/routers/__init__.py)
    async def ingest_async_endpoint(request: IngestAsyncRequest)
    ↓
    Creates Celery task
@@ -111,9 +109,13 @@ graph TD
 
 ```
 1. User Query
-   POST /api/gateway
-   Body: {"name": "retrieve_docs", "arguments": {"query": "...", "top_k": 5}}
-   
+   POST /api/v1/rag/chunk/semanticSearchForChat
+   Headers: Authorization: Bearer <tenant_jwt>
+   Body: {"query": "...", "top_k": 5}
+
+   Note: retrieve_docs is NOT in SUPPORTED_TOOLS and is not callable via
+   POST /api/gateway. The canonical entry point is semanticSearchForChat.
+
 2. Intent Classification (3-tier)
    IntentClassifier.classify(query)
    ↓
@@ -133,7 +135,7 @@ graph TD
 4. Semantic Cache Check
    SemanticCache.get(query, intent)
    ↓
-   If similarity > 0.95 → Return cached result (10ms)
+   If similarity ≥ 0.92 → Return cached result (10ms)
    Else → Continue to retrieval
    
 5. Multi-Query Vector Search
@@ -164,7 +166,7 @@ graph TD
 9. Response Generation
    model_router.select_model("rag_simple", prefer_local=False)
    ↓
-   Uses cloud model (gpt-oss:120b-cloud) for memory efficiency
+   Uses cloud model (gpt-oss:20b-cloud) for memory efficiency
    ↓
    Generate answer from context
    
@@ -194,47 +196,24 @@ graph TD
 
 ---
 
-## Retrieval Flow (Legacy - Graph Expansion)
+## Graph Expansion Detail
 
-### With Graph Context Expansion
+Code-graph BFS expansion happens unconditionally when `ENABLE_CODE_GRAPH=true`
+(there is no per-request `include_context` flag). It runs inside the Phase 12A
+pipeline after the initial vector/hybrid results are collected:
 
 ```
-1. User Query
-   GET /rag/retrieve?query="authentication functions"
-   
-2. RAGAgent.retrieve_with_context(query, top_k=5)
-   ↓
-   Generate query embedding
-   
-3. Vector Search (ChromaVectorStore)
-   search(query_embedding, top_k=5, score_threshold=0.5)
-   ↓
-   Returns initial results (semantic similarity)
-   
-4. Graph Expansion (if ENABLE_CODE_GRAPH=true)
-   For each result:
-     ↓
-   Extract QID (file::entity)
-     ↓
-   CodeGraph.get_related(qid, depth=2, max_results=3)
-     ↓
-   BFS traversal of calls/imports
-     ↓
-   Fetch related chunks by QID
-     ↓
-   ChromaVectorStore.get_chunk_by_qualified_id(related_qid)
-   
-5. Merge & Deduplicate
-   initial_results + related_chunks
-   ↓
-   Remove duplicates by QID
-   
-6. Return Extended Context
-   {
-     "documents": [...],
-     "expanded": true,
-     "expansion_count": 3
-   }
+For each result chunk:
+  ↓
+Extract QID (tenant::file::entity)
+  ↓
+CodeGraph.get_related(qid, depth=2, max_results=3)
+  ↓
+BFS traversal of calls/imports edges
+  ↓
+Fetch related chunks via vector_store.get_chunk_by_qualified_id(related_qid)
+
+Merge initial_results + related_chunks → deduplicate by QID → pass to reranker
 ```
 
 
@@ -406,46 +385,41 @@ def _chunk_with_ast(self, content: str, file_path: str, language: str) -> List[D
 
 ## Graph Rebuild Flow
 
-### RAGAgent.code_graph Property
+### RAGAgent.init_graph
 
-**File:** `src/agents/rag/agent.py` (lines 480-527)
+**File:** `src/agents/rag/agent.py`
+
+The graph is NOT a lazy `@property`. It requires explicit initialization via
+`await agent.init_graph()`. Accessing `agent.code_graph` before calling
+`init_graph()` raises `RuntimeError`.
 
 ```python
-@property
-def code_graph(self):
-    """Lazy-initialized code graph. Derived state, rebuilt from chunk metadata."""
-    
-    if self._code_graph is None:
-        from src.agents.rag.graph import CodeGraph
-        
-        self._code_graph = CodeGraph()
-        
-        # ARCHITECTURE COMPLIANCE: Rebuild from vector store metadata
-        async def rebuild():
-            count = 0
-            try:
-                # Uses BaseVectorStore.iter_chunk_metadata() abstraction
-                async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
-                    # Convert metadata list to chunk format
-                    chunks = [{"metadata": meta} for meta in batch]
-                    self._code_graph.add_chunks_batch(chunks)
-                    count += len(batch)
-                
-                logger.info(f"Graph rebuilt: {count} chunks → {self._code_graph.size()} nodes")
-            except Exception as e:
-                logger.warning(f"Graph rebuild failed: {e}")
-        
-        # Run rebuild asynchronously
-        asyncio.run(rebuild())
-    
-    return self._code_graph
+async def init_graph(self) -> None:
+    cache_key = f"rag_graph:v2:{self.collection_name}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        graph_dict = json.loads(cached)
+        # Reject legacy 2-segment QIDs and fall through to rebuild
+        if all(len(qid.split("::")) >= 3 for qid in graph_dict):
+            self._code_graph = CodeGraph.from_dict(graph_dict)
+            return
+
+    # Cache miss: rebuild from vector store metadata
+    self._code_graph = CodeGraph()
+    async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
+        self._code_graph.add_chunks_batch(batch, tenant_id=self.tenant_id)
+
+    # Write back to Redis with 1-hour TTL
+    redis_client.set(cache_key, json.dumps(self._code_graph.to_dict()), ex=3600)
 ```
 
 **Flow:**
-1. First access to `agent.code_graph` triggers rebuild
-2. `ChromaVectorStore.iter_chunk_metadata()` streams metadata in batches (NO embeddings)
-3. For each batch, build QIDs (`file::entity`) and add to graph
-4. Graph stores adjacency list (`QID → Set[related QIDs]`) and metadata (`QID → Dict`)
+1. Try Redis warm-start cache (key `rag_graph:v2:{collection_name}`, 1-hour TTL)
+2. Reject cached graphs that contain legacy 2-segment QIDs → fall through to rebuild
+3. Cache miss: stream chunk metadata via `BaseVectorStore.iter_chunk_metadata()` (NO embeddings loaded)
+4. For each batch, build QIDs (`tenant::file::entity`) and add to graph
+5. Write rebuilt graph back to Redis
+6. Cache is invalidated by `ingest_document` and `delete_file_cascade`
 
 ---
 
@@ -518,28 +492,27 @@ def validate(value):
 ### Graph Structure
 
 ```
-utils.py::validate → utils.py::add  (call edge)
+tenant123::utils.py::validate → tenant123::utils.py::add  (call edge)
 ```
 
 ### QID Format
 
 ```
-QID: utils.py::add
-     └─ file  └─ entity
+QID: tenant123::utils.py::add
+     └─ tenant └─ file  └─ entity
 
-QID: utils.py::validate
-     └─ file   └─ entity
+QID: tenant123::utils.py::validate
+     └─ tenant └─ file   └─ entity
 ```
 
 ---
 
 ## Related Documentation
 
-- [RAG Architecture](./rag_architecture.md) - Architecture rules and component overview
-- [retrieve_docs Tool](./tools/retrieve_docs.md) - API reference and usage
-- [Sequential Chunk Retrieval](./get_file_chunks_api.md) - Direct chunk access for files
+- [RAG Architecture](../rag_architecture.md) — Architecture rules and component overview
+- [retrieve_docs](./retrieve_docs.md) — Endpoint reference and usage
+- [Sequential Chunk Retrieval](./get_file_chunks_api.md) — Direct chunk access for files
 
 ---
 
-**All integration paths verified ✅**  
-**Last Updated:** February 26, 2026
+**Last Updated:** 2026-05-08

@@ -1,0 +1,117 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: pytest
+  library_version_floor: 8.0.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: parameterize
+  title: Parameterization
+  explanation: Run the same test logic with multiple inputs using @pytest.mark.parametrize.
+  tags:
+  - parameterization
+  - table-driven
+  when_to_use: When you need to validate a function against a set of known input-output
+    pairs.
+  examples:
+  - title: Basic parameterization
+    language: python
+    code: "import pytest\n\n@pytest.mark.parametrize(\"a,b,expected\", [\n    (1,\
+      \ 2, 3),\n    (5, 5, 10),\n    (-1, 1, 0),\n])\ndef test_add(a, b, expected):\n\
+      \    assert a + b == expected\n"
+  pitfalls:
+  - Forgetting to specify all parameter names in the test signature.
+  - Mixing positional and keyword arguments without matching the order.
+- id: fixture-autouse
+  title: Autouse Fixtures
+  explanation: Fixtures that run automatically for all tests in a module without explicit
+    use.
+  tags:
+  - fixtures
+  - setup
+  - teardown
+  when_to_use: When an environment should be prepared for every test, e.g., a temporary
+    directory.
+  examples:
+  - title: Auto-created temp directory
+    language: python
+    code: "import pytest\nimport tempfile\nimport os\n\n@pytest.fixture(autouse=True)\n\
+      def temp_dir(tmp_path):\n    # tmp_path is built-in fixture providing a temporary\
+      \ directory\n    os.chdir(tmp_path)\n    yield\n    os.chdir(\"..\")\ndef test_cleanup(tmp_path):\n\
+      \    # test can assume current working dir is tmp_path\n    assert os.getcwd().endswith(tmp_path.name)\n"
+  pitfalls:
+  - Overusing autouse for fixtures that should be optional.
+  - Not accounting for fixture scope leading to unexpected shared state.
+- id: monkeypatch
+  title: MonkeyPatching
+  explanation: Dynamically replace objects or functions during a test using pytest's
+    monkeypatch fixture.
+  tags:
+  - mocking
+  - patching
+  - test isolation
+  when_to_use: When you need to stub external dependencies or modify behavior in a
+    controlled way.
+  examples:
+  - title: Patch built-in open
+    language: python
+    code: "import pytest\n\ndef read_file(path):\n    with open(path, 'r') as f:\n\
+      \        return f.read()\n\ndef fake_open(*args, **kwargs):\n    from io import\
+      \ StringIO\n    return StringIO(\"patched content\")\n\ndef test_read_file(monkeypatch):\n\
+      \    monkeypatch.setattr(\"builtins.open\", fake_open)\n    assert read_file(\"\
+      any_path\") == \"patched content\"\n"
+  pitfalls:
+  - Using monkeypatch on the wrong module or attribute path.
+  - Forgetting to restore the original state after the test.
+- id: async-tests
+  title: Async Test Support
+  explanation: Run asynchronous functions as tests with @pytest.mark.asyncio.
+  tags:
+  - asyncio
+  - concurrency
+  when_to_use: When testing async code paths or coroutines.
+  examples:
+  - title: Async test with await
+    language: python
+    code: "import pytest\nimport asyncio\n\nasync def async_add(a, b):\n    await\
+      \ asyncio.sleep(0.01)\n    return a + b\n\n@pytest.mark.asyncio\nasync def test_async_add():\n\
+      \    result = await async_add(3, 4)\n    assert result == 7\n"
+  pitfalls:
+  - Forgetting the @pytest.mark.asyncio decorator.
+  - Mixing synchronous and asynchronous code without proper awaiting.
+- id: custom-markers
+  title: Custom Markers
+  explanation: Define and use your own pytest markers for selective test execution.
+  tags:
+  - markers
+  - test selection
+  when_to_use: When you need to categorize tests, e.g., slow, CI, or integration.
+  examples:
+  - title: Define and use a custom marker
+    language: python
+    code: "import pytest\n\n@pytest.mark.slow\ndef test_long_running():\n    # Simulate\
+      \ a long test\n    assert True\n\n# In pytest.ini:\n# [pytest]\n# markers =\n\
+      #   slow: marks tests that take a long time to run\n# Run with: pytest -m slow\n"
+  pitfalls:
+  - Omitting the marker registration in pytest.ini, causing unknown marker warnings.
+  - Overusing markers that conflict with built-in ones.
+- id: fixture-request
+  title: Fixture Request Object
+  explanation: Access metadata about the requesting test via the request fixture.
+  tags:
+  - fixtures
+  - request
+  - dynamic
+  when_to_use: When a fixture needs to adapt based on the test function name or parameters.
+  examples:
+  - title: Dynamic fixture behavior
+    language: python
+    code: "import pytest\n\n@pytest.fixture\ndef dynamic_value(request):\n    if request.node.name\
+      \ == \"test_special\":\n        return 42\n    return 0\n\ndef test_special(dynamic_value):\n\
+      \    assert dynamic_value == 42\n\ndef test_regular(dynamic_value):\n    assert\
+      \ dynamic_value == 0\n"
+  pitfalls:
+  - Using request.node.name incorrectly (e.g., expecting module name).
+  - Ignoring fixture scopes leading to duplicated request objects.

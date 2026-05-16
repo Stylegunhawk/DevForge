@@ -21,6 +21,7 @@ class ChunkResult:
     metadata: Dict
     score: Optional[float] = None
     rerank_score: Optional[float] = None  # Phase 11: Reranking score
+    is_graph_expansion: bool = False     # Phase 12A: Graph-injected chunk
 
 
 class BaseVectorStore(ABC):
@@ -71,7 +72,9 @@ class BaseVectorStore(ABC):
     @abstractmethod
     async def get_chunk_by_qualified_id(
         self,
-        qid: str
+        qid: str,
+        tenant_id: str = "default",
+        collection_name: Optional[str] = None
     ) -> Optional[ChunkResult]:
         """
         Get a specific chunk by qualified ID (file::entity).
@@ -80,6 +83,8 @@ class BaseVectorStore(ABC):
         
         Args:
             qid: Qualified ID (file::entity format)
+            tenant_id: Tenant context for data isolation
+            collection_name: Optional explicit collection name
         
         Returns:
             Chunk if found, None otherwise
@@ -89,7 +94,9 @@ class BaseVectorStore(ABC):
     @abstractmethod
     async def iter_chunk_metadata(
         self,
-        batch_size: int = 500
+        batch_size: int = 500,
+        tenant_id: str = "default",
+        collection_name: Optional[str] = None
     ) -> AsyncIterator[List[Dict]]:
         """
         Iterate over chunk metadata in batches.
@@ -99,6 +106,8 @@ class BaseVectorStore(ABC):
         
         Args:
             batch_size: Number of chunks per batch
+            tenant_id: Tenant context for data isolation
+            collection_name: Optional explicit collection name
         
         Yields:
             Batches of metadata dictionaries
@@ -131,6 +140,28 @@ class BaseVectorStore(ABC):
     @abstractmethod
     async def clear(self) -> None:
         """Clear all chunks from the store."""
+        pass
+        
+    @abstractmethod
+    async def delete_by_file_id(self, file_id: str, tenant_id: str = "default", collection_name: Optional[str] = None) -> int:
+        """
+        Delete all chunks for a specific file by its ID.
+        
+        Args:
+            file_id: File UUID
+            tenant_id: Tenant context for data isolation
+            collection_name: Optional explicit collection name
+            
+        Returns:
+            Number of chunks deleted
+        """
+        pass
+        
+    @abstractmethod
+    async def delete_collection(self, tenant_id: str, collection_name: str) -> int:
+        """
+        Dev-only: Drop all vectors for a tenant collection.
+        """
         pass
     
     @abstractmethod

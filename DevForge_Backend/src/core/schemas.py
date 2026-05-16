@@ -193,29 +193,6 @@ class DataGenArgs(BaseModel):
     }
 
 
-class RAGArgs(BaseModel):
-    """Arguments for retrieve_docs tool."""
-    
-    query: str = Field(..., min_length=1, description="Search query")
-    file_paths: Optional[List[str]] = Field(None, description="Paths to documents to ingest")
-    top_k: int = Field(5, ge=1, le=50, description="Number of results to return")
-    embed_model: Optional[str] = Field(None, description="Embedding model to use")
-    backend: Optional[Literal["chromadb", "qdrant"]] = Field(None, description="Vector store backend")
-    score_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum relevance score")
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "query": "What is machine learning?",
-                    "top_k": 5,
-                    "score_threshold": 0.7
-                }
-            ]
-        }
-    }
-
-
 class GitHubArgs(BaseModel):
     """Arguments for github_operation tool."""
     
@@ -274,28 +251,6 @@ class PromptRefineArgs(BaseModel):
                 {
                     "prompt": "Create a REST API",
                     "domain": "code",
-                    "skill_level": "intermediate"
-                }
-            ]
-        }
-    }
-
-
-class CheatsheetArgs(BaseModel):
-    """Arguments for generate_cheatsheet tool."""
-    
-    language: str = Field(..., description="Programming language")
-    skill_level: Literal["beginner", "intermediate", "expert"] = Field(
-        "intermediate",
-        description="Target skill level"
-    )
-    code_context: Optional[str] = Field(None, description="Code snippet for context")
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "language": "python",
                     "skill_level": "intermediate"
                 }
             ]

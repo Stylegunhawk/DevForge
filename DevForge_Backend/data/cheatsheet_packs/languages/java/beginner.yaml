@@ -1,0 +1,112 @@
+pack:
+  language: java
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-variables
+  title: Basic Variables
+  explanation: Declaring and using primitive and reference types.
+  tags:
+  - variables
+  - java
+  when_to_use: When you need to store and manipulate data.
+  examples:
+  - title: Simple Variable Declaration
+    language: java
+    code: "public class Demo {\n    public static void main(String[] args) {\n   \
+      \     int number = 42;\n        String text = \"Hello\";\n        boolean flag\
+      \ = true;\n        System.out.println(number + \", \" + text + \", \" + flag);\n\
+      \    }\n}\n"
+  pitfalls:
+  - Using variables before they are initialized.
+  - Confusing primitive types with their wrapper classes.
+- id: control-if-else
+  title: Conditional Statements
+  explanation: Making decisions with if, else if, and else.
+  tags:
+  - control-flow
+  - java
+  when_to_use: When different actions depend on conditions.
+  examples:
+  - title: Grade Selector
+    language: java
+    code: "public class Demo {\n    public static void main(String[] args) {\n   \
+      \     int score = 85;\n        if (score >= 90) {\n            System.out.println(\"\
+      A\");\n        } else if (score >= 80) {\n            System.out.println(\"\
+      B\");\n        } else {\n            System.out.println(\"C\");\n        }\n\
+      \    }\n}\n"
+  pitfalls:
+  - Forgetting to include braces for multi‑line blocks.
+  - Using assignment (=) instead of comparison (==) in conditions.
+- id: loops-for-each
+  title: For‑Each Loop
+  explanation: Iterating over arrays or collections simply.
+  tags:
+  - loops
+  - java
+  when_to_use: When you need to process every element of a collection.
+  examples:
+  - title: Print Numbers
+    language: java
+    code: "public class Demo {\n    public static void main(String[] args) {\n   \
+      \     int[] nums = {1, 2, 3, 4, 5};\n        for (int n : nums) {\n        \
+      \    System.out.println(n);\n        }\n    }\n}\n"
+  pitfalls:
+  - Modifying the loop variable inside the loop.
+  - Misusing the for‑each syntax with incompatible types.
+- id: array-declaration
+  title: Array Declaration
+  explanation: Creating and accessing fixed‑size arrays.
+  tags:
+  - arrays
+  - java
+  when_to_use: When you know the number of elements in advance.
+  examples:
+  - title: Name List
+    language: java
+    code: "public class Demo {\n    public static void main(String[] args) {\n   \
+      \     String[] names = new String[3];\n        names[0] = \"Alice\";\n     \
+      \   names[1] = \"Bob\";\n        names[2] = \"Charlie\";\n        for (String\
+      \ name : names) {\n            System.out.println(name);\n        }\n    }\n\
+      }\n"
+  pitfalls:
+  - Accessing an index outside the array bounds.
+  - Using the wrong array type for the data you store.
+- id: string-concatenation
+  title: String Concatenation
+  explanation: Joining strings using the + operator.
+  tags:
+  - strings
+  - java
+  when_to_use: When you need to combine text pieces.
+  examples:
+  - title: Greeting Builder
+    language: java
+    code: "public class Demo {\n    public static void main(String[] args) {\n   \
+      \     String first = \"Hello\";\n        String last = \"World\";\n        String\
+      \ full = first + \", \" + last + \"!\";\n        System.out.println(full);\n\
+      \    }\n}\n"
+  pitfalls:
+  - Forgetting to include spaces or punctuation when concatenating.
+  - Using string concatenation in tight loops, which can create many intermediate
+    objects.
+- id: simple-method
+  title: Simple Method
+  explanation: Defining and calling a method that returns a value.
+  tags:
+  - methods
+  - java
+  when_to_use: When reusable logic is needed.
+  examples:
+  - title: Add Two Numbers
+    language: java
+    code: "public class Demo {\n    public static int add(int a, int b) {\n      \
+      \  return a + b;\n    }\n    public static void main(String[] args) {\n    \
+      \    System.out.println(add(3, 4));\n    }\n}\n"
+  pitfalls:
+  - Forgetting the return type or using void when a value is expected.
+  - Naming methods with ambiguous or non‑descriptive names.

@@ -1,0 +1,135 @@
+pack:
+  language: python
+  skill_level: expert
+  version: 1
+  library: django
+  library_version_floor: '5.0'
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: custom-middleware
+  title: Custom Middleware
+  explanation: A middleware class that records request start time and adds a processing
+    time header to responses.
+  tags:
+  - middleware
+  - performance
+  when_to_use: Use when you need to trace request latency across the entire Django
+    pipeline.
+  examples:
+  - title: RequestTimeMiddleware
+    language: python
+    code: "from django.utils.deprecation import MiddlewareMixin\nfrom django.utils\
+      \ import timezone\n\nclass RequestTimeMiddleware(MiddlewareMixin):\n    def\
+      \ process_request(self, request):\n        request.start_time = timezone.now()\n\
+      \n    def process_response(self, request, response):\n        elapsed = timezone.now()\
+      \ - request.start_time\n        response['X-Processing-Time'] = f'{elapsed.total_seconds():.3f}s'\n\
+      \        return response\n"
+  pitfalls:
+  - Forgetting to return the response in process_response.
+  - Using a non‑deprecation‑safe MiddlewareMixin in Django 5.0+.
+- id: view-caching
+  title: View Caching
+  explanation: Demonstrates per‑view caching for class‑based views using decorator
+    and method_decorator.
+  tags:
+  - performance
+  when_to_use: When a view’s content is expensive to generate and can be safely served
+    from cache for a period.
+  examples:
+  - title: CachedView
+    language: python
+    code: "from django.views.decorators.cache import cache_page\nfrom django.utils.decorators\
+      \ import method_decorator\nfrom django.views import View\nfrom django.http import\
+      \ HttpResponse\n\n@method_decorator(cache_page(60 * 15), name='dispatch')\n\
+      class CachedView(View):\n    def get(self, request):\n        return HttpResponse('Hello,\
+      \ cached world!')\n"
+  pitfalls:
+  - Not invalidating the cache after data changes.
+  - Applying cache_page to views that rely on dynamic user data (e.g., login status).
+- id: signals-advanced
+  title: Django Signals
+  explanation: Uses post_save signal to dispatch a welcome email after a User is created.
+  tags:
+  - signals
+  when_to_use: When you need decoupled side‑effects from model changes.
+  examples:
+  - title: send_welcome_email
+    language: python
+    code: "from django.db.models.signals import post_save\nfrom django.dispatch import\
+      \ receiver\nfrom django.contrib.auth.models import User\n\n@receiver(post_save,\
+      \ sender=User)\ndef send_welcome_email(sender, instance, created, **kwargs):\n\
+      \    if created:\n        # Placeholder for email logic\n        print(f'Welcome\
+      \ email sent to {instance.email}')\n"
+  pitfalls:
+  - Using post_save for heavy processing without asynchronous handling.
+  - Forgetting to check the 'created' flag to avoid repeated emails.
+- id: generic-views-advanced
+  title: Generic Views Advanced
+  explanation: Shows ListView with custom queryset and ordering, and DetailView with
+    enriched context.
+  tags:
+  - generic-views
+  when_to_use: When building CRUD interfaces that require custom filtering or additional
+    context data.
+  examples:
+  - title: BlogPostViews
+    language: python
+    code: "from django.views.generic import ListView, DetailView\nfrom .models import\
+      \ BlogPost\n\nclass BlogPostList(ListView):\n    model = BlogPost\n    template_name\
+      \ = 'blog/list.html'\n    paginate_by = 10\n    ordering = ['-published_at']\n\
+      \n    def get_queryset(self):\n        qs = super().get_queryset()\n       \
+      \ return qs.filter(published=True)\n\nclass BlogPostDetail(DetailView):\n  \
+      \  model = BlogPost\n    template_name = 'blog/detail.html'\n\n    def get_context_data(self,\
+      \ **kwargs):\n        context = super().get_context_data(**kwargs)\n       \
+      \ context['comments'] = self.object.comments.filter(approved=True)\n       \
+      \ return context\n"
+  pitfalls:
+  - Overriding get_queryset without preserving ordering.
+  - Adding large QuerySets to context without pagination or prefetching.
+- id: orm-query-optimization
+  title: ORM Query Optimization
+  explanation: Combines annotate, select_related, prefetch_related, and F expressions
+    for efficient data retrieval.
+  tags:
+  - orm
+  when_to_use: When you need to reduce database hits and compute aggregates at the
+    database level.
+  examples:
+  - title: AuthorBooks
+    language: python
+    code: "from django.db.models import Count, F, Value\nfrom django.db.models.functions\
+      \ import Concat\nfrom .models import Author, Book\n\nauthors = Author.objects.annotate(\n\
+      \    book_count=Count('book'),\n    full_name=Concat(F('first_name'), Value('\
+      \ '), F('last_name'))\n).prefetch_related('book_set')\n\nfor author in authors:\n\
+      \    print(author.full_name, author.book_count)\n"
+  pitfalls:
+  - Forgetting to use prefetch_related for reverse relations.
+  - Misusing Count on non‑related fields, leading to incorrect aggregation.
+- id: async-websockets-channels
+  title: Async WebSockets with Channels
+  explanation: Implements a chat consumer that authenticates users, joins a group,
+    and broadcasts messages.
+  tags:
+  - async
+  when_to_use: When building real‑time features like chat, notifications, or collaborative
+    editors.
+  examples:
+  - title: ChatConsumer
+    language: python
+    code: "from channels.generic.websocket import AsyncJsonWebsocketConsumer\nfrom\
+      \ django.contrib.auth.models import AnonymousUser\n\nclass ChatConsumer(AsyncJsonWebsocketConsumer):\n\
+      \    async def connect(self):\n        if self.scope[\"user\"] == AnonymousUser():\n\
+      \            await self.close()\n        else:\n            await self.channel_layer.group_add(\"\
+      chat\", self.channel_name)\n            await self.accept()\n\n    async def\
+      \ disconnect(self, close_code):\n        await self.channel_layer.group_discard(\"\
+      chat\", self.channel_name)\n\n    async def receive_json(self, content):\n \
+      \       await self.channel_layer.group_send(\n            \"chat\",\n      \
+      \      {\n                \"type\": \"chat.message\",\n                \"message\"\
+      : content.get(\"message\"),\n                \"user\": self.scope[\"user\"].username,\n\
+      \            },\n        )\n\n    async def chat_message(self, event):\n   \
+      \     await self.send_json({\"message\": event[\"message\"], \"user\": event[\"\
+      user\"]})\n"
+  pitfalls:
+  - Not handling authentication properly, allowing anonymous connections.
+  - Forgetting to group_discard in disconnect, leading to memory leaks.

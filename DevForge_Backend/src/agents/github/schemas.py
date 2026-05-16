@@ -89,6 +89,26 @@ class AnalyzeCiFailureParams(BaseModel):
     pr_number: Optional[int] = None
 
 
+class ListBranchesParams(BaseModel):
+    repo_name: Annotated[str, Field(min_length=1)]
+
+
+class CreateBranchParams(BaseModel):
+    repo_name: Annotated[str, Field(min_length=1)]
+    branch_name: Annotated[str, Field(min_length=1, pattern=r"^[^\s]+$")]
+    from_branch: str = "main"
+
+
+class DeleteBranchParams(BaseModel):
+    repo_name: Annotated[str, Field(min_length=1)]
+    branch_name: Annotated[str, Field(min_length=1)]
+
+
+class DeleteRepoParams(BaseModel):
+    # Enforce owner/repo format at schema level — mirrors the tools.py safety requirement
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+
+
 # Discriminated Union for all operations
 OperationParams = Union[
     ListReposParams,
@@ -101,7 +121,11 @@ OperationParams = Union[
     SearchCodeParams,
     ScaffoldRepoParams,
     GenerateChangelogParams,
-    AnalyzeCiFailureParams
+    AnalyzeCiFailureParams,
+    ListBranchesParams,
+    CreateBranchParams,
+    DeleteBranchParams,
+    DeleteRepoParams,
 ]
 
 SCHEMA_MAP = {
@@ -116,7 +140,27 @@ SCHEMA_MAP = {
     "scaffold_repo": ScaffoldRepoParams,
     "generate_changelog": GenerateChangelogParams,
     "analyze_ci_failure": AnalyzeCiFailureParams,
+    "list_branches": ListBranchesParams,
+    "create_branch": CreateBranchParams,
+    "delete_branch": DeleteBranchParams,
+    "delete_repo": DeleteRepoParams,
 }
+
+# Subset of SCHEMA_MAP exposed via structured-call mode on /mcp.
+# The 3 extended ops (scaffold_repo, generate_changelog, analyze_ci_failure) stay
+# accessible only via natural-language routing — they're not in this set.
+_STRUCTURED_CALL_OPERATIONS = frozenset({
+    "list_repos", "create_repo", "create_issue", "commit_file",
+    "create_pull_request", "browse_files", "read_file", "search_code",
+    "list_branches", "create_branch", "delete_branch", "delete_repo",
+})
+
+# Derived from SCHEMA_MAP to keep a single source of truth.
+# Consumers: GithubOperationArgs validator and tools/list oneOf builder.
+OPERATION_SCHEMAS: dict[str, type[BaseModel]] = {
+    op: SCHEMA_MAP[op] for op in sorted(_STRUCTURED_CALL_OPERATIONS)
+}
+
 
 def validate_op_params(operation: str, params: dict) -> dict:
     """Validate parameters for a specific operation.

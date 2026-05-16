@@ -1,0 +1,118 @@
+pack:
+  language: python
+  skill_level: beginner
+  version: 1
+  library: aiohttp
+  library_version_floor: 3.9.0
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: simple-get-request
+  title: Simple GET request
+  explanation: Fetch a URL and read its textual content with a single async context.
+  tags:
+  - client
+  - get
+  - async
+  when_to_use: Use when retrieving data from a public API or web page.
+  examples:
+  - title: Basic GET
+    language: python
+    code: "import aiohttp\nimport asyncio\n\nasync def fetch(url):\n    async with\
+      \ aiohttp.ClientSession() as session:\n        async with session.get(url) as\
+      \ resp:\n            return await resp.text()\n\nasyncio.run(fetch('https://example.com'))\n"
+  pitfalls:
+  - Forgetting to await resp.text() so the coroutine is never executed.
+  - Not using async context managers, leaving the session open.
+- id: post-json-request
+  title: POST JSON payload
+  explanation: Send JSON data to an endpoint and parse the JSON response.
+  tags:
+  - client
+  - post
+  - json
+  - async
+  when_to_use: Use when interacting with RESTful APIs that accept JSON.
+  examples:
+  - title: POST with json
+    language: python
+    code: "import aiohttp\nimport asyncio\n\nasync def post_data(url, data):\n   \
+      \ async with aiohttp.ClientSession() as session:\n        async with session.post(url,\
+      \ json=data) as resp:\n            return await resp.json()\n\nasyncio.run(post_data('https://api.example.com/items',\
+      \ {'name': 'test'}))\n"
+  pitfalls:
+  - Sending a dict without using the json= parameter, causing form-encoded data.
+  - Not awaiting resp.json(), leading to a coroutine object instead of a dict.
+- id: status-code-check
+  title: Handle HTTP status codes
+  explanation: Inspect response status and raise errors for non‑200 results.
+  tags:
+  - client
+  - status
+  - error-handling
+  - async
+  when_to_use: Use when you need to react differently to error codes.
+  examples:
+  - title: Check status before processing
+    language: python
+    code: "import aiohttp\nimport asyncio\n\nasync def get_with_status(url):\n   \
+      \ async with aiohttp.ClientSession() as session:\n        async with session.get(url)\
+      \ as resp:\n            if resp.status == 200:\n                return await\
+      \ resp.text()\n            else:\n                raise RuntimeError(f'Unexpected\
+      \ status {resp.status}')\n\nasyncio.run(get_with_status('https://example.com'))\n"
+  pitfalls:
+  - Ignoring resp.status and assuming success.
+  - Raising a generic exception without context.
+- id: request-timeouts
+  title: Apply timeouts to requests
+  explanation: Limit how long a request may wait before timing out.
+  tags:
+  - client
+  - timeout
+  - async
+  when_to_use: Use when calling services that may hang or be slow.
+  examples:
+  - title: Total timeout of 10 seconds
+    language: python
+    code: "import aiohttp\nimport asyncio\n\nasync def fetch_with_timeout(url):\n\
+      \    timeout = aiohttp.ClientTimeout(total=10)\n    async with aiohttp.ClientSession(timeout=timeout)\
+      \ as session:\n        async with session.get(url) as resp:\n            return\
+      \ await resp.text()\n\nasyncio.run(fetch_with_timeout('https://example.com'))\n"
+  pitfalls:
+  - Setting timeout incorrectly (e.g., as a string).
+  - Forgetting to pass timeout to ClientSession, causing the default unlimited timeout.
+- id: websocket-echo
+  title: Simple WebSocket client
+  explanation: Connect to a WebSocket, send a message, and print the response.
+  tags:
+  - client
+  - websocket
+  - async
+  when_to_use: Use when real‑time, bidirectional communication is required.
+  examples:
+  - title: Echo with WebSocket
+    language: python
+    code: "import aiohttp\nimport asyncio\n\nasync def websocket_echo():\n    async\
+      \ with aiohttp.ClientSession() as session:\n        async with session.ws_connect('wss://echo.websocket.org')\
+      \ as ws:\n            await ws.send_str('hello')\n            msg = await ws.receive()\n\
+      \            print(msg.data)\n\nasyncio.run(websocket_echo())\n"
+  pitfalls:
+  - Not awaiting ws.receive(), causing the coroutine to never finish.
+  - Using an HTTP URL instead of wss:// for WebSocket connections.
+- id: simple-web-server
+  title: Minimal aiohttp web server
+  explanation: Create a basic HTTP server that responds with “Hello, world”.
+  tags:
+  - server
+  - web
+  - async
+  when_to_use: Use when prototyping an API endpoint or testing client code locally.
+  examples:
+  - title: Hello world server
+    language: python
+    code: "from aiohttp import web\n\nasync def hello(request):\n    return web.Response(text='Hello,\
+      \ world')\n\napp = web.Application()\napp.add_routes([web.get('/', hello)])\n\
+      \nweb.run_app(app, host='127.0.0.1', port=8080)\n"
+  pitfalls:
+  - Forgetting to start the event loop (e.g., missing web.run_app).
+  - Adding routes after the app has started, which has no effect.

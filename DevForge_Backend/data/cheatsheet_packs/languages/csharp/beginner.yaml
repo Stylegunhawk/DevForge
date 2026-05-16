@@ -1,0 +1,109 @@
+pack:
+  language: csharp
+  skill_level: beginner
+  version: 1
+  library: null
+  library_version_floor: null
+  last_reviewed: '2026-05-15'
+  reviewer: bootstrap
+entries:
+- id: basic-variables
+  title: Variables and Types
+  explanation: Declare and initialize variables of different types using type inference
+    or explicit typing.
+  tags:
+  - variables
+  - types
+  when_to_use: Use when you need to store data that changes or is used later.
+  examples:
+  - title: Basic variable declaration
+    language: csharp
+    code: 'int number = 42;
+
+      string message = "Hello, World!";
+
+      '
+  pitfalls:
+  - Using an undeclared variable.
+  - Assigning a value of an incompatible type.
+- id: console-input-output
+  title: Console Input/Output
+  explanation: Read from and write to the console using Console.Write and Console.ReadLine.
+  tags:
+  - input
+  - output
+  when_to_use: Use when interacting with the user in a console application.
+  examples:
+  - title: Prompt and read name
+    language: csharp
+    code: 'Console.Write("Enter your name: ");
+
+      string name = Console.ReadLine();
+
+      Console.WriteLine($"Hello, {name}!");
+
+      '
+  pitfalls:
+  - Using WriteLine for prompts causing a new line.
+  - Forgetting to flush output before reading input.
+- id: if-else-statements
+  title: If-Else Statements
+  explanation: Execute code conditionally based on boolean expressions using if, else
+    if, and else.
+  tags:
+  - conditionals
+  - branching
+  when_to_use: Use when the program flow depends on conditions.
+  examples:
+  - title: Age check
+    language: csharp
+    code: "int age = 20;\nif (age >= 18) {\n    Console.WriteLine(\"Adult\");\n} else\
+      \ {\n    Console.WriteLine(\"Minor\");\n}\n"
+  pitfalls:
+  - Missing braces leading to unintended blocks.
+  - Using assignment (=) instead of comparison (==).
+- id: for-loop
+  title: For Loop
+  explanation: Iterate a fixed number of times using a counter and loop condition.
+  tags:
+  - loops
+  - iteration
+  when_to_use: Use when you know how many times the loop should run.
+  examples:
+  - title: Print numbers 0-4
+    language: csharp
+    code: "for (int i = 0; i < 5; i++) {\n    Console.WriteLine(i);\n}\n"
+  pitfalls:
+  - Off-by-one errors in loop bounds.
+  - Using incorrect loop variable type.
+- id: while-loop
+  title: While Loop
+  explanation: Repeat code while a condition remains true, typically updated inside
+    the loop.
+  tags:
+  - loops
+  - condition
+  when_to_use: Use when the number of iterations is not predetermined.
+  examples:
+  - title: Count up to 4
+    language: csharp
+    code: "int count = 0;\nwhile (count < 5) {\n    Console.WriteLine(count);\n  \
+      \  count++;\n}\n"
+  pitfalls:
+  - Infinite loop if increment or condition is omitted.
+  - Using wrong comparison operator leading to zero iterations.
+- id: arrays
+  title: Arrays
+  explanation: Store multiple values of the same type in a contiguous block of memory.
+  tags:
+  - collections
+  - data-structures
+  when_to_use: Use when you need a fixed-size ordered collection.
+  examples:
+  - title: Iterate over integer array
+    language: csharp
+    code: "int[] numbers = { 1, 2, 3, 4, 5 };\nforeach (int n in numbers) {\n    Console.WriteLine(n);\n\
+      }\n"
+  pitfalls:
+  - Accessing an index outside the array bounds.
+  - Not initializing the array before use.

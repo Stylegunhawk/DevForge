@@ -33,12 +33,15 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 
 # 1. Install CPU-only Torch first (Major size optimization)
-# This prevents downloading the massive NVIDIA/CUDA binaries
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# This prevents downloading the massive NVIDIA/CUDA binaries.
+# We use --extra-index-url so that ARM64 Mac users can still fall back to 
+# default PyPI wheels (which are already small for ARM).
+RUN pip install --no-cache-dir torch==2.2.2 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
 
 # 2. Install remaining requirements
-# We use --no-deps for torch to avoid reinstalling the large version if requirements.txt lists it
-RUN pip install --no-cache-dir -r requirements.txt
+# We use --extra-index-url so that any packages depending on torch (like transformers)
+# also search the CPU-only index, preventing a massive CUDA download.
+RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 # 3. Install production server
 RUN pip install --no-cache-dir gunicorn
@@ -95,5 +98,5 @@ EXPOSE 8001
 CMD ["gunicorn", "src.main:app", \
     "-k", "uvicorn.workers.UvicornWorker", \
     "--bind", "0.0.0.0:8001", \
-    "--workers", "4", \
+    "--workers", "6", \
     "--timeout", "120"]

@@ -38,12 +38,16 @@ class CodeGraph:
         Add a node to the graph.
         
         Args:
-            qid: Qualified ID (file::entity)
+            qid: Qualified ID (tenant::file::entity)
             **metadata: Chunk metadata (chunk_type, name, calls, imports, etc.)
         """
-        if "::" not in qid:
-            logger.warning(f"Invalid QID format (missing ::): {qid}")
+        parts = qid.split("::")
+        if len(parts) < 3:
+            logger.warning(f"Invalid QID format (expected tenant::file::entity): {qid}")
             return
+        
+        tenant_id = parts[0]
+        source = parts[1]
         
         # Initialize node if not exists
         if qid not in self._graph:
@@ -56,17 +60,27 @@ class CodeGraph:
         calls = metadata.get("calls", [])
         imports = metadata.get("imports", [])
         
+        # DEBUG: Log before iteration in graph builder
+        logger.info(f"[GRAPH_DEBUG] Before iteration: type(calls)={type(calls)}, calls={calls}")
+        logger.info(f"[GRAPH_DEBUG] Before iteration: type(imports)={type(imports)}, imports={imports}")
+        
         # Add call edges
         for call in calls:
-            # calls[] may be simple names or QIDs
+            # Resolve simple names to full QIDs in same file
             if "::" in call:
-                self.add_edge(qid, call, relation="calls")
-            # If simple name, try to resolve later (optional enhancement)
+                called_qid = call
+            else:
+                called_qid = f"{tenant_id}::{source}::{call}"
+            self.add_edge(qid, called_qid, relation="calls")
         
         # Add import edges
         for imp in imports:
             if "::" in imp:
                 self.add_edge(qid, imp, relation="imports")
+            else:
+                # Handle possible local imports
+                called_qid = f"{tenant_id}::{source}::{imp}"
+                self.add_edge(qid, called_qid, relation="imports")
     
     def add_edge(self, source_qid: str, target_qid: str, relation: str = "related") -> None:
         """
@@ -86,12 +100,13 @@ class CodeGraph:
         if target_qid not in self._graph:
             self._graph[target_qid] = set()
     
-    def add_chunks_batch(self, chunks: List[Dict]) -> None:
+    def add_chunks_batch(self, chunks: List[Dict], tenant_id: str = "default") -> None:
         """
         Add multiple chunks to the graph.
         
         Args:
             chunks: List of chunk dictionaries with metadata
+            tenant_id: Tenant context for data isolation
         """
         for chunk in chunks:
             metadata = chunk.get("metadata", {})
@@ -99,12 +114,14 @@ class CodeGraph:
             # Build QID from metadata
             source = metadata.get("source", "")
             name = metadata.get("name", "")
+            # Extract tenant from metadata if not provided
+            chunk_tenant = metadata.get("tenant_id", tenant_id)
             
             if not source or not name:
                 continue
             
-            # CRITICAL: Use :: separator
-            qid = f"{source}::{name}"
+            # CRITICAL: Use new format tenant::source::name
+            qid = f"{chunk_tenant}::{source}::{name}"
             
             # Add node with all metadata
             self.add_node(qid, **metadata)
@@ -211,15 +228,15 @@ class CodeGraph:
         logger.debug("Graph cleared")
 
 
-def parse_qualified_id(qid: str) -> tuple[str, str]:
+def parse_qualified_id(qid: str) -> tuple[str, str, str]:
     """
-    Parse a qualified ID into file and entity.
+    Parse a tenant-scoped qualified ID into tenant, file, and entity.
     
     Args:
-        qid: Qualified ID (file::entity)
+        qid: Qualified ID (tenant::file::entity or file::entity)
     
     Returns:
-        Tuple of (file_path, entity_name)
+        Tuple of (tenant_id, file_path, entity_name)
     
     Raises:
         ValueError: If QID format is invalid
@@ -227,19 +244,29 @@ def parse_qualified_id(qid: str) -> tuple[str, str]:
     if "::" not in qid:
         raise ValueError(f"Invalid QID format (missing ::): {qid}")
     
-    parts = qid.split("::", 1)
-    return parts[0], parts[1]
+    if qid.count("::") < 2:
+        # Legacy format: "file::entity" — treat as default tenant
+        parts = qid.split("::", 1)
+        return "default", parts[0], parts[1]
+    
+    # New format: "tenant::file::entity"
+    tenant_part, rest = qid.split("::", 1)
+    file_path, entity_name = rest.rsplit("::", 1)
+    return tenant_part, file_path, entity_name
 
 
-def build_qualified_id(file_path: str, entity_name: str) -> str:
+TENANT_SEPARATOR = "::"
+
+def build_qualified_id(tenant_id: str, file_path: str, entity_name: str) -> str:
     """
-    Build a qualified ID from file and entity.
+    Build a tenant-scoped qualified ID from tenant, file, and entity.
     
     Args:
+        tenant_id: Tenant context for data isolation
         file_path: Source file path
         entity_name: Entity name (function, class, etc.)
     
     Returns:
-        Qualified ID (file::entity)
+        Qualified ID (tenant::file::entity)
     """
-    return f"{file_path}::{entity_name}"
+    return f"{tenant_id}{TENANT_SEPARATOR}{file_path}::{entity_name}"
