@@ -1094,7 +1094,8 @@ class RAGAgent:
                         content=r.get("content", r.get("page_content", "")),
                         metadata=r.get("metadata", {}),
                         score=r.get("score"),
-                        is_graph_expansion=r.get("is_graph_expansion", False) # ✅ Propagate flag
+                        is_graph_expansion=r.get("is_graph_expansion", False),  # ✅ Propagate flag
+                        expanded_from=r.get("expanded_from"),
                     )
                     for i, r in enumerate(initial_results)
                 ]
@@ -1343,10 +1344,11 @@ class RAGAgent:
                         "id": related_chunk.id,
                         "content": related_chunk.content,
                         "metadata": related_chunk.metadata,
-                        # Constraint C: Neutral placeholder score. 
+                        # Constraint C: Neutral placeholder score.
                         # The Reranker will assign the real score later.
-                        "score": 0.0, 
-                        "is_graph_expansion": True
+                        "score": 0.0,
+                        "is_graph_expansion": True,
+                        "expanded_from": qid,
                     }
                     expanded.append(chunk_dict)
                     logger.debug(f"Graph expansion candidate: {related_qid}")
