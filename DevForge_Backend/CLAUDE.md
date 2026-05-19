@@ -92,7 +92,7 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 |------|---------|------------------|------------|
 | `generate_data` | 0.9.0 | 0.11.0 | Catalog-sandbox + realism consolidation |
 | `refine_prompt` | 0.10.0 | 0.11.0 | Polyglot + quality block + anti-hallucination |
-| `github_operation` | 0.8.0 | 0.11.0 | Risk-tiered ops + per-user PAT |
+| `github_operation` | 0.9.0 | 0.11.0 | Redis persistence (Slice 2) + `merge_pr` + `read_file` branch support |
 | `generate_cheatsheet` | 0.11.0 | 0.11.0 | Curated YAML packs + LLM personalization (9 languages) |
 
 The MCP `tools/list` description for `generate_data` and `refine_prompt` now teaches calling agents the iterative call pattern + cold/warm cache latency expectations. When adding new tools or updating an existing one, follow the same agent-instructive style — see `src/api/routers/__init__.py:TOOL_DESCRIPTIONS`.

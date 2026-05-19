@@ -232,9 +232,56 @@ class JobQueue:
 _job_queue = None
 
 
-def get_job_queue() -> JobQueue:
-    """Get global job queue singleton"""
+def _should_use_redis() -> bool:
+    import os
+    from src.core.config import settings
+    return bool(settings.REDIS_URL) and not os.environ.get("PYTEST_CURRENT_TEST")
+
+
+def get_job_queue():
+    """Return the active JobQueue.
+
+    In tests or dev with no REDIS_URL: in-memory JobQueue.
+    In production with REDIS_URL set: lazy Redis-backed proxy.
+    """
     global _job_queue
-    if _job_queue is None:
+    if _job_queue is not None:
+        return _job_queue
+    if _should_use_redis():
+        _job_queue = _AsyncRedisJobProxy()
+    else:
         _job_queue = JobQueue()
     return _job_queue
+
+
+class _AsyncRedisJobProxy:
+    """Lazy async proxy for RedisJobStore."""
+
+    def __init__(self):
+        from src.core.config import settings
+        self._instance = None
+        self._ttl = settings.GITOPS_JOB_TTL_SECONDS
+
+    async def _resolve(self):
+        if self._instance is None:
+            from src.core.redis_client import get_redis_client
+            from src.storage.redis_job_store import RedisJobStore
+            client = await get_redis_client()
+            self._instance = RedisJobStore(client=client, ttl_seconds=self._ttl)
+        return self._instance
+
+    async def create(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.create(*args, **kwargs)
+
+    async def update(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.update(*args, **kwargs)
+
+    async def get(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.get(*args, **kwargs)
+
+    async def list_for_tenant(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.list_for_tenant(*args, **kwargs)

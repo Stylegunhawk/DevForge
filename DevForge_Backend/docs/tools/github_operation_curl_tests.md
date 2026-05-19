@@ -1,8 +1,8 @@
 # github_operation - Gateway & MCP Curl Test Suite
 
-**Version:** 0.8.0
-**Last Updated:** 2026-05-15
-**Last Verified:** 2026-05-15 — every example below was run live against `localhost:8001`. Response shapes reflect actual behavior, not aspirational schema. See `_reviews/github_operation_review_verification_2026-05-15.md` for the verification log.
+**Version:** 0.9.0 (V12)
+**Last Updated:** 2026-05-19
+**Last Verified:** 2026-05-19 — aggressive live test of all 13 structured operations against `localhost:8001` using demo PAT on `sidcollege/testing_devforge`. Response shapes reflect actual behavior.
 
 ## Base Configuration
 - Base URL: `http://localhost:8001` (adjust as needed)
@@ -360,6 +360,142 @@ curl -X POST http://localhost:8001/api/gateway \
 **Expected HTTP Status:** 200
 
 **Notes:** Tests commit generator with diff context. Confidence between 0.85 and 0.90 triggers the **medium-confidence draft-PR fallback** instead of a direct commit (see `agent.py:428-430`). Below 0.85 the operation is blocked by `ConfidencePolicy`.
+
+### Test: Merge Pull Request — MEDIUM risk, no confirmation needed (feature branch)
+
+**Description:** `merge_pr` is MEDIUM risk when `base` is not a protected branch. Passes without `confirmed`. Verified live 2026-05-19 — squash merged PR #7 on `sidcollege/testing_devforge`.
+
+```bash
+curl -X POST http://localhost:8001/mcp \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <key>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "github_operation",
+      "arguments": {
+        "operation": "merge_pr",
+        "repo_name": "owner/repo",
+        "pr_number": 7,
+        "merge_method": "squash",
+        "context": {"github_token": "ghp_..."}
+      }
+    }
+  }'
+```
+
+**Expected Response (parse `result.content[0].text`):**
+```json
+{
+  "success": true,
+  "operation": "merge_pr",
+  "data": {
+    "merged": true,
+    "message": "Pull Request successfully merged",
+    "sha": "9faaacfa0fe31f28817da4f4bc670e687f91af40",
+    "pr_number": 7,
+    "repo_name": "owner/repo"
+  },
+  "audit_id": "audit_20260519_...",
+  "timeline": {"total_duration_ms": 3931.14, "events": [...]}
+}
+```
+
+**Expected HTTP Status:** 200
+
+**Notes:** Verified live 2026-05-19. `merge_method` accepts `"merge"` (default), `"squash"`, or `"rebase"`. The optional `commit_title` and `commit_message` fields override the merge commit message. The `base` parameter is only used by the risk gate for escalation logic — it is **not** passed to the GitHub API.
+
+---
+
+### Test: Merge Pull Request — HIGH risk blocked (merging into main)
+
+**Description:** `merge_pr` escalates to HIGH risk when `base` is `"main"` or `"master"`. Blocked without `confirmed: true`.
+
+```bash
+curl -X POST http://localhost:8001/mcp \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <key>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "github_operation",
+      "arguments": {
+        "operation": "merge_pr",
+        "repo_name": "owner/repo",
+        "pr_number": 7,
+        "base": "main",
+        "context": {"github_token": "ghp_..."}
+      }
+    }
+  }'
+```
+
+**Expected Response (risk-gate block — JSON-RPC error, not result.content):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32603,
+    "message": "Risk gate blocked: Operation merge_pr requires: confirmed=true"
+  }
+}
+```
+
+**Expected HTTP Status:** 200
+
+**Notes:** Verified live 2026-05-19. To proceed, add `"confirmed": true` inside `context`. If `base` is `"production"` or matches `"release/*"`, the operation escalates to CRITICAL and requires both `confirmed: true` and a non-empty `reason` string.
+
+---
+
+### Test: Read File — with branch parameter
+
+**Description:** `read_file` now accepts an optional `branch` parameter to read from a specific ref. Before v0.9.0 this parameter was missing and the field was silently ignored — all reads went to the default branch.
+
+```bash
+curl -X POST http://localhost:8001/mcp \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <key>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "github_operation",
+      "arguments": {
+        "operation": "read_file",
+        "repo_name": "owner/repo",
+        "file_path": "src/pipeline_test.py",
+        "branch": "main",
+        "context": {"github_token": "ghp_..."}
+      }
+    }
+  }'
+```
+
+**Expected Response (parse `result.content[0].text`):**
+```json
+{
+  "success": true,
+  "operation": "read_file",
+  "data": {
+    "file_path": "src/pipeline_test.py",
+    "content": "# Pipeline E2E test\ndef hello():\n    return \"pipeline works\"\n",
+    "encoding": "utf-8",
+    "size": 62,
+    "sha": "...",
+    "url": "https://github.com/owner/repo/blob/main/src/pipeline_test.py"
+  }
+}
+```
+
+**Expected HTTP Status:** 200
+
+**Notes:** Verified live 2026-05-19. If `branch` is omitted, GitHub returns the file at the repository's default branch. `branch` accepts any valid Git ref: branch name, tag, or commit SHA.
 
 ---
 
@@ -1258,7 +1394,7 @@ curl -X POST http://localhost:8001/mcp \
 
 ---
 
-## 8. Live verification matrix (2026-05-15)
+## 8. Live verification matrix (2026-05-19)
 
 | Scenario | `/api/gateway` | `/mcp` |
 |----------|----------------|--------|
@@ -1273,11 +1409,32 @@ curl -X POST http://localhost:8001/mcp \
 | Disambiguation (multi-repo match) | HTTP 200 `{success:false, data:{...}, message:"Multiple repositories match your query:"}` | Wrapped inside `result.content[0].text` |
 | Successful operation | `{success:true, data:<flat agent payload>, message:"github_operation executed successfully"}` | `{result:{content:[{type:"text",text:"<json>"}],isError:false}}` — JSON string contains `operation` key |
 
+### Live-verified operations (2026-05-19 — `sidcollege/testing_devforge` with demo PAT)
+
+| Operation | Call type | Result |
+|-----------|-----------|--------|
+| `list_repos` | NL | ✅ |
+| `create_branch` | structured | ✅ `pipeline-e2e-test` from `main` |
+| `commit_file` | structured | ✅ `src/pipeline_test.py` on feature branch |
+| `read_file` (with `branch`) | structured | ✅ read from `main` after merge |
+| `create_pull_request` | structured | ✅ PR #8 created |
+| `merge_pr` (squash, feature branch) | structured | ✅ PR #7 merged, SHA `9faaacfa` |
+| `merge_pr` (`base=main`) blocked | structured | ✅ HIGH gate fires without `confirmed` |
+| `merge_pr` (full merge, PR #8) | structured | ✅ SHA `4d2347ade0b9` |
+| `delete_branch` blocked | structured | ✅ HIGH gate fires without `confirmed` |
+| `delete_branch` with `confirmed=true` | structured | ✅ `delete-me-test` deleted |
+| `delete_branch main` | structured | ✅ CRITICAL gate fires (needs `confirmed`+`reason`) |
+| `delete_repo` | structured | ✅ CRITICAL gate fires without `confirmed`+`reason` |
+| `generate_changelog` | NL | ✅ 4 commits in markdown |
+| `browse_files` | structured | ✅ root listing with `src/` dir |
+| `search_code` | structured | ✅ (GitHub search index lag normal) |
+
 ---
 
 ## 9. Changelog
 
 | Date | Change |
 |------|--------|
+| 2026-05-19 (V12) | **v0.9.0.** Added `merge_pr` tests (MEDIUM pass, HIGH block on `base=main`, CRITICAL escalation on `base=production`). Added `read_file` with `branch` parameter test. Updated §8 verification matrix with full live-verified op table (13 structured ops). Noted `None.lower()` bug fix in contextual risk gate. |
 | 2026-05-15 | Live MCP + gateway verification. Updated all response shapes to match live behavior (flat `data` on gateway, wrapped on MCP). Documented MCP risk-gate error shape (`-32603`). Removed fabricated `repo_confidence` top-level field. Added §7 MCP Equivalents and §8 verification matrix. Tightened §5 to reflect Pydantic-level validation (HTTP 422 for malformed JSON, missing `name`, null `arguments`). Added `apiName` alias note. Added missing `x-api-key` test. |
 | 2026-05-08 | Initial doc-vs-code review by `_reviews/github_operation_review.md` flagged port mismatches, missing `x-api-key`, fabricated Phase-2 gateway calls, and other drift. Most issues resolved in this revision. |

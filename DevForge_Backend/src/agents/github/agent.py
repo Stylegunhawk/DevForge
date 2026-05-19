@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TypedDict, Literal, Optional, Dict, Any, NotRequired
@@ -21,7 +22,7 @@ from src.agents.github.schemas import validate_op_params
 from langgraph.graph import StateGraph, END
 
 from src.core.model_router import ModelRouter
-from src.core.audit import Timeline, EventType, generate_audit_id, get_audit_logger
+from src.core.audit import Timeline, EventType, generate_audit_id, get_audit_logger, get_escalation_logger
 from src.core.confidence import check_confidence
 from src.core.session import get_session_manager
 from src.core.config import settings
@@ -369,6 +370,25 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
         logger.debug(f"[{audit_id}] available_files NOT in context")
     token = state.get("github_token")  # transient field — never log this
 
+    # === Disambiguation session restore (Slice 2) ===
+    _dis_session_id = context.get("session_id")
+    _dis_selected_repo = context.get("selected_repo")
+    if _dis_session_id and _dis_selected_repo:
+        try:
+            _session_mgr = get_session_manager()
+            _session = await _session_mgr.get(_dis_session_id, state.get("tenant_id") or "unknown")
+            if _session and _session.get("kind") == "disambiguation":
+                _params = {**(_session.get("params_pending") or {}), "repo_name": _dis_selected_repo}
+                await _session_mgr.delete(_dis_session_id, state.get("tenant_id") or "unknown")
+                return {
+                    **state,
+                    "parameters": _params,
+                    "entry_method": _session.get("entry_method", state.get("entry_method", "natural_language")),
+                }
+        except Exception as _restore_err:
+            logger.warning(f"[{audit_id}] Disambiguation session restore failed: {_restore_err}")
+        # Fall through to fresh disambiguation if restore fails
+
     try:
         bundle = await _get_intelligence_bundle(token)
     except ValueError as e:
@@ -456,9 +476,30 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                     matches = await repo_discovery.fuzzy_search(repo_name, max_results=3)
                     if matches and matches[0].confidence < 0.85:
                         timeline.add_event(EventType.OPERATION_COMPLETE, "Repo ambiguous - needs clarification")
+                        session_id = f"sess_{uuid.uuid4().hex[:16]}"
+                        tenant_id = state.get("tenant_id") or "unknown"
+                        try:
+                            session_mgr = get_session_manager()
+                            await session_mgr.get_or_create(
+                                session_id=session_id,
+                                tenant_id=tenant_id,
+                                initial={
+                                    "kind": "disambiguation",
+                                    "operation": state.get("operation"),
+                                    "candidates": [{"repo": m.full_name, "confidence": m.confidence} for m in matches],
+                                    "params_pending": state.get("parameters") or {},
+                                    "entry_method": state.get("entry_method", "natural_language"),
+                                },
+                            )
+                        except Exception as _sess_err:
+                            logger.warning(f"[{audit_id}] Failed to save disambiguation session: {_sess_err}")
+                            session_id = None
+                        base_result = repo_discovery.format_disambiguation_response(matches)
+                        if session_id:
+                            base_result["session_id"] = session_id
                         return {
                             **state,
-                            "result": repo_discovery.format_disambiguation_response(matches),
+                            "result": base_result,
                             "timeline": timeline
                         }
                     timeline.complete_step("repo_discovery", "Using original repo name")
@@ -684,6 +725,34 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
             if timeline:
                 timeline.fail_step("risk_gate", error_msg, entry_method=_entry_method)
 
+            # Escalation audit: record every HIGH/CRITICAL block via the dedicated
+            # logger so security ops can review attempts to bypass the gate.
+            try:
+                escalation = get_escalation_logger()
+                token_hash = _get_token_hash(state.get("github_token"))
+                rl = violation.risk_level.value.upper()
+                if rl == "CRITICAL":
+                    await escalation.record_critical(
+                        audit_id=audit_id or "",
+                        operation=operation,
+                        parameters=parameters,
+                        outcome="blocked",
+                        token_hash=token_hash,
+                        confirmed=bool(risk_context.get("confirmed")),
+                        reason=str(risk_context.get("reason") or ""),
+                    )
+                elif rl == "HIGH":
+                    await escalation.record_blocked_high(
+                        audit_id=audit_id or "",
+                        operation=operation,
+                        parameters=parameters,
+                        token_hash=token_hash,
+                        confirmed=bool(risk_context.get("confirmed")),
+                    )
+            except Exception as _esc_err:
+                # Escalation logging must never break the user-facing response.
+                logger.error(f"[{audit_id}] Escalation logger failed: {_esc_err}")
+
             return {
                 **state,
                 "error": error_msg,
@@ -695,12 +764,15 @@ async def risk_gate_check(state: GitHubState) -> GitHubState:
                 }
             }
 
+        # Risk passed: stash the resolved level on state so execute_github_operation
+        # can decide whether to emit a CRITICAL escalation record when the op succeeds.
+        passed_level = RiskGate.resolve_effective_risk(operation, parameters)
         if timeline:
-            timeline.complete_step("risk_gate", f"Risk check passed ({violation.risk_level.value if violation else 'LOW'})",
+            timeline.complete_step("risk_gate", f"Risk check passed ({passed_level.value})",
                                    entry_method=_entry_method)
 
         logger.info(f"[{audit_id}] Risk gate passed for {operation}")
-        return state
+        return {**state, "resolved_risk_level": passed_level.value}
 
     except Exception as e:
         error_msg = f"Risk gate error: {str(e)}"
@@ -939,7 +1011,12 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
                 return await loop.run_in_executor(
                     None, lambda: gh_tools.delete_repo(**parameters)
                 )
-                
+
+            elif operation == "merge_pr":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.merge_pr(**parameters)
+                )
+
             elif operation == "scaffold_repo":
                 # Pass the authenticated gh_tools instance
                 return await scaffold_repository_invoke(parameters, github_tools=gh_tools)
@@ -966,7 +1043,27 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
             f"[{audit_id}] GitHub operation completed successfully",
             extra={"operation": operation}
         )
-        
+
+        # Escalation audit: CRITICAL ops that executed successfully must be
+        # logged so security ops can review every destructive action that ran.
+        # The risk level was resolved upstream by risk_gate_check and stashed
+        # in state["resolved_risk_level"].
+        if (state.get("resolved_risk_level") or "").upper() == "CRITICAL":
+            try:
+                context = state.get("context") or {}
+                escalation = get_escalation_logger()
+                await escalation.record_critical(
+                    audit_id=audit_id or "",
+                    operation=operation,
+                    parameters=parameters,
+                    outcome="executed",
+                    token_hash=_get_token_hash(state.get("github_token")),
+                    confirmed=bool(context.get("risk_confirmed", context.get("confirmed"))),
+                    reason=str(context.get("risk_reason", context.get("reason")) or ""),
+                )
+            except Exception as _esc_err:
+                logger.error(f"[{audit_id}] CRITICAL escalation logger failed: {_esc_err}")
+
         return {
             **state,
             "result": {

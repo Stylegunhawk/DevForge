@@ -3,6 +3,7 @@
 Provides audit_id generation, timeline tracking, and audit log storage.
 """
 
+import asyncio
 import logging
 import time
 import uuid
@@ -225,10 +226,26 @@ class AuditLogger:
 _audit_logger = None
 
 
-def get_audit_logger() -> AuditLogger:
-    """Get global audit logger singleton"""
+def _should_use_redis() -> bool:
+    """Use Redis when REDIS_URL is set AND we are not running under pytest."""
+    import os
+    from src.core.config import settings
+    return bool(settings.REDIS_URL) and not os.environ.get("PYTEST_CURRENT_TEST")
+
+
+def get_audit_logger():
+    """Return the active AuditLogger.
+
+    In tests or dev with no REDIS_URL: in-memory AuditLogger.
+    In production with REDIS_URL set: lazy Redis-backed proxy.
+    """
     global _audit_logger
-    if _audit_logger is None:
+    if _audit_logger is not None:
+        return _audit_logger
+    if _should_use_redis():
+        from src.storage.redis_audit_store import RedisAuditStore
+        _audit_logger = _AsyncRedisAuditProxy(RedisAuditStore, kind="audit")
+    else:
         _audit_logger = AuditLogger()
     return _audit_logger
 
@@ -305,7 +322,7 @@ class EscalationLogger:
             "audit_id": audit_id,
         }
 
-    def record_critical(
+    async def record_critical(
         self,
         audit_id: str,
         operation: str,
@@ -334,8 +351,9 @@ class EscalationLogger:
             operation, outcome, audit_id,
             extra={"escalation": record},
         )
+        await asyncio.sleep(0)  # yield control — in-memory but matches Redis adapter contract
 
-    def record_blocked_high(
+    async def record_blocked_high(
         self,
         audit_id: str,
         operation: str,
@@ -361,13 +379,16 @@ class EscalationLogger:
             operation, audit_id,
             extra={"escalation": record},
         )
+        await asyncio.sleep(0)
 
-    def get_records(self) -> list[dict]:
+    async def get_records(self) -> list[dict]:
         """Return all escalation records (copy). For testing and diagnostics."""
+        await asyncio.sleep(0)
         return list(self._records)
 
-    def get_records_for_operation(self, operation: str) -> list[dict]:
+    async def get_records_for_operation(self, operation: str) -> list[dict]:
         """Filter escalation records by operation name."""
+        await asyncio.sleep(0)
         return [r for r in self._records if r["operation"] == operation]
 
 
@@ -375,9 +396,85 @@ class EscalationLogger:
 _escalation_logger = None
 
 
-def get_escalation_logger() -> EscalationLogger:
-    """Get global escalation logger singleton."""
+def get_escalation_logger():
+    """Return the active EscalationLogger.
+
+    In tests or dev with no REDIS_URL: in-memory EscalationLogger.
+    In production with REDIS_URL set: lazy Redis-backed proxy.
+    """
     global _escalation_logger
-    if _escalation_logger is None:
+    if _escalation_logger is not None:
+        return _escalation_logger
+    if _should_use_redis():
+        _escalation_logger = _AsyncRedisEscalationProxy()
+    else:
         _escalation_logger = EscalationLogger()
     return _escalation_logger
+
+
+# ---------------------------------------------------------------------------
+# Lazy Redis proxies (production only — never instantiated under pytest)
+# ---------------------------------------------------------------------------
+
+
+class _AsyncRedisAuditProxy:
+    """Lazy async proxy for RedisAuditStore — defers client construction to first call."""
+
+    def __init__(self, store_cls, kind: str):
+        from src.core.config import settings
+        self._store_cls = store_cls
+        self._instance = None
+        if kind == "audit":
+            self._ttl = settings.GITOPS_AUDIT_TTL_SECONDS
+        elif kind == "escalation":
+            self._ttl = settings.GITOPS_ESCALATION_TTL_SECONDS
+        else:
+            raise ValueError(f"Unknown proxy kind: {kind}")
+
+    async def _resolve(self):
+        if self._instance is None:
+            from src.core.redis_client import get_redis_client
+            client = await get_redis_client()
+            self._instance = self._store_cls(client=client, ttl_seconds=self._ttl)
+        return self._instance
+
+    async def save(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.save(*args, **kwargs)
+
+    async def get(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.get(*args, **kwargs)
+
+    async def list_for_tenant(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.list_for_tenant(*args, **kwargs)
+
+
+class _AsyncRedisEscalationProxy:
+    """Lazy async proxy for RedisEscalationStore."""
+
+    def __init__(self):
+        from src.core.config import settings
+        self._instance = None
+        self._ttl = settings.GITOPS_ESCALATION_TTL_SECONDS
+
+    async def _resolve(self):
+        if self._instance is None:
+            from src.core.redis_client import get_redis_client
+            from src.storage.redis_audit_store import RedisEscalationStore
+            client = await get_redis_client()
+            self._instance = RedisEscalationStore(client=client, ttl_seconds=self._ttl)
+        return self._instance
+
+    async def record_critical(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.record_critical(*args, **kwargs)
+
+    async def record_blocked_high(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.record_blocked_high(*args, **kwargs)
+
+    async def get_records_for_tenant(self, *args, **kwargs):
+        store = await self._resolve()
+        return await store.get_records_for_tenant(*args, **kwargs)

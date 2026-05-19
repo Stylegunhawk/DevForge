@@ -200,7 +200,7 @@ class RiskGate:
         import fnmatch  # stdlib, safe to import here
 
         if operation == "merge_pr":
-            base = parameters.get("base", "").lower()
+            base = (parameters.get("base") or "").lower()
             if base in ("main", "master"):
                 return RiskLevel.HIGH
             if base == "production" or fnmatch.fnmatch(base, "release/*"):
@@ -208,7 +208,7 @@ class RiskGate:
             return None  # keep MEDIUM default
 
         if operation == "delete_branch":
-            branch = parameters.get("branch_name", "").lower()
+            branch = (parameters.get("branch_name") or "").lower()
             if branch in ("main", "master", "production"):
                 return RiskLevel.CRITICAL
             if fnmatch.fnmatch(branch, "release/*"):
@@ -216,12 +216,31 @@ class RiskGate:
             return None  # keep HIGH default
 
         if operation == "commit_file":
-            branch = parameters.get("branch", "").lower()
+            branch = (parameters.get("branch") or "").lower()
             if branch in ("main", "master", "production"):
                 return RiskLevel.HIGH
             return None  # keep MEDIUM default
 
         return None
+
+    @classmethod
+    def resolve_effective_risk(
+        cls,
+        operation: str,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> RiskLevel:
+        """Resolve the effective risk level for an operation+parameters pair.
+
+        Contextual override can only escalate the static registry level — never
+        downgrade. Used by the escalation logger to know the operation's actual
+        risk after the gate has passed (the gate itself only reports failures).
+        """
+        parameters = parameters or {}
+        static_risk = OperationRiskRegistry.get_risk_level(operation)
+        contextual_override = cls._get_contextual_risk_level(operation, parameters)
+        if contextual_override is None:
+            return static_risk
+        return max(static_risk, contextual_override, key=lambda r: _RISK_ORDER[r])
 
     @classmethod
     def check_contextual(

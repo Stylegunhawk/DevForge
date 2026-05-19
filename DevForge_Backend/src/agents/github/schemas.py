@@ -61,6 +61,7 @@ class BrowseFilesParams(BaseModel):
 class ReadFileParams(BaseModel):
     repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
     file_path: Annotated[str, Field(min_length=1)]
+    branch: Optional[str] = None
 
 
 class SearchCodeParams(BaseModel):
@@ -109,6 +110,15 @@ class DeleteRepoParams(BaseModel):
     repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
 
 
+class MergePRParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    pr_number: Annotated[int, Field(gt=0)]
+    merge_method: Literal["merge", "squash", "rebase"] = "merge"
+    commit_title: Optional[str] = None
+    commit_message: Optional[str] = None
+    base: Optional[str] = None  # target branch, used for risk-gate context only
+
+
 # Discriminated Union for all operations
 OperationParams = Union[
     ListReposParams,
@@ -126,6 +136,7 @@ OperationParams = Union[
     CreateBranchParams,
     DeleteBranchParams,
     DeleteRepoParams,
+    MergePRParams,
 ]
 
 SCHEMA_MAP = {
@@ -144,6 +155,7 @@ SCHEMA_MAP = {
     "create_branch": CreateBranchParams,
     "delete_branch": DeleteBranchParams,
     "delete_repo": DeleteRepoParams,
+    "merge_pr": MergePRParams,
 }
 
 # Subset of SCHEMA_MAP exposed via structured-call mode on /mcp.
@@ -153,6 +165,7 @@ _STRUCTURED_CALL_OPERATIONS = frozenset({
     "list_repos", "create_repo", "create_issue", "commit_file",
     "create_pull_request", "browse_files", "read_file", "search_code",
     "list_branches", "create_branch", "delete_branch", "delete_repo",
+    "merge_pr",
 })
 
 # Derived from SCHEMA_MAP to keep a single source of truth.

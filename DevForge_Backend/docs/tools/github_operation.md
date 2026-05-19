@@ -1,11 +1,11 @@
 # github_operation - Intelligent GitHub Automation Tool
 
 **Tool Name:** `github_operation`
-**Version:** 0.8.0
+**Version:** 0.9.0
 **Manifest Version:** 0.11.0
-**Last Updated:** 2026-05-15
-**Last Verified:** 2026-05-15 — live MCP verification suite, see `_reviews/github_operation_review_verification_2026-05-15.md`
-**Phase:** GitOps v0.8 - Phase 5 (Audit & Policy Hardened)
+**Last Updated:** 2026-05-19
+**Last Verified:** 2026-05-19 — aggressive live MCP verification (all 13 structured ops), see `§Changelog` below
+**Phase:** GitOps v0.9 - Phase 5 + Slice 2 (Redis Persistence + merge_pr)
 **Status:** ✅ Production Ready (Hardened)
 
 ---
@@ -124,15 +124,14 @@ async def github_agent_invoke(
 | `create_issue()` | `repo_name, title, body, labels, assignees` | Create issue in repository |
 | `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | Commit file |
 | `create_pull_request()` | `repo_name, title, head, base, body, draft` | Create pull request |
+| `merge_pr()` | `repo_name, pr_number, merge_method, commit_title, commit_message, base` | **MEDIUM→HIGH/CRITICAL RISK** — `base` for risk-gate context only |
 | `list_branches()` | `repo_name` | List repo branches |
 | `create_branch()` | `repo_name, branch_name, from_branch` | Create new branch |
 | `delete_branch()` | `repo_name, branch_name` | **HIGH to CRITICAL RISK** |
 | `delete_repo()` | `repo_name` | **CRITICAL RISK (requires exact match)** |
 | `browse_files()` | `repo_name, path` | List repository content |
-| `read_file()` | `repo_name, file_path` | Read specific file |
+| `read_file()` | `repo_name, file_path, branch` | Read specific file; `branch` selects the ref (defaults to repo default branch) |
 | `search_code()` | `query, repo_name` | Search code |
-
-> **Note:** `merge_pr` appears in `OperationRiskRegistry.RISK_LEVELS` and `RollbackMatrix.MATRIX` as forward-looking metadata, but **no implementation exists** in `GitHubTools` and there is no dispatch branch in `agent.py`. Do not document it as a callable operation until the method is added.
 
 **Convenience Functions:**
 ```python
@@ -766,14 +765,31 @@ pytest tests/test_github_integration.py -v # 18 tests
 
 ---
 
-**Version:** 0.8.0
+**Version:** 0.9.0
 **Manifest Version:** 0.11.0
-**Last Updated:** 2026-05-15
+**Last Updated:** 2026-05-19
 **Maintainer:** DevForge Team
 
 ---
 
 ## Changelog
+
+### 2026-05-19 — v0.9.0: Slice 2 Redis Persistence + merge_pr + bug fixes
+
+**New features:**
+- **`merge_pr` fully implemented** — `GitHubTools.merge_pr()`, `MergePRParams` schema, dispatch in `execute_github_operation`. Structured-call mode and NL path both work. Supports `merge_method: merge|squash|rebase`, optional `commit_title`/`commit_message`. Verified live: squash merge of PR #7 on `sidcollege/testing_devforge`.
+- **`read_file` branch support** — `ReadFileParams.branch: Optional[str]` added; `GitHubTools.read_file()` now accepts `branch` and passes `ref=branch` to `get_contents()`. Previously the parameter was silently ignored.
+- **Slice 2 Redis persistence** — All GitOps stores now have Redis-backed implementations behind lazy proxy factories: `RedisAuditStore`, `RedisEscalationStore`, `RedisJobStore`, `RedisSessionStore`. In-memory fallback auto-engages when `REDIS_URL` is unset or under pytest. Key layout: `gitops:{type}:{tenant_id}:{id}`. New env vars: `REDIS_SESSION_TTL` (default 1800s).
+- **Disambiguation session persistence** — Multi-match repo responses now save a session (`session_id` key in response). Second call with `context.session_id` + `context.selected_repo` restores parameters and skips fuzzy search. Sessions delete after use (replay protection).
+
+**Bug fixes:**
+- **`None.lower()` crash in contextual risk gate** — `parameters.get("base", "")` returned `None` when `base` was an explicit `None` from `model_dump()`. Fixed all three occurrences in `_get_contextual_risk_level` (`merge_pr.base`, `delete_branch.branch_name`, `commit_file.branch`) to use `(parameters.get(key) or "").lower()`.
+- **`from github import NotSet` import error in `merge_pr`** — Redundant local import shadowed the correct file-level `from github.GithubObject import NotSet`. Removed the local import.
+- **`EscalationLogger` methods now async** — All `record_critical`, `record_blocked_high`, `get_records*` methods are `async def` with `await asyncio.sleep(0)` for in-memory implementations. Call sites in `agent.py` updated with `await`.
+
+**Structured operation count:** 12 → **13** (added `merge_pr`)
+
+**Test suite:** 66 Slice 2 + risk tests pass. 16 pre-existing failures unchanged (API key middleware scope).
 
 ### 2026-05-15 — Live verification + doc reconciliation
 

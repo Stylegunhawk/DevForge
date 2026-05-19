@@ -167,6 +167,12 @@ class Settings(BaseSettings):
     GITOPS_REPO_CACHE_TTL: int = 3600  # 1 hour
     GITOPS_LLM_TIMEOUT: int = 10
     GITOPS_SESSION_TTL: int = 1800  # 30 minutes
+    # Redis-backed GitOps stores (Slice 2)
+    REDIS_GITOPS_DB: int = 0
+    REDIS_GITOPS_KEY_PREFIX: str = "gitops"
+    GITOPS_AUDIT_TTL_SECONDS: int = 2592000      # 30 days
+    GITOPS_ESCALATION_TTL_SECONDS: int = 7776000  # 90 days
+    GITOPS_JOB_TTL_SECONDS: int = 86400          # 24 hours
     GITOPS_JOB_CLEANUP_HOURS: int = 24
 
     # Optional: Redis (only if GITOPS_STORAGE="redis")
@@ -255,6 +261,10 @@ class Settings(BaseSettings):
     DASHBOARD_JWT_SECRET: str | None = None
     GOOGLE_DASHBOARD_CLIENT_ID: str | None = None
     GOOGLE_DASHBOARD_SECRET: str | None = None
+
+    # Public URL shown to rate-limited callers in 429 responses. Leave unset to
+    # omit the field entirely (rather than ship a localhost link to production).
+    DASHBOARD_UPGRADE_URL: str | None = None
 
     @property
     def cors_origins_list(self) -> List[str]:

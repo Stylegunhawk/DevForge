@@ -7,7 +7,10 @@ Phase 3.3 implementation with lazy initialization for test safety.
 import logging
 import os
 import time
+import ipaddress
+import socket
 from functools import wraps
+from urllib.parse import urlparse
 import base64
 import httpx
 from typing import Any, Dict, List, Optional, Union
@@ -18,6 +21,93 @@ from github.Repository import Repository
 from github.GithubObject import NotSet
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_safe_url(url: str) -> None:
+    """SSRF guard. Reject non-http(s) schemes and URLs resolving to private,
+    loopback, link-local, or multicast IPs (IPv4 and IPv6).
+
+    Raises ValueError on rejection. Returns silently on safe URLs.
+
+    Note: resolves the hostname to an IP at validation time. Callers must use
+    `follow_redirects=False` and re-validate on every 3xx Location header to
+    prevent redirect-based SSRF.
+    """
+    if not url or not isinstance(url, str):
+        raise ValueError("Invalid file_url: must be a non-empty string")
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            f"Invalid file_url scheme '{parsed.scheme}'. Only http/https are allowed."
+        )
+    if not parsed.hostname:
+        raise ValueError("Invalid file_url: missing hostname")
+
+    try:
+        addrinfo = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve file_url host '{parsed.hostname}': {e}") from e
+
+    for entry in addrinfo:
+        addr = entry[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise ValueError(
+                f"file_url resolves to a disallowed address ({addr}). "
+                "Private, loopback, link-local, multicast, and reserved IPs are blocked."
+            )
+
+
+def _safe_fetch_url(url: str, *, max_redirects: int = 2, timeout: float = 60.0) -> bytes:
+    """Fetch URL bytes with SSRF validation on every hop.
+
+    Disables automatic redirect following so we can validate each Location
+    header against the SSRF rules before chasing it. Returns raw bytes
+    (caller decides encoding). Caps total redirects at `max_redirects`.
+
+    Raises ValueError for SSRF rejections, RuntimeError for HTTP failures.
+    """
+    current_url = url
+    for hop in range(max_redirects + 1):
+        _validate_safe_url(current_url)
+        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+            with client.stream("GET", current_url) as response:
+                if 300 <= response.status_code < 400:
+                    location = response.headers.get("Location")
+                    if not location:
+                        raise RuntimeError(
+                            f"file_url returned {response.status_code} with no Location header"
+                        )
+                    if hop >= max_redirects:
+                        raise RuntimeError(
+                            f"file_url exceeded max_redirects={max_redirects}"
+                        )
+                    current_url = location
+                    continue
+                response.raise_for_status()
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > 100 * 1024 * 1024:
+                    raise ValueError(
+                        f"File too large: {content_length} bytes (GitHub limit is 100MB)"
+                    )
+                content_bytes = response.read()
+                if len(content_bytes) > 100 * 1024 * 1024:
+                    raise ValueError(
+                        f"File too large: {len(content_bytes)} bytes (GitHub limit is 100MB)"
+                    )
+                return content_bytes
+    raise RuntimeError(f"file_url fetch failed after {max_redirects} redirects")
 
 
 def handle_rate_limits(func):
@@ -347,37 +437,33 @@ class GitHubTools:
                 logger.info(f"Fetching binary content from: {file_url}")
                 max_retries = 3
                 fetch_success = False
+                last_error: Optional[Exception] = None
                 for attempt in range(max_retries):
                     try:
-                        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-                            # Stream to check size before full download (Production Guard)
-                            with client.stream("GET", file_url) as response:
-                                response.raise_for_status()
-                                content_length = response.headers.get("Content-Length")
-                                if content_length and int(content_length) > 100 * 1024 * 1024:
-                                    raise ValueError(f"File too large: {content_length} bytes (GitHub limit is 100MB)")
-                                
-                                content_bytes = response.read()
-                                if len(content_bytes) > 100 * 1024 * 1024:
-                                    raise ValueError(f"File too large: {len(content_bytes)} bytes (GitHub limit is 100MB)")
-                                
-                                # Log first 20 chars of encoded content for verification
-                                encoded_debug = base64.b64encode(content_bytes[:50]).decode("utf-8")
-                                logger.info(f"Encoded content preview (first 20 chars): {encoded_debug[:20]}")
-                                
-                                content = content_bytes
-                                logger.info(f"Successfully fetched content ({len(content)} bytes)")
-                                fetch_success = True
-                                break
-                    except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                        # SSRF-validated fetch — rejects private/loopback IPs and
+                        # validates every redirect hop against the same rules.
+                        content_bytes = _safe_fetch_url(file_url, max_redirects=2, timeout=60.0)
+
+                        encoded_debug = base64.b64encode(content_bytes[:50]).decode("utf-8")
+                        logger.info(f"Encoded content preview (first 20 chars): {encoded_debug[:20]}")
+                        content = content_bytes
+                        logger.info(f"Successfully fetched content ({len(content)} bytes)")
+                        fetch_success = True
+                        break
+                    except ValueError:
+                        # SSRF/size validation failures must not retry — the URL is
+                        # permanently disallowed, retrying just wastes time.
+                        raise
+                    except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as e:
+                        last_error = e
                         if attempt == max_retries - 1:
                             logger.error(f"Failed to fetch file after {max_retries} attempts: {e}")
                             raise
                         logger.warning(f"Fetch attempt {attempt + 1} failed: {e}. Retrying...")
-                        time.sleep(1) # Simple backoff
-                
+                        time.sleep(1)  # Simple backoff
+
                 if not fetch_success:
-                    raise RuntimeError(f"Failed to fetch content from {file_url}")
+                    raise RuntimeError(f"Failed to fetch content from {file_url}: {last_error}")
 
             if '/' not in repo_name:
                 repo_name = f"{self.user.login}/{repo_name}"
@@ -534,6 +620,54 @@ class GitHubTools:
             raise
 
     @handle_rate_limits
+    def merge_pr(
+        self,
+        repo_name: str,
+        pr_number: int,
+        merge_method: str = "merge",
+        commit_title: str = None,
+        commit_message: str = None,
+        base: str = None,  # used for risk-gate context only — not passed to GitHub
+    ) -> Dict[str, Any]:
+        """Merge a pull request.
+
+        Args:
+            repo_name: Repository (owner/repo)
+            pr_number: PR number to merge
+            merge_method: 'merge', 'squash', or 'rebase'
+            commit_title: Optional title for the merge commit
+            commit_message: Optional body for the merge commit
+            base: Ignored at execution time; used by risk_gate for branch checks
+
+        Returns:
+            Merge result dict
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            pr = repo.get_pull(pr_number)
+            merge_kwargs = {"merge_method": merge_method}
+            if commit_title:
+                merge_kwargs["commit_title"] = commit_title
+            if commit_message:
+                merge_kwargs["commit_message"] = commit_message
+            result = pr.merge(**merge_kwargs)
+            return {
+                "merged": result.merged,
+                "message": result.message,
+                "sha": result.sha,
+                "pr_number": pr_number,
+                "repo_name": repo_name,
+            }
+        except GithubException as e:
+            logger.error(
+                f"Failed to merge PR #{pr_number} in '{repo_name}': {e.status} - {e.data}",
+                extra={"repo": repo_name, "pr_number": pr_number, "status": e.status},
+            )
+            raise
+
+    @handle_rate_limits
     def browse_files(
         self,
         repo_name: str,
@@ -579,23 +713,28 @@ class GitHubTools:
     def read_file(
         self,
         repo_name: str,
-        file_path: str
+        file_path: str,
+        branch: str = None,
     ) -> Dict[str, Any]:
         """Read content of a specific file.
-        
+
         Args:
             repo_name: Repository name
             file_path: Relative path to the file
-            
+            branch: Branch/ref to read from (defaults to repo default branch)
+
         Returns:
             File content and metadata
         """
         try:
             if '/' not in repo_name:
                 repo_name = f"{self.user.login}/{repo_name}"
-            
+
             repo = self.client.get_repo(repo_name)
-            content_file = repo.get_contents(file_path.lstrip("/"))
+            kwargs = {}
+            if branch:
+                kwargs["ref"] = branch
+            content_file = repo.get_contents(file_path.lstrip("/"), **kwargs)
             
             if isinstance(content_file, list):
                 raise ValueError(f"'{file_path}' is a directory, not a file")

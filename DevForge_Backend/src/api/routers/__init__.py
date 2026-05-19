@@ -208,25 +208,47 @@ TOOL_DESCRIPTIONS = {
         "and set success=false."
     ),
     "github_operation": (
-        "Unified GitHub automation tool for repo analysis, branch management, "
-        "issue tracking, commits, and PRs. "
-        
+        "Unified GitHub automation tool: 13 structured ops + NL routing for "
+        "repo management, branch lifecycle, issues, commits, PRs, and merges. "
+
+        "TWO CALL MODES — use structured when the op is known (1-2s faster): "
+        "  Structured: {operation, repo_name, <op params>, context:{github_token}} "
+        "  Natural-language: {query, context:{github_token}} "
+        "Structured ops: browse_files, commit_file, create_branch, create_issue, "
+        "create_pull_request, create_repo, delete_branch, delete_repo, "
+        "list_branches, list_repos, merge_pr, read_file, search_code. "
+        "NL-only (LLM-routed): generate_changelog, analyze_ci_failure, scaffold_repo. "
+
         "FILE COMMITS: When committing uploaded files, use context.available_files "
         "which is AUTO-INJECTED by the system. Never call retrieve_docs first. "
         "Simply reference the filename in your query: "
         "'commit verify_tree_sitter.py to dev branch of owner/repo' — "
         "the system resolves the file URL automatically. "
-        
+
         "COMMIT MODES: "
         "(1) Direct text: include content in query for small snippets. "
         "(2) File URL: system auto-injects file_url from available_files for uploads. "
-        
-        "RISK LEVELS: "
-        "HIGH ops (delete_branch, create_repo) → context.confirmed=true required. "
-        "CRITICAL ops (delete_repo) → context.confirmed=true + context.reason required. "
+
+        "READ FILE: pass branch='<ref>' to read from a non-default branch, tag, or SHA. "
+
+        "RISK LEVELS (static): "
+        "LOW — no confirmation: list_repos, browse_files, read_file, search_code, "
+        "list_branches, generate_changelog, analyze_ci_failure. "
+        "MEDIUM — no confirmation: create_issue, commit_file, create_branch, "
+        "create_pull_request, merge_pr (feature branch). "
+        "HIGH — context.confirmed=true required: create_repo, scaffold_repo, "
+        "delete_branch (non-protected). "
+        "CRITICAL — context.confirmed=true + context.reason required: delete_repo. "
+
+        "CONTEXTUAL ESCALATION (always check before calling): "
+        "merge_pr with base=main/master → HIGH (needs confirmed). "
+        "merge_pr with base=production or release/* → CRITICAL (needs confirmed+reason). "
+        "delete_branch branch_name=main/master/production → CRITICAL. "
+        "commit_file to branch=main/master/production → HIGH. "
         "delete_repo requires EXACT owner/repo format — no fuzzy matching. "
-        
-        "ENVIRONMENT: GITOPS_ENV=production blocks irreversible operations entirely."
+
+        "ENVIRONMENT: GITOPS_ENV=production blocks irreversible operations entirely. "
+        "GITOPS_PROTECTED_MODE=true blocks all HIGH and CRITICAL ops."
     ),
     "refine_prompt": (
         "Refines a user prompt into a detailed, production-ready specification, "
@@ -877,7 +899,8 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
                             "monthly_limit": limit_info["monthly_limit"],
                             "hourly_reset_at": limit_info["hourly_reset_at"],
                             "monthly_reset_at": limit_info["monthly_reset_at"],
-                            "upgrade_url": "http://localhost:3000/dashboard/settings"
+                            **({"upgrade_url": settings.DASHBOARD_UPGRADE_URL}
+                               if settings.DASHBOARD_UPGRADE_URL else {})
                         }
                     },
                     headers={
