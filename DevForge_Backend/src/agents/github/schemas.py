@@ -4,7 +4,7 @@ Pydantic schemas for GitHub operation parameters.
 Ensures strict validation before executing any API calls.
 """
 
-from typing import List, Optional, Literal, Union, Annotated
+from typing import List, Optional, Literal, Union, Annotated, Dict
 from pydantic import BaseModel, Field, validator, RootModel, model_validator
 
 
@@ -12,6 +12,7 @@ class ListReposParams(BaseModel):
     visibility: Literal["all", "public", "private"] = "all"
     sort: Literal["updated", "created", "pushed", "full_name"] = "updated"
     limit: Annotated[int, Field(gt=0, le=100)] = 10
+    page: Annotated[int, Field(gt=0)] = 1
 
 
 class CreateRepoParams(BaseModel):
@@ -119,6 +120,100 @@ class MergePRParams(BaseModel):
     base: Optional[str] = None  # target branch, used for risk-gate context only
 
 
+class ListPullRequestsParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    state: Literal["open", "closed", "all"] = "open"
+    base: Optional[str] = None
+    head: Optional[str] = None
+    limit: Annotated[int, Field(gt=0, le=100)] = 10
+
+
+class GetPRParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    pr_number: Annotated[int, Field(gt=0)]
+
+
+class CloseIssueParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    issue_number: Annotated[int, Field(gt=0)]
+
+
+class UpdateIssueParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    issue_number: Annotated[int, Field(gt=0)]
+    title: Optional[str] = None
+    body: Optional[str] = None
+    state: Optional[Literal["open", "closed"]] = None
+    labels: Optional[List[str]] = None
+    assignees: Optional[List[str]] = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "UpdateIssueParams":
+        if all(v is None for v in [self.title, self.body, self.state, self.labels, self.assignees]):
+            raise ValueError("At least one of title/body/state/labels/assignees must be provided")
+        return self
+
+
+class AddCommentParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    issue_number: Annotated[int, Field(gt=0)]
+    body: Annotated[str, Field(min_length=1)]
+
+
+class ListCommitsParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    branch: str = "main"
+    limit: Annotated[int, Field(gt=0, le=100)] = 20
+    author: Optional[str] = None
+    since: Optional[str] = None
+    until: Optional[str] = None
+
+
+class GetCommitParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    sha: Annotated[str, Field(min_length=7)]
+
+
+class ListReleasesParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    limit: Annotated[int, Field(gt=0, le=50)] = 10
+
+
+class CreateReleaseParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    tag_name: Annotated[str, Field(min_length=1)]
+    name: Annotated[str, Field(min_length=1)]
+    body: str = ""
+    draft: bool = False
+    prerelease: bool = False
+    target_commitish: str = "main"
+
+
+class TriggerWorkflowParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    workflow_id: Annotated[str, Field(min_length=1)]
+    ref: str = "main"
+    inputs: Optional[Dict[str, str]] = None
+
+
+class CreateWebhookParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    url: Annotated[str, Field(min_length=1)]
+    events: List[str] = ["push"]
+    content_type: Literal["json", "form"] = "json"
+    active: bool = True
+    secret: Optional[str] = None
+
+
+class ListWebhooksParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+
+
+class DeleteWebhookParams(BaseModel):
+    repo_name: Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
+    hook_id: Annotated[int, Field(gt=0)]
+
+
 # Discriminated Union for all operations
 OperationParams = Union[
     ListReposParams,
@@ -137,6 +232,19 @@ OperationParams = Union[
     DeleteBranchParams,
     DeleteRepoParams,
     MergePRParams,
+    ListPullRequestsParams,
+    GetPRParams,
+    CloseIssueParams,
+    UpdateIssueParams,
+    AddCommentParams,
+    ListCommitsParams,
+    GetCommitParams,
+    ListReleasesParams,
+    CreateReleaseParams,
+    TriggerWorkflowParams,
+    CreateWebhookParams,
+    ListWebhooksParams,
+    DeleteWebhookParams,
 ]
 
 SCHEMA_MAP = {
@@ -156,6 +264,19 @@ SCHEMA_MAP = {
     "delete_branch": DeleteBranchParams,
     "delete_repo": DeleteRepoParams,
     "merge_pr": MergePRParams,
+    "list_pull_requests": ListPullRequestsParams,
+    "get_pr": GetPRParams,
+    "close_issue": CloseIssueParams,
+    "update_issue": UpdateIssueParams,
+    "add_comment": AddCommentParams,
+    "list_commits": ListCommitsParams,
+    "get_commit": GetCommitParams,
+    "list_releases": ListReleasesParams,
+    "create_release": CreateReleaseParams,
+    "trigger_workflow": TriggerWorkflowParams,
+    "create_webhook": CreateWebhookParams,
+    "list_webhooks": ListWebhooksParams,
+    "delete_webhook": DeleteWebhookParams,
 }
 
 # Subset of SCHEMA_MAP exposed via structured-call mode on /mcp.
@@ -165,7 +286,12 @@ _STRUCTURED_CALL_OPERATIONS = frozenset({
     "list_repos", "create_repo", "create_issue", "commit_file",
     "create_pull_request", "browse_files", "read_file", "search_code",
     "list_branches", "create_branch", "delete_branch", "delete_repo",
-    "merge_pr",
+    "merge_pr", "list_pull_requests", "get_pr",
+    "close_issue", "update_issue", "add_comment",
+    "list_commits", "get_commit",
+    "list_releases", "create_release",
+    "trigger_workflow",
+    "create_webhook", "list_webhooks", "delete_webhook",
 })
 
 # Derived from SCHEMA_MAP to keep a single source of truth.

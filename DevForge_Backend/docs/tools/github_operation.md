@@ -1,11 +1,11 @@
 # github_operation - Intelligent GitHub Automation Tool
 
 **Tool Name:** `github_operation`
-**Version:** 0.9.0
-**Manifest Version:** 0.11.0
+**Version:** 1.0.0
+**Manifest Version:** 0.12.0
 **Last Updated:** 2026-05-19
-**Last Verified:** 2026-05-19 — aggressive live MCP verification (all 13 structured ops), see `§Changelog` below
-**Phase:** GitOps v0.9 - Phase 5 + Slice 2 (Redis Persistence + merge_pr)
+**Last Verified:** 2026-05-19 — aggressive live MCP verification (all 26 structured ops, 64/64 Python MCP tests), see `§Changelog` below and `docs/tools/github_operation_curl_tests.md`
+**Phase:** GitOps v1.0 - 26 structured ops
 **Status:** ✅ Production Ready (Hardened)
 
 ---
@@ -116,22 +116,35 @@ async def github_agent_invoke(
 
 #### `GitHubTools` Class Methods:
 
-| Method | Arguments | Description |
-|--------|-----------|-------------|
-| `__init__(token)` | `token: Optional[str]` | Initialize PyGithub client |
-| `list_repos()` | `visibility, sort, limit` | List user repositories |
-| `create_repo()` | `name, description, private, auto_init, gitignore_template, license_template` | **HIGH RISK** |
-| `create_issue()` | `repo_name, title, body, labels, assignees` | Create issue in repository |
-| `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | Commit file |
-| `create_pull_request()` | `repo_name, title, head, base, body, draft` | Create pull request |
-| `merge_pr()` | `repo_name, pr_number, merge_method, commit_title, commit_message, base` | **MEDIUM→HIGH/CRITICAL RISK** — `base` for risk-gate context only |
-| `list_branches()` | `repo_name` | List repo branches |
-| `create_branch()` | `repo_name, branch_name, from_branch` | Create new branch |
-| `delete_branch()` | `repo_name, branch_name` | **HIGH to CRITICAL RISK** |
-| `delete_repo()` | `repo_name` | **CRITICAL RISK (requires exact match)** |
-| `browse_files()` | `repo_name, path` | List repository content |
-| `read_file()` | `repo_name, file_path, branch` | Read specific file; `branch` selects the ref (defaults to repo default branch) |
-| `search_code()` | `query, repo_name` | Search code |
+| Method | Arguments | Risk | Description |
+|--------|-----------|------|-------------|
+| `__init__(token)` | `token: Optional[str]` | — | Initialize PyGithub client |
+| `list_repos()` | `visibility, sort, limit, page` | LOW | List user repositories (v3: `page` pagination) |
+| `browse_files()` | `repo_name, path` | LOW | List repository content |
+| `read_file()` | `repo_name, file_path, branch` | LOW | Read file; `branch` selects ref |
+| `search_code()` | `query, repo_name` | LOW | Search code (returns `results/count/note`) |
+| `list_branches()` | `repo_name` | LOW | List repo branches |
+| `list_pull_requests()` | `repo_name, state, limit` | LOW | **v3** List PRs by state |
+| `get_pr()` | `repo_name, pr_number` | LOW | **v3** Get single PR details |
+| `list_commits()` | `repo_name, branch, limit` | LOW | **v3** List commits |
+| `get_commit()` | `repo_name, sha` | LOW | **v3** Get commit details (files capped at 100) |
+| `list_releases()` | `repo_name, limit` | LOW | **v3** List GitHub releases |
+| `list_webhooks()` | `repo_name` | LOW | **v3** List webhooks |
+| `create_issue()` | `repo_name, title, body, labels, assignees` | MEDIUM | Create issue |
+| `commit_file()` | `repo_name, file_path, content, commit_message, branch, create_if_missing` | MEDIUM | Commit file |
+| `create_branch()` | `repo_name, branch_name, from_branch` | MEDIUM | Create branch |
+| `create_pull_request()` | `repo_name, title, head, base, body, draft` | MEDIUM | Create PR |
+| `merge_pr()` | `repo_name, pr_number, merge_method, base` | MEDIUM→HIGH/CRITICAL | `base` triggers contextual escalation |
+| `close_issue()` | `repo_name, issue_number` | MEDIUM | **v3** Close an issue |
+| `update_issue()` | `repo_name, issue_number, title?, body?, state?, labels?, assignees?` | MEDIUM | **v3** Update issue fields |
+| `add_comment()` | `repo_name, issue_number, body` | LOW | **v3** Add comment to issue |
+| `create_repo()` | `name, description, private, auto_init` | HIGH | Create repo |
+| `delete_branch()` | `repo_name, branch_name` | HIGH→CRITICAL | CRITICAL when branch=main/master/production |
+| `create_release()` | `repo_name, tag_name, name, body, prerelease, draft` | HIGH (MEDIUM if prerelease=True) | **v3** Create release |
+| `trigger_workflow()` | `repo_name, workflow_id, ref, inputs` | HIGH | **v3** Trigger Actions dispatch |
+| `create_webhook()` | `repo_name, url, events, secret, content_type` | HIGH | **v3** Create webhook (SSRF-guarded) |
+| `delete_webhook()` | `repo_name, webhook_id` | HIGH | **v3** Delete webhook |
+| `delete_repo()` | `repo_name` | CRITICAL | Requires confirmed=true + reason |
 
 **Convenience Functions:**
 ```python
@@ -765,14 +778,26 @@ pytest tests/test_github_integration.py -v # 18 tests
 
 ---
 
-**Version:** 0.9.0
-**Manifest Version:** 0.11.0
+**Version:** 1.0.0
+**Manifest Version:** 0.12.0
 **Last Updated:** 2026-05-19
 **Maintainer:** DevForge Team
 
 ---
 
 ## Changelog
+
+### 2026-05-19 — v1.0.0: GitOps v3 Expansion
+
+**v1.0.0 (2026-05-19):** 26 structured ops — PR inspection, issue CRUD, commit history, release management, GitHub Actions, webhook management. Error enrichment with PAT scope guidance.
+
+**New operations (13 added):** `merge_pr`, `list_pull_requests`, `get_pr`, `close_issue`, `update_issue`, `add_comment`, `list_commits`, `get_commit`, `list_releases`, `create_release`, `trigger_workflow`, `list_webhooks`, `delete_webhook` (+ `create_webhook` via `TestWebhookManagementOps`).
+
+**Structured operation count:** 13 → **26**
+
+**Test suite:** 25 parametrize rows in `test_mcp_structured_each_operation_end_to_end`, all passing.
+
+---
 
 ### 2026-05-19 — v0.9.0: Slice 2 Redis Persistence + merge_pr + bug fixes
 

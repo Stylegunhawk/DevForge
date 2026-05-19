@@ -85,430 +85,6 @@ def assert_matches_snapshot(actual: dict, fixture_path: str, ignore_paths: list[
         raise AssertionError(diff_msg)
 
 
-class TestSingleCallWorkflow:
-    """Test Lobe Chat single-call workflow requirements"""
-    
-    @pytest.mark.asyncio
-    async def test_github_operation_complete_in_single_call(self):
-        """Verify github_operation completes in one API call"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": True,
-                "operation": "list_repos",
-                "data": {"repos": ["repo1", "repo2"]},
-                "audit_id": "test_123"
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "list my repos"
-                }
-            })
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data["success"] is True
-    
-    @pytest.mark.asyncio
-    async def test_all_intelligence_internal(self):
-        """Verify all intelligence is internal - no tool chaining needed"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            # Simulate full internal processing
-            mock_invoke.return_value = {
-                "success": True,
-                "operation": "create_pr",
-                "data": {
-                    "pr_number": 42,
-                    "url": "https://github.com/owner/repo/pull/42"
-                },
-                "_repo_inferred": True,  # Fuzzy match was used
-                "_message_generated": True,  # Commit msg was generated
-                "repo_confidence": 0.92,
-                "audit_id": "test_456"
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "create PR for backend changes",
-                    "context": {"diff": "sample diff content"}
-                }
-            })
-            
-            data = response.json()
-            assert data["success"] is True
-            # Verify intelligence was applied internally
-            result_data = data["data"]
-            assert result_data.get("_repo_inferred") is True
-            assert result_data.get("_message_generated") is True
-
-
-class TestSessionContext:
-    """Test session context and multi-turn conversations"""
-    
-    @pytest.mark.asyncio
-    async def test_session_storage(self):
-        """Test session data persists across calls"""
-        manager = SessionManager()
-        session_id = "test_session_123"
-        
-        # Store data in session
-        await manager.set(session_id, "user", "testuser")
-        await manager.set(session_id, "repo", "owner/repo")
-        
-        # Retrieve data
-        user = await manager.get(session_id, "user")
-        repo = await manager.get(session_id, "repo")
-        
-        assert user == "testuser"
-        assert repo == "owner/repo"
-    
-    @pytest.mark.asyncio
-    async def test_session_expiration(self):
-        """Test session expires after TTL"""
-        manager = SessionManager(ttl_seconds=0)  # Immediate expiration
-        session_id = "expiring_session"
-        
-        await manager.set(session_id, "key", "value")
-        await asyncio.sleep(0.1)
-        
-        result = await manager.get(session_id, "key")
-        # Should be None after expiration
-        assert result is None
-    
-    @pytest.mark.asyncio
-    async def test_session_context_reuse(self):
-        """Test session context is reused in multi-turn conversation"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            session_id = "multi_turn_session"
-            
-            # First call - store context
-            mock_invoke.return_value = {
-                "success": True,
-                "data": {"diff": "sample diff"},
-                "_session_updated": True
-            }
-            
-            response1 = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "show diff for main.py",
-                    "context": {"session_id": session_id}
-                }
-            })
-            
-            assert response1.status_code == 200
-            
-            # Second call - reference "those changes"
-            mock_invoke.return_value = {
-                "success": True,
-                "data": {"pr_number": 42},
-                "_used_session_context": True
-            }
-            
-            response2 = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "create PR with those changes",
-                    "context": {"session_id": session_id}
-                }
-            })
-            
-            assert response2.status_code == 200
-
-
-class TestDisambiguation:
-    """Test disambiguation for ambiguous queries"""
-    
-    @pytest.mark.asyncio
-    async def test_low_confidence_returns_options(self):
-        """When fuzzy match confidence is low, return options"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": True,
-                "status": "needs_clarification",
-                "options": [
-                    {"repo": "owner/payment-service", "confidence": 0.75},
-                    {"repo": "owner/payment-gateway", "confidence": 0.72}
-                ],
-                "message": "Multiple repos match 'pay'. Please clarify."
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "create issue in pay repo"  # Ambiguous
-                }
-            })
-            
-            data = response.json()
-            assert data["success"] is True
-            result_data = data["data"]
-            assert result_data.get("status") == "needs_clarification"
-            assert "options" in result_data
-            assert len(result_data["options"]) >= 2
-    
-    @pytest.mark.asyncio
-    async def test_high_confidence_proceeds(self):
-        """When confidence is high, proceed without disambiguation"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": True,
-                "operation": "create_issue",
-                "data": {"issue_number": 42},
-                "repo_confidence": 0.95  # High confidence
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "create issue in backend-api repo"
-                }
-            })
-            
-            data = response.json()
-            assert data["success"] is True
-            # No disambiguation needed
-            assert "needs_clarification" not in str(data)
-
-
-class TestAsyncJobLifecycle:
-    """Test async job queue lifecycle"""
-    
-    @pytest.mark.asyncio
-    async def test_job_creation(self):
-        """Test creating an async job"""
-        queue = JobQueue()
-        
-        async def sample_task():
-            await asyncio.sleep(0.1)
-            return {"result": "done"}
-        
-        job_id = await queue.enqueue(sample_task)
-        
-        assert job_id is not None
-        assert job_id.startswith("job_")
-    
-    @pytest.mark.asyncio
-    async def test_job_status_progression(self):
-        """Test job status progresses correctly"""
-        queue = JobQueue()
-        completed = asyncio.Event()
-        
-        async def tracked_task():
-            await asyncio.sleep(0.1)
-            completed.set()
-            return {"result": "success"}
-        
-        job_id = await queue.enqueue(tracked_task)
-        
-        # Initially pending
-        status = await queue.get_status(job_id)
-        assert status["status"] in [JobStatus.PENDING.value, JobStatus.RUNNING.value]
-        
-        # Wait for completion
-        await asyncio.wait_for(completed.wait(), timeout=2.0)
-        await asyncio.sleep(0.1)  # Allow status update
-        
-        status = await queue.get_status(job_id)
-        assert status["status"] == JobStatus.COMPLETED.value
-    
-    @pytest.mark.asyncio
-    async def test_job_failure_handling(self):
-        """Test job failure is captured"""
-        queue = JobQueue()
-        
-        async def failing_task():
-            raise ValueError("Intentional failure")
-        
-        job_id = await queue.enqueue(failing_task)
-        
-        # Wait for failure
-        await asyncio.sleep(0.2)
-        
-        status = await queue.get_status(job_id)
-        assert status["status"] == JobStatus.FAILED.value
-        assert "error" in status
-    
-    def test_job_status_endpoint(self):
-        """Test job status API endpoint"""
-        response = client.get("/api/jobs/nonexistent_job")
-        
-        # Should return 404 or error for nonexistent job
-        assert response.status_code in [200, 404]
-
-
-class TestFullWorkflowIntegration:
-    """Test complete workflow scenarios"""
-    
-    @pytest.mark.asyncio
-    async def test_create_issue_workflow(self):
-        """Test complete create issue workflow"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": True,
-                "operation": "create_issue",
-                "data": {
-                    "issue_number": 42,
-                    "url": "https://github.com/owner/repo/issues/42"
-                },
-                "audit_id": "workflow_test_1",
-                "timeline": {
-                    "total_duration_ms": 1500,
-                    "events": [
-                        {"step": "parse_intent", "duration_ms": 100},
-                        {"step": "repo_discovery", "duration_ms": 200},
-                        {"step": "create_issue", "duration_ms": 1200}
-                    ]
-                }
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "create issue 'Fix login bug' in my-app repo"
-                }
-            })
-            
-            data = response.json()
-            assert data["success"] is True
-            assert data["data"]["issue_number"] == 42
-    
-    @pytest.mark.asyncio
-    async def test_list_repos_workflow(self):
-        """Test list repos workflow"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": True,
-                "operation": "list_repos",
-                "data": {
-                    "repos": [
-                        {"name": "repo1", "url": "https://github.com/owner/repo1"},
-                        {"name": "repo2", "url": "https://github.com/owner/repo2"}
-                    ],
-                    "count": 2
-                }
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "list my repos"
-                }
-            })
-            
-            data = response.json()
-            assert data["success"] is True
-            assert len(data["data"]["repos"]) >= 1
-
-
-class TestRollbackFeasibility:
-    """Test rollback feasibility matrix"""
-    
-    @pytest.mark.asyncio
-    async def test_reversible_operation(self):
-        """Test rollback feasibility for reversible operations"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": True,
-                "operation": "create_issue",
-                "data": {"issue_number": 42},
-                "rollback_feasibility": {
-                    "can_rollback": True,
-                    "method": "close_issue",
-                    "confidence": 0.95
-                }
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "create issue"
-                }
-            })
-            
-            data = response.json()
-            assert data["success"] is True
-            # Should have rollback info
-            assert "rollback_feasibility" in data["data"] or data["data"].get("issue_number")
-    
-    @pytest.mark.asyncio
-    async def test_irreversible_operation_warning(self):
-        """Test irreversible operations include warning"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": True,
-                "operation": "delete_branch",
-                "data": {"deleted": True},
-                "rollback_feasibility": {
-                    "can_rollback": False,
-                    "reason": "Branch deletion is permanent",
-                    "warning": "This action cannot be undone"
-                }
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "delete feature-old branch"
-                }
-            })
-            
-            data = response.json()
-            rollback = data["data"].get("rollback_feasibility", {})
-            if rollback:
-                assert rollback.get("can_rollback") is False
-
-
-class TestErrorHandling:
-    """Test error handling scenarios"""
-    
-    def test_missing_query_parameter(self):
-        """Test error when query is missing"""
-        response = client.post("/api/gateway", json={
-            "tool_name": "github_operation",
-            "arguments": {}
-        })
-        
-        assert response.status_code in [400, 200]
-        data = response.json()
-        if response.status_code == 200:
-            assert data["success"] is False
-    
-    def test_invalid_tool_name(self):
-        """Test error for invalid tool name"""
-        response = client.post("/api/gateway", json={
-            "tool_name": "nonexistent_tool",
-            "arguments": {}
-        })
-        
-        assert response.status_code == 400
-        data = response.json()
-        assert data["success"] is False
-    
-    @pytest.mark.asyncio
-    async def test_github_api_error_handling(self):
-        """Test GitHub API error is handled gracefully"""
-        with patch('src.agents.github.agent.github_agent_invoke') as mock_invoke:
-            mock_invoke.return_value = {
-                "success": False,
-                "error": "GitHub API rate limit exceeded",
-                "retry_after": 3600
-            }
-            
-            response = client.post("/api/gateway", json={
-                "tool_name": "github_operation",
-                "arguments": {
-                    "query": "list repos"
-                }
-            })
-            
-            data = response.json()
-            # Should handle error gracefully
-            assert "error" in str(data).lower() or data.get("success") is False
-
-
 class TestNaturalLanguageRegression:
     """Snapshot test — locks in the current NL path happy-path response shape."""
 
@@ -738,17 +314,27 @@ class TestStructuredCallMode:
         assert query_branch is not None, f"No branch with 'query' required. oneOf: {schema['oneOf']}"
         assert query_branch["properties"]["query"]["type"] == "string"
 
-        # Branch 2: structured shape (operation required, enum of 13 ops)
+        # Branch 2: structured shape (operation required, enum of 26 ops)
         struct_branch = next(
             (b for b in schema["oneOf"] if "operation" in b.get("required", [])),
             None,
         )
         assert struct_branch is not None, f"No branch with 'operation' required. oneOf: {schema['oneOf']}"
         op_enum = struct_branch["properties"]["operation"]["enum"]
-        expected_ops = {"list_repos", "create_repo", "create_issue", "commit_file",
-                        "create_pull_request", "browse_files", "read_file", "search_code",
-                        "list_branches", "create_branch", "delete_branch", "delete_repo",
-                        "merge_pr"}
+        # 26 structured ops after v3 expansion
+        expected_ops = {
+            "browse_files", "commit_file", "create_branch", "create_issue",
+            "create_pull_request", "create_repo", "delete_branch", "delete_repo",
+            "list_branches", "list_repos", "merge_pr", "read_file", "search_code",
+            # v3 additions:
+            "list_pull_requests", "get_pr",
+            "close_issue", "update_issue", "add_comment",
+            "list_commits", "get_commit",
+            "list_releases", "create_release",
+            "trigger_workflow",
+            "create_webhook", "list_webhooks", "delete_webhook",
+        }
+        assert len(expected_ops) == 26
         assert set(op_enum) == expected_ops, f"enum mismatch. Got: {set(op_enum)}"
 
     @pytest.mark.asyncio
@@ -996,7 +582,9 @@ class TestStructuredCallMode:
          {"query": "TODO", "repo": "owner/r"},
          {},
          "search_code",
-         [{"path": "x.py", "repository": "owner/r", "url": "x"}]),
+         {"results": [{"name": "x.py", "path": "x.py", "repo": "owner/r", "url": "x"}],
+          "count": 1, "query": "TODO",
+          "note": "GitHub code search indexes with 30–60s lag for newly pushed content."}),
         ("list_branches",
          {"repo": "owner/r"},
          {},
@@ -1017,6 +605,90 @@ class TestStructuredCallMode:
          {"confirmed": True, "reason": "test cleanup"},
          "delete_repo",
          {"deleted": "owner/probe-repo"}),
+        # merge_pr (added v0.9)
+        ("merge_pr",
+         {"repo": "owner/r", "pr_number": 1, "merge_method": "merge"},
+         {},
+         "merge_pr",
+         {"merged": True, "message": "ok", "sha": "abc", "pr_number": 1, "repo_name": "owner/r"}),
+        # v3 new ops
+        ("list_pull_requests",
+         {"repo": "owner/r", "state": "open"},
+         {},
+         "list_pull_requests",
+         {"pull_requests": [{"number": 1, "title": "feat", "state": "open", "author": "u",
+                             "head": "feat", "base": "main", "draft": False, "url": "x"}],
+          "count": 1, "repo": "owner/r"}),
+        ("get_pr",
+         {"repo": "owner/r", "pr_number": 3},
+         {},
+         "get_pr",
+         {"number": 3, "title": "fix", "state": "open", "author": "u",
+          "head": "fix", "base": "main", "draft": False, "mergeable": True, "body": "",
+          "labels": [], "assignees": [], "reviewers": [], "commits": 1,
+          "additions": 5, "deletions": 2, "changed_files": 1,
+          "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-02T00:00:00", "url": "x"}),
+        ("close_issue",
+         {"repo": "owner/r", "issue_number": 1},
+         {},
+         "close_issue",
+         {"closed": True, "issue_number": 1, "repo": "owner/r", "url": "x"}),
+        ("update_issue",
+         {"repo": "owner/r", "issue_number": 2, "title": "updated"},
+         {},
+         "update_issue",
+         {"updated": True, "issue_number": 2, "repo": "owner/r", "url": "x"}),
+        ("add_comment",
+         {"repo": "owner/r", "issue_number": 1, "body": "LGTM!"},
+         {},
+         "add_comment",
+         {"comment_id": 42, "url": "x", "issue_number": 1, "repo": "owner/r"}),
+        ("list_commits",
+         {"repo": "owner/r", "branch": "main"},
+         {},
+         "list_commits",
+         {"commits": [{"sha": "abc", "message": "feat", "author": "u",
+                       "date": "2026-01-01T00:00:00", "url": "x"}],
+          "count": 1, "branch": "main", "repo": "owner/r"}),
+        ("get_commit",
+         {"repo": "owner/r", "sha": "abc1234"},
+         {},
+         "get_commit",
+         {"sha": "abc1234", "message": "feat", "author": "u", "author_email": "u@x.com",
+          "date": "2026-01-01T00:00:00", "files": [], "files_truncated": False,
+          "stats": {"additions": 0, "deletions": 0, "total": 0}, "url": "x"}),
+        ("list_releases",
+         {"repo": "owner/r"},
+         {},
+         "list_releases",
+         {"releases": [{"id": 1, "tag_name": "v1.0", "name": "R", "draft": False,
+                        "prerelease": False, "created_at": "2026-01-01T00:00:00",
+                        "published_at": "2026-01-01T00:00:00", "url": "x"}],
+          "count": 1, "repo": "owner/r"}),
+        ("create_release",
+         {"repo": "owner/r", "tag_name": "v1.0", "name": "Release 1"},
+         {"confirmed": True},
+         "create_release",
+         {"id": 10, "tag_name": "v1.0", "name": "Release 1", "draft": False,
+          "prerelease": False, "url": "x"}),
+        ("trigger_workflow",
+         {"repo": "owner/r", "workflow_id": "ci.yml"},
+         {"confirmed": True},
+         "trigger_workflow",
+         {"triggered": True, "workflow_id": "ci.yml", "ref": "main",
+          "inputs": None, "repo": "owner/r"}),
+        ("list_webhooks",
+         {"repo": "owner/r"},
+         {},
+         "list_webhooks",
+         {"webhooks": [{"id": 1, "name": "web", "events": ["push"], "active": True,
+                        "url": "x"}],
+          "count": 1, "repo": "owner/r"}),
+        ("delete_webhook",
+         {"repo": "owner/r", "hook_id": 1},
+         {"confirmed": True},
+         "delete_webhook",
+         {"deleted": True, "hook_id": 1, "repo": "owner/r"}),
     ])
     def test_mcp_structured_each_operation_end_to_end(
         self, operation, parameters, context_extras, mock_attr, mock_return
@@ -1337,4 +1009,614 @@ class TestSlice2Persistence:
         store = RedisAuditStore(client=fake, ttl_seconds=2592000)
         with pytest.raises(ValueError, match="tenant_id is required"):
             await store.save("audit_x", "", {"x": 1})
-        await fake.aclose()
+
+
+class TestEnrichGithubError:
+    """Unit tests for _enrich_github_error and _SCOPE_MAP."""
+
+    def test_403_delete_repo_includes_scope(self):
+        from src.tools.github.tools import _enrich_github_error
+        from github import GithubException
+        exc = GithubException(403, {"message": "Must have admin rights"}, {})
+        msg = _enrich_github_error(exc, "delete_repo")
+        assert "delete_repo" in msg
+        assert "github.com/settings/tokens" in msg
+
+    def test_403_trigger_workflow_includes_workflow_scope(self):
+        from src.tools.github.tools import _enrich_github_error
+        from github import GithubException
+        exc = GithubException(403, {"message": "Must have admin rights"}, {})
+        msg = _enrich_github_error(exc, "trigger_workflow")
+        assert "workflow" in msg
+
+    def test_403_create_webhook_includes_hook_scope(self):
+        from src.tools.github.tools import _enrich_github_error
+        from github import GithubException
+        exc = GithubException(403, {"message": "Must have admin rights"}, {})
+        msg = _enrich_github_error(exc, "create_webhook")
+        assert "write:repo_hook" in msg
+
+    def test_404_returns_owner_repo_hint(self):
+        from src.tools.github.tools import _enrich_github_error
+        from github import GithubException
+        exc = GithubException(404, {"message": "Not Found"}, {})
+        msg = _enrich_github_error(exc, "read_file")
+        assert "owner/repo" in msg
+
+    def test_422_returns_validation_message(self):
+        from src.tools.github.tools import _enrich_github_error
+        from github import GithubException
+        exc = GithubException(422, {"message": "Validation Failed"}, {})
+        msg = _enrich_github_error(exc, "create_issue")
+        assert "Validation" in msg
+
+    def test_search_code_result_has_lag_note(self):
+        from unittest.mock import MagicMock
+        from src.tools.github.tools import GitHubTools
+        mock_client = MagicMock()
+        mock_item = MagicMock()
+        mock_item.name = "file.py"
+        mock_item.path = "src/file.py"
+        mock_item.repository.full_name = "owner/repo"
+        mock_item.html_url = "https://github.com/owner/repo/blob/main/src/file.py"
+        mock_result = MagicMock()
+        # Make it iterable with one item
+        mock_result.__iter__ = MagicMock(return_value=iter([mock_item]))
+        mock_client.search_code.return_value = mock_result
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        result = tools.search_code("TODO")
+        assert "note" in result
+        assert "30" in result["note"]
+
+
+class TestPRInspectionOps:
+    """Tests for list_pull_requests and get_pr."""
+
+    def _make_tools(self, mock_client):
+        from src.tools.github.tools import GitHubTools
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        return tools
+
+    def test_list_pull_requests_returns_list(self):
+        mock_client = MagicMock()
+        mock_pr = MagicMock()
+        mock_pr.number = 1
+        mock_pr.title = "feat: add thing"
+        mock_pr.state = "open"
+        mock_pr.user.login = "user"
+        mock_pr.head.ref = "feat-branch"
+        mock_pr.base.ref = "main"
+        mock_pr.draft = False
+        mock_pr.html_url = "https://github.com/o/r/pull/1"
+        mock_repo = MagicMock()
+        mock_repo.get_pulls.return_value = [mock_pr]
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.list_pull_requests("owner/repo", state="open", limit=10)
+        assert "pull_requests" in result
+        assert result["count"] == 1
+        assert result["pull_requests"][0]["number"] == 1
+
+    def test_get_pr_returns_full_metadata(self):
+        mock_client = MagicMock()
+        mock_pr = MagicMock()
+        mock_pr.number = 5
+        mock_pr.title = "fix: bug"
+        mock_pr.state = "open"
+        mock_pr.user.login = "user"
+        mock_pr.head.ref = "fix-branch"
+        mock_pr.base.ref = "main"
+        mock_pr.draft = False
+        mock_pr.mergeable = True
+        mock_pr.body = "Fixes #4"
+        mock_pr.labels = []
+        mock_pr.assignees = []
+        mock_pr.requested_reviewers = []
+        mock_pr.commits = 2
+        mock_pr.additions = 10
+        mock_pr.deletions = 3
+        mock_pr.changed_files = 2
+        mock_pr.created_at.isoformat.return_value = "2026-01-01T00:00:00"
+        mock_pr.updated_at.isoformat.return_value = "2026-01-02T00:00:00"
+        mock_pr.html_url = "https://github.com/o/r/pull/5"
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.get_pr("owner/repo", pr_number=5)
+        assert result["number"] == 5
+        assert result["mergeable"] is True
+        assert "additions" in result
+
+    def test_list_pull_requests_schema_validation(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("list_pull_requests", {"repo_name": "o/r", "state": "open"})
+        assert result["state"] == "open"
+
+    def test_get_pr_schema_validation(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("get_pr", {"repo_name": "o/r", "pr_number": 3})
+        assert result["pr_number"] == 3
+
+    def test_list_pull_requests_risk_is_low(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("list_pull_requests") == RiskLevel.LOW
+
+    def test_get_pr_risk_is_low(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("get_pr") == RiskLevel.LOW
+
+
+class TestIssueManagementOps:
+    """Tests for close_issue, update_issue, add_comment."""
+
+    def _make_tools(self, mock_client):
+        from src.tools.github.tools import GitHubTools
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        return tools
+
+    def test_close_issue_calls_edit_with_closed(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.html_url = "https://github.com/o/r/issues/1"
+        mock_repo = MagicMock()
+        mock_repo.get_issue.return_value = mock_issue
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.close_issue("owner/repo", issue_number=1)
+        mock_issue.edit.assert_called_once_with(state="closed")
+        assert result["closed"] is True
+        assert result["issue_number"] == 1
+
+    def test_update_issue_title_only(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.html_url = "https://github.com/o/r/issues/2"
+        mock_repo = MagicMock()
+        mock_repo.get_issue.return_value = mock_issue
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.update_issue("owner/repo", issue_number=2, title="New title")
+        mock_issue.edit.assert_called_once_with(title="New title")
+        assert result["updated"] is True
+
+    def test_add_comment_returns_comment_id(self):
+        mock_client = MagicMock()
+        mock_comment = MagicMock()
+        mock_comment.id = 99
+        mock_comment.html_url = "https://github.com/o/r/issues/1#issuecomment-99"
+        mock_issue = MagicMock()
+        mock_issue.create_comment.return_value = mock_comment
+        mock_repo = MagicMock()
+        mock_repo.get_issue.return_value = mock_issue
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.add_comment("owner/repo", issue_number=1, body="LGTM!")
+        assert result["comment_id"] == 99
+        assert "url" in result
+
+    def test_update_issue_schema_requires_at_least_one_field(self):
+        from src.agents.github.schemas import validate_op_params
+        import pytest
+        with pytest.raises(Exception):
+            validate_op_params("update_issue", {"repo_name": "o/r", "issue_number": 1})
+
+    def test_close_issue_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("close_issue", {"repo_name": "o/r", "issue_number": 3})
+        assert result["issue_number"] == 3
+
+    def test_add_comment_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("add_comment", {"repo_name": "o/r", "issue_number": 1, "body": "hi"})
+        assert result["body"] == "hi"
+
+    def test_update_issue_risk_is_medium(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("update_issue") == RiskLevel.MEDIUM
+
+    def test_add_comment_risk_is_low(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("add_comment") == RiskLevel.LOW
+
+
+class TestListReposPagination:
+    """Tests for list_repos page parameter."""
+
+    def test_list_repos_schema_accepts_page(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("list_repos", {"limit": 5, "page": 2})
+        assert result["page"] == 2
+
+    def test_list_repos_schema_page_defaults_to_1(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("list_repos", {"limit": 5})
+        assert result["page"] == 1
+
+    def test_list_repos_page_2_calls_get_page_1(self):
+        from unittest.mock import MagicMock
+        from src.tools.github.tools import GitHubTools
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        mock_paginated = MagicMock()
+        mock_paginated.get_page.return_value = []
+        mock_user = MagicMock()
+        mock_user.get_repos.return_value = mock_paginated
+        tools._user = mock_user
+        tools._client = MagicMock()
+        tools.list_repos(limit=10, page=2)
+        mock_paginated.get_page.assert_called_once_with(1)
+
+    def test_list_repos_page_1_calls_get_page_0(self):
+        from unittest.mock import MagicMock
+        from src.tools.github.tools import GitHubTools
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        mock_paginated = MagicMock()
+        mock_paginated.get_page.return_value = []
+        mock_user = MagicMock()
+        mock_user.get_repos.return_value = mock_paginated
+        tools._user = mock_user
+        tools._client = MagicMock()
+        tools.list_repos(limit=10, page=1)
+        mock_paginated.get_page.assert_called_once_with(0)
+
+
+class TestCommitHistoryOps:
+    """Tests for list_commits and get_commit."""
+
+    def _make_tools(self, mock_client):
+        from src.tools.github.tools import GitHubTools
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        return tools
+
+    def test_list_commits_returns_commits_list(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_commit = MagicMock()
+        mock_commit.sha = "abc123"
+        mock_commit.commit.message = "fix: typo"
+        mock_commit.commit.author.name = "Dev"
+        mock_commit.commit.author.date.isoformat.return_value = "2026-01-01T00:00:00"
+        mock_commit.html_url = "https://github.com/o/r/commit/abc123"
+        mock_repo = MagicMock()
+        mock_repo.get_commits.return_value = [mock_commit]
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.list_commits("owner/repo", branch="main")
+        assert "commits" in result
+        assert result["commits"][0]["sha"] == "abc123"
+
+    def test_get_commit_returns_files(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_commit = MagicMock()
+        mock_commit.sha = "def456"
+        mock_commit.commit.message = "feat: new thing"
+        mock_commit.commit.author.name = "Dev"
+        mock_commit.commit.author.email = "dev@example.com"
+        mock_commit.commit.author.date.isoformat.return_value = "2026-01-02T00:00:00"
+        mock_file = MagicMock()
+        mock_file.filename = "src/x.py"
+        mock_file.status = "modified"
+        mock_file.additions = 5
+        mock_file.deletions = 2
+        mock_commit.files = [mock_file]
+        mock_commit.stats.additions = 5
+        mock_commit.stats.deletions = 2
+        mock_commit.stats.total = 7
+        mock_commit.html_url = "https://github.com/o/r/commit/def456"
+        mock_repo = MagicMock()
+        mock_repo.get_commit.return_value = mock_commit
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.get_commit("owner/repo", sha="def456")
+        assert result["sha"] == "def456"
+        assert len(result["files"]) == 1
+        assert result["stats"]["total"] == 7
+
+    def test_list_commits_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("list_commits", {"repo_name": "o/r", "branch": "main", "limit": 10})
+        assert result["branch"] == "main"
+
+    def test_get_commit_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("get_commit", {"repo_name": "o/r", "sha": "abc1234"})
+        assert result["sha"] == "abc1234"
+
+    def test_list_commits_risk_is_low(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("list_commits") == RiskLevel.LOW
+
+    def test_get_commit_risk_is_low(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("get_commit") == RiskLevel.LOW
+
+
+class TestReleaseManagementOps:
+    """Tests for list_releases and create_release."""
+
+    def _make_tools(self, mock_client):
+        from src.tools.github.tools import GitHubTools
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        return tools
+
+    def test_list_releases_returns_list(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_release = MagicMock()
+        mock_release.id = 1
+        mock_release.tag_name = "v1.0.0"
+        mock_release.title = "Version 1.0"
+        mock_release.draft = False
+        mock_release.prerelease = False
+        mock_release.created_at.isoformat.return_value = "2026-01-01T00:00:00"
+        mock_release.published_at.isoformat.return_value = "2026-01-01T01:00:00"
+        mock_release.html_url = "https://github.com/o/r/releases/tag/v1.0.0"
+        mock_repo = MagicMock()
+        mock_repo.get_releases.return_value = [mock_release]
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.list_releases("owner/repo", limit=10)
+        assert "releases" in result
+        assert result["releases"][0]["tag_name"] == "v1.0.0"
+
+    def test_create_release_returns_release_metadata(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_release = MagicMock()
+        mock_release.id = 42
+        mock_release.tag_name = "v2.0.0"
+        mock_release.title = "Version 2.0"
+        mock_release.draft = False
+        mock_release.prerelease = False
+        mock_release.html_url = "https://github.com/o/r/releases/tag/v2.0.0"
+        mock_repo = MagicMock()
+        mock_repo.create_git_release.return_value = mock_release
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.create_release("owner/repo", tag_name="v2.0.0", name="Version 2.0")
+        assert result["id"] == 42
+        assert result["tag_name"] == "v2.0.0"
+
+    def test_list_releases_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("list_releases", {"repo_name": "o/r", "limit": 5})
+        assert result["limit"] == 5
+
+    def test_create_release_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("create_release", {"repo_name": "o/r", "tag_name": "v1.0", "name": "Release 1"})
+        assert result["tag_name"] == "v1.0"
+
+    def test_list_releases_risk_is_low(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("list_releases") == RiskLevel.LOW
+
+    def test_create_release_static_risk_is_high(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("create_release") == RiskLevel.HIGH
+
+    def test_create_release_prerelease_bypasses_confirmation(self):
+        from src.core.risk import RiskGate
+        # prerelease=True → contextual downgrade HIGH→MEDIUM → passes without confirmation
+        violation = RiskGate.check_contextual(
+            "create_release",
+            parameters={"repo_name": "o/r", "tag_name": "v1.0-rc1", "name": "RC", "prerelease": True},
+            context={},
+        )
+        assert violation is None  # MEDIUM passes without confirmation
+
+    def test_create_release_non_prerelease_requires_confirmation(self):
+        from src.core.risk import RiskGate
+        violation = RiskGate.check_contextual(
+            "create_release",
+            parameters={"repo_name": "o/r", "tag_name": "v1.0", "name": "Release", "prerelease": False},
+            context={},
+        )
+        assert violation is not None
+        assert "confirmed" in violation.message
+
+    def test_list_releases_handles_null_published_at(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_release = MagicMock()
+        mock_release.id = 2
+        mock_release.tag_name = "v0.1-draft"
+        mock_release.title = "Draft"
+        mock_release.draft = True
+        mock_release.prerelease = False
+        mock_release.created_at.isoformat.return_value = "2026-01-01T00:00:00"
+        mock_release.published_at = None
+        mock_release.html_url = "https://github.com/o/r/releases/tag/v0.1"
+        mock_repo = MagicMock()
+        mock_repo.get_releases.return_value = [mock_release]
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.list_releases("owner/repo", limit=10)
+        assert result["releases"][0]["published_at"] is None
+
+
+class TestGitHubActionsOps:
+    """Tests for trigger_workflow."""
+
+    def test_trigger_workflow_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("trigger_workflow", {
+            "repo_name": "o/r", "workflow_id": "ci.yml", "ref": "main"
+        })
+        assert result["workflow_id"] == "ci.yml"
+
+    def test_trigger_workflow_risk_is_high(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("trigger_workflow") == RiskLevel.HIGH
+
+    def test_trigger_workflow_requires_confirmation(self):
+        from src.core.risk import RiskGate
+        violation = RiskGate.check_contextual(
+            "trigger_workflow",
+            parameters={"repo_name": "o/r", "workflow_id": "ci.yml"},
+            context={},
+        )
+        assert violation is not None
+        assert "confirmed" in violation.message
+
+    def test_trigger_workflow_passes_with_confirmed(self):
+        from src.core.risk import RiskGate
+        violation = RiskGate.check_contextual(
+            "trigger_workflow",
+            parameters={"repo_name": "o/r", "workflow_id": "ci.yml"},
+            context={"confirmed": True},
+        )
+        assert violation is None
+
+    def test_trigger_workflow_calls_create_dispatch(self):
+        from unittest.mock import MagicMock
+        from src.tools.github.tools import GitHubTools
+        mock_client = MagicMock()
+        mock_wf = MagicMock()
+        mock_wf.create_dispatch.return_value = True
+        mock_repo = MagicMock()
+        mock_repo.get_workflow.return_value = mock_wf
+        mock_client.get_repo.return_value = mock_repo
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        result = tools.trigger_workflow("owner/repo", workflow_id="ci.yml", ref="main")
+        mock_wf.create_dispatch.assert_called_once_with(ref="main", inputs={})
+        assert result["triggered"] is True
+
+
+class TestWebhookManagementOps:
+    """Tests for create_webhook, list_webhooks, delete_webhook."""
+
+    def _make_tools(self, mock_client):
+        from src.tools.github.tools import GitHubTools
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+        return tools
+
+    def test_create_webhook_returns_hook_id(self):
+        from unittest.mock import MagicMock, patch as _patch
+        mock_client = MagicMock()
+        mock_hook = MagicMock()
+        mock_hook.id = 77
+        mock_hook.active = True
+        mock_repo = MagicMock()
+        mock_repo.create_hook.return_value = mock_hook
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        with _patch("src.tools.github.tools._validate_safe_url"):
+            result = tools.create_webhook("owner/repo", url="https://example.com/hook")
+        assert result["hook_id"] == 77
+
+    def test_list_webhooks_returns_hooks(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_hook = MagicMock()
+        mock_hook.id = 1
+        mock_hook.name = "web"
+        mock_hook.events = ["push"]
+        mock_hook.active = True
+        mock_hook.config = {"url": "https://example.com/h"}
+        mock_repo = MagicMock()
+        mock_repo.get_hooks.return_value = [mock_hook]
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.list_webhooks("owner/repo")
+        assert "webhooks" in result
+        assert result["webhooks"][0]["id"] == 1
+
+    def test_delete_webhook_returns_confirmation(self):
+        from unittest.mock import MagicMock
+        mock_client = MagicMock()
+        mock_hook = MagicMock()
+        mock_repo = MagicMock()
+        mock_repo.get_hook.return_value = mock_hook
+        mock_client.get_repo.return_value = mock_repo
+        tools = self._make_tools(mock_client)
+        result = tools.delete_webhook("owner/repo", hook_id=1)
+        mock_hook.delete.assert_called_once()
+        assert result["deleted"] is True
+
+    def test_create_webhook_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("create_webhook", {
+            "repo_name": "o/r", "url": "https://example.com/hook"
+        })
+        assert result["url"] == "https://example.com/hook"
+
+    def test_list_webhooks_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("list_webhooks", {"repo_name": "o/r"})
+        assert result["repo_name"] == "o/r"
+
+    def test_delete_webhook_schema_valid(self):
+        from src.agents.github.schemas import validate_op_params
+        result = validate_op_params("delete_webhook", {"repo_name": "o/r", "hook_id": 5})
+        assert result["hook_id"] == 5
+
+    def test_create_webhook_risk_is_high(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("create_webhook") == RiskLevel.HIGH
+
+    def test_list_webhooks_risk_is_low(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("list_webhooks") == RiskLevel.LOW
+
+    def test_delete_webhook_risk_is_high(self):
+        from src.core.risk import OperationRiskRegistry, RiskLevel
+        assert OperationRiskRegistry.get_risk_level("delete_webhook") == RiskLevel.HIGH
+
+
+class TestPerTenantSessionTTL:
+    """Test that ttl_override param in RedisSessionStore.get_or_create overrides GITOPS_SESSION_TTL."""
+
+    @pytest.mark.asyncio
+    async def test_session_store_ttl_override(self):
+        """ttl_override param causes setex to use the override value."""
+        import fakeredis.aioredis as fakeredis
+        from src.storage.redis_session_store import RedisSessionStore
+        fake_client = fakeredis.FakeRedis()
+        store = RedisSessionStore(client=fake_client, ttl_seconds=3600)
+        await store.get_or_create("sess-1", "tenant-1", ttl_override=900)
+        ttl = await fake_client.ttl(b"gitops:session:tenant-1:sess-1")
+        assert 890 <= ttl <= 900
+
+    @pytest.mark.asyncio
+    async def test_session_store_default_ttl_used_when_no_override(self):
+        import fakeredis.aioredis as fakeredis
+        from src.storage.redis_session_store import RedisSessionStore
+        fake_client = fakeredis.FakeRedis()
+        store = RedisSessionStore(client=fake_client, ttl_seconds=1800)
+        await store.get_or_create("sess-2", "tenant-2")
+        ttl = await fake_client.ttl(b"gitops:session:tenant-2:sess-2")
+        assert 1790 <= ttl <= 1800

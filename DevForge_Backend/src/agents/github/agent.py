@@ -198,6 +198,11 @@ Available Operations:
 - list_repos: List user repositories
 - create_repo: Create a new repository
 - create_issue: Create an issue in a repository (can parse from error_log if provided)
+- close_issue: Close an existing issue by number in a repository
+- update_issue: Update an issue's title, body, state, labels, or assignees
+- add_comment: Add a comment to an existing issue
+- list_commits: List commits in a repository for a specific branch
+- get_commit: Get details of a specific commit by SHA
 - commit_file: Commit/update a file in a repository (can auto-generate message if diff provided)
 - create_pull_request: Create a pull request
 - scaffold_repo: create repository from template, scaffold new project with CI/CD
@@ -210,6 +215,12 @@ Available Operations:
 - create_branch: create a new branch in a repository
 - delete_branch: delete a branch from a repository (HIGH risk — will be blocked without confirmation)
 - delete_repo: permanently delete an entire repository (CRITICAL risk — requires confirmation + reason)
+- list_releases: List GitHub releases for a repository
+- create_release: Create a new GitHub release with a tag
+- trigger_workflow: Trigger a GitHub Actions workflow dispatch event
+- create_webhook: Create a webhook for a repository to receive GitHub events
+- list_webhooks: List all webhooks configured for a repository
+- delete_webhook: Delete a webhook from a repository
 
 Respond with ONLY a JSON object in this exact format (no markdown, no explanation):
 {{
@@ -223,6 +234,11 @@ Respond with ONLY a JSON object in this exact format (no markdown, no explanatio
 For list_repos, parameters can include: visibility, sort, limit
 For create_repo, parameters must include: name, and can include: description, private
 For create_issue, parameters must include: repo_name, title, and can include: body, labels, assignees
+For close_issue, parameters must include: repo_name, issue_number
+For update_issue, parameters must include: repo_name, issue_number, and can include: title, body, state, labels, assignees
+For add_comment, parameters must include: repo_name, issue_number, body
+For list_commits, parameters must include: repo_name, and can include: branch, limit, author, since, until
+For get_commit, parameters must include: repo_name, sha
 - For commit_file, parameters must include: repo_name, commit_message, and can include: file_path, content, branch. (Intelligence will try to find the file if file_path or content the user is thinking of is an uploaded file).
 For create_pull_request, parameters must include: repo_name, title, head, and can include: base, body, draft
 For scaffold_repo, parameters must include: name, template, and can include: description, private, force
@@ -235,6 +251,12 @@ For list_branches, parameters must include: repo_name
 For create_branch, parameters must include: repo_name, branch_name, and can include: from_branch (default: "main")
 For delete_branch, parameters must include: repo_name, branch_name
 For delete_repo, parameters must include: repo_name in EXACT 'owner/repo' format. Never infer or abbreviate the repo name.
+For list_releases, parameters must include: repo_name, and can include: limit
+For create_release, parameters must include: repo_name, tag_name, name, and can include: body, draft, prerelease, target_commitish
+For trigger_workflow, parameters must include: repo_name, workflow_id, and can include: ref, inputs
+For create_webhook, parameters must include: repo_name, url, and can include: events, content_type, active, secret
+For list_webhooks, parameters must include: repo_name
+For delete_webhook, parameters must include: repo_name, hook_id
 
 Important: Include a confidence score (0.0 to 1.0) indicating how confident you are in the classification.
 Extract all relevant parameters from the user request."""
@@ -1015,6 +1037,71 @@ async def execute_github_operation(state: GitHubState) -> GitHubState:
             elif operation == "merge_pr":
                 return await loop.run_in_executor(
                     None, lambda: gh_tools.merge_pr(**parameters)
+                )
+
+            elif operation == "list_pull_requests":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.list_pull_requests(**parameters)
+                )
+
+            elif operation == "get_pr":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.get_pr(**parameters)
+                )
+
+            elif operation == "close_issue":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.close_issue(**parameters)
+                )
+
+            elif operation == "update_issue":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.update_issue(**parameters)
+                )
+
+            elif operation == "add_comment":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.add_comment(**parameters)
+                )
+
+            elif operation == "list_commits":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.list_commits(**parameters)
+                )
+
+            elif operation == "get_commit":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.get_commit(**parameters)
+                )
+
+            elif operation == "list_releases":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.list_releases(**parameters)
+                )
+
+            elif operation == "create_release":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.create_release(**parameters)
+                )
+
+            elif operation == "trigger_workflow":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.trigger_workflow(**parameters)
+                )
+
+            elif operation == "create_webhook":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.create_webhook(**parameters)
+                )
+
+            elif operation == "list_webhooks":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.list_webhooks(**parameters)
+                )
+
+            elif operation == "delete_webhook":
+                return await loop.run_in_executor(
+                    None, lambda: gh_tools.delete_webhook(**parameters)
                 )
 
             elif operation == "scaffold_repo":

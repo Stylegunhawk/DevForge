@@ -20,9 +20,9 @@ class RiskLevel(Enum):
     CRITICAL = "critical"
 
 
-# Severity ordering for RiskLevel — used by contextual risk escalation logic.
-# Contextual rules can only ESCALATE risk, never downgrade it.
-# max(static, contextual, key=_RISK_ORDER.get) always returns the higher level.
+# Severity ordering for RiskLevel — used by contextual risk level comparison.
+# Contextual rules typically escalate risk; exceptions (e.g. create_release prerelease
+# downgrade) are explicitly documented in _get_contextual_risk_level.
 _RISK_ORDER: dict["RiskLevel", int] = {
     RiskLevel.LOW: 0,
     RiskLevel.MEDIUM: 1,
@@ -53,6 +53,8 @@ class OperationRiskRegistry:
         "generate_changelog": RiskLevel.LOW,
         "analyze_ci_failure": RiskLevel.LOW,
         "list_branches": RiskLevel.LOW,
+        "list_pull_requests": RiskLevel.LOW,
+        "get_pr": RiskLevel.LOW,
         
         # Write Operations - MEDIUM
         "create_issue": RiskLevel.MEDIUM,
@@ -70,7 +72,17 @@ class OperationRiskRegistry:
         # Rollback Matrix Operations
         "commit": RiskLevel.MEDIUM,
         "close_issue": RiskLevel.MEDIUM,
-        
+        "update_issue": RiskLevel.MEDIUM,
+        "add_comment": RiskLevel.LOW,
+        "list_commits": RiskLevel.LOW,
+        "get_commit": RiskLevel.LOW,
+        "list_releases": RiskLevel.LOW,
+        "create_release": RiskLevel.HIGH,
+        "trigger_workflow": RiskLevel.HIGH,
+        "create_webhook": RiskLevel.HIGH,
+        "list_webhooks": RiskLevel.LOW,
+        "delete_webhook": RiskLevel.HIGH,
+
         # Critical Operations - CRITICAL
         "delete_repo": RiskLevel.CRITICAL,
         "force_push": RiskLevel.CRITICAL,  # Protected branch
@@ -221,6 +233,11 @@ class RiskGate:
                 return RiskLevel.HIGH
             return None  # keep MEDIUM default
 
+        if operation == "create_release":
+            if parameters.get("prerelease") is True:
+                return RiskLevel.MEDIUM
+            return None  # keep HIGH default
+
         return None
 
     @classmethod
@@ -231,16 +248,17 @@ class RiskGate:
     ) -> RiskLevel:
         """Resolve the effective risk level for an operation+parameters pair.
 
-        Contextual override can only escalate the static registry level — never
-        downgrade. Used by the escalation logger to know the operation's actual
-        risk after the gate has passed (the gate itself only reports failures).
+        Uses the contextual override directly when present, matching check_contextual.
+        This means contextual rules can both escalate (merge_pr to main → HIGH) and
+        intentionally downgrade (create_release prerelease=True → MEDIUM from HIGH).
+        Used by the escalation logger to report the actual enforced risk level.
         """
         parameters = parameters or {}
         static_risk = OperationRiskRegistry.get_risk_level(operation)
         contextual_override = cls._get_contextual_risk_level(operation, parameters)
-        if contextual_override is None:
-            return static_risk
-        return max(static_risk, contextual_override, key=lambda r: _RISK_ORDER[r])
+        if contextual_override is not None:
+            return contextual_override
+        return static_risk
 
     @classmethod
     def check_contextual(
@@ -273,13 +291,13 @@ class RiskGate:
         except ValueError as e:
             raise ValueError(f"Risk validation failed: {e}")
 
-        # Compute effective risk: contextual can ONLY escalate, never downgrade.
-        # Invariant: effective_risk >= static_risk always.
-        # Example: static=MEDIUM, contextual=CRITICAL → effective=CRITICAL ✅
-        #          static=HIGH,   contextual=MEDIUM   → effective=HIGH   ✅ (no downgrade)
+        # Compute effective risk: the contextual override replaces the static risk
+        # when present. For most operations the override only escalates risk
+        # (e.g. delete_branch of "main" → CRITICAL). A downgrade is intentional
+        # for operations like create_release where prerelease=True is lower-risk.
         contextual_override = cls._get_contextual_risk_level(operation, parameters)
         if contextual_override is not None:
-            risk_level = max(static_risk, contextual_override, key=lambda r: _RISK_ORDER[r])
+            risk_level = contextual_override
         else:
             risk_level = static_risk
 

@@ -34,9 +34,9 @@ def test_load_seed_python_beginner_pack(loader):
 
 
 def test_load_missing_skill_pack_raises(loader):
-    # python/intermediate.yaml doesn't exist in the seed
+    # python/advanced.yaml doesn't exist (only beginner, intermediate, expert)
     with pytest.raises(PackNotFoundError):
-        loader.load_language_pack("python", "intermediate")
+        loader.load_language_pack("python", "advanced")
 
 
 def test_load_unsupported_language_raises(loader):
@@ -51,5 +51,5 @@ def test_l2_cache_returns_same_object(loader):
 
 
 def test_load_library_pack_missing_returns_none(loader):
-    # No library packs exist yet in the seed
-    assert loader.load_library_pack("pandas", "beginner") is None
+    # Library pack for non-existent library returns None
+    assert loader.load_library_pack("nonexistent_library_xyz", "beginner") is None

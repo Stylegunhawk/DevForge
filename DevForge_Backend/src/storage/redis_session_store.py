@@ -33,18 +33,20 @@ class RedisSessionStore:
         session_id: str,
         tenant_id: str,
         initial: Optional[Dict[str, Any]] = None,
+        ttl_override: Optional[int] = None,
     ) -> Dict[str, Any]:
         if not tenant_id:
             raise ValueError("tenant_id is required for Redis-backed stores")
+        ttl = ttl_override if ttl_override is not None else self._ttl
         key = tenant_key("session", tenant_id, session_id)
         existing = await self._client.get(key)
         if existing is not None:
             # Refresh sliding TTL on read
-            await self._client.expire(key, self._ttl)
+            await self._client.expire(key, ttl)
             return loads(existing)
         seed = dict(initial or {})
         seed.setdefault("created_at", datetime.now().isoformat())
-        await self._client.set(key, dumps(seed), ex=self._ttl)
+        await self._client.set(key, dumps(seed), ex=ttl)
         return seed
 
     async def get(self, session_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:

@@ -23,6 +23,50 @@ from github.GithubObject import NotSet
 logger = logging.getLogger(__name__)
 
 
+# === Error Enrichment ===
+
+_SCOPE_MAP: Dict[str, List[str]] = {
+    "delete_repo":         ["delete_repo", "repo"],
+    "create_repo":         ["repo"],
+    "commit_file":         ["repo"],
+    "create_pull_request": ["repo"],
+    "merge_pr":            ["repo"],
+    "create_branch":       ["repo"],
+    "delete_branch":       ["repo"],
+    "create_issue":        ["repo"],
+    "close_issue":         ["repo"],
+    "update_issue":        ["repo"],
+    "add_comment":         ["repo"],
+    "create_release":      ["repo"],
+    "create_webhook":      ["write:repo_hook"],
+    "delete_webhook":      ["write:repo_hook"],
+    "trigger_workflow":    ["workflow"],
+}
+
+
+def _enrich_github_error(exc: "GithubException", operation: str) -> str:
+    """Convert raw PyGithub exceptions into actionable error messages."""
+    status = getattr(exc, "status", None)
+    data = getattr(exc, "data", {}) or {}
+    raw_msg = data.get("message", str(exc)) if isinstance(data, dict) else str(exc)
+    if status == 403:
+        scopes = _SCOPE_MAP.get(operation, ["repo"])
+        scope_str = ", ".join(scopes)
+        return (
+            f"GitHub permission denied for '{operation}'. "
+            f"Your PAT needs these scopes: [{scope_str}]. "
+            f"Re-generate at https://github.com/settings/tokens/new"
+        )
+    if status == 404:
+        return (
+            f"Resource not found for '{operation}'. "
+            f"Check repo_name format (must be 'owner/repo')."
+        )
+    if status == 422:
+        return f"GitHub validation error for '{operation}': {raw_msg}"
+    return f"GitHub API error {status} for '{operation}': {raw_msg}"
+
+
 def _validate_safe_url(url: str) -> None:
     """SSRF guard. Reject non-http(s) schemes and URLs resolving to private,
     loopback, link-local, or multicast IPs (IPv4 and IPv6).
@@ -217,7 +261,8 @@ class GitHubTools:
         self,
         visibility: str = "all",
         sort: str = "updated",
-        limit: int = 10
+        limit: int = 10,
+        page: int = 1,
     ) -> List[Dict[str, Any]]:
         """List user repositories.
         
@@ -235,10 +280,8 @@ class GitHubTools:
                 visibility=visibility,
                 sort=sort
             )
-            
-            # Fetch slice immediately to force API call for timing measurement if lazy
+            fetched_repos = repos.get_page(page - 1)[:limit]
             result = []
-            fetched_repos = list(repos[:limit])
             api_duration = time.time() - start_time
             
             for repo in fetched_repos:
@@ -667,6 +710,410 @@ class GitHubTools:
             )
             raise
 
+    # === PR Inspection Operations ===
+
+    @handle_rate_limits
+    def list_pull_requests(
+        self,
+        repo_name: str,
+        state: str = "open",
+        base: Optional[str] = None,
+        head: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        try:
+            repo = self.client.get_repo(repo_name)
+            kwargs: Dict[str, Any] = {"state": state}
+            if base:
+                kwargs["base"] = base
+            if head:
+                kwargs["head"] = head
+            prs = repo.get_pulls(**kwargs)
+            results = []
+            for pr in prs:
+                if len(results) >= limit:
+                    break
+                results.append({
+                    "number": pr.number,
+                    "title": pr.title,
+                    "state": pr.state,
+                    "author": pr.user.login,
+                    "head": pr.head.ref,
+                    "base": pr.base.ref,
+                    "draft": pr.draft,
+                    "url": pr.html_url,
+                })
+            return {"pull_requests": results, "count": len(results), "repo": repo_name}
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "list_pull_requests"))
+
+    @handle_rate_limits
+    def get_pr(self, repo_name: str, pr_number: int) -> Dict[str, Any]:
+        try:
+            repo = self.client.get_repo(repo_name)
+            pr = repo.get_pull(pr_number)
+            return {
+                "number": pr.number,
+                "title": pr.title,
+                "state": pr.state,
+                "author": pr.user.login,
+                "head": pr.head.ref,
+                "base": pr.base.ref,
+                "draft": pr.draft,
+                "mergeable": pr.mergeable,
+                "body": pr.body,
+                "labels": [label.name for label in (pr.labels or [])],
+                "assignees": [a.login for a in (pr.assignees or [])],
+                "reviewers": [r.login for r in (pr.requested_reviewers or [])],
+                "commits": pr.commits,
+                "additions": pr.additions,
+                "deletions": pr.deletions,
+                "changed_files": pr.changed_files,
+                "created_at": pr.created_at.isoformat(),
+                "updated_at": pr.updated_at.isoformat(),
+                "url": pr.html_url,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "get_pr"))
+
+    # === Issue Management Operations ===
+
+    @handle_rate_limits
+    def close_issue(self, repo_name: str, issue_number: int) -> Dict[str, Any]:
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+            issue.edit(state="closed")
+            return {
+                "closed": True,
+                "issue_number": issue_number,
+                "repo": repo_name,
+                "url": issue.html_url,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "close_issue"))
+
+    @handle_rate_limits
+    def update_issue(
+        self,
+        repo_name: str,
+        issue_number: int,
+        title: Optional[str] = None,
+        body: Optional[str] = None,
+        state: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        assignees: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+            kwargs: Dict[str, Any] = {}
+            if title is not None:
+                kwargs["title"] = title
+            if body is not None:
+                kwargs["body"] = body
+            if state is not None:
+                kwargs["state"] = state
+            if labels is not None:
+                kwargs["labels"] = labels
+            if assignees is not None:
+                kwargs["assignees"] = assignees
+            issue.edit(**kwargs)
+            return {
+                "updated": True,
+                "issue_number": issue_number,
+                "repo": repo_name,
+                "url": issue.html_url,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "update_issue"))
+
+    @handle_rate_limits
+    def add_comment(self, repo_name: str, issue_number: int, body: str) -> Dict[str, Any]:
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            issue = repo.get_issue(issue_number)
+            comment = issue.create_comment(body)
+            return {
+                "comment_id": comment.id,
+                "url": comment.html_url,
+                "issue_number": issue_number,
+                "repo": repo_name,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "add_comment"))
+
+    # === Commit History Operations ===
+
+    @handle_rate_limits
+    def list_commits(
+        self,
+        repo_name: str,
+        branch: str = "main",
+        limit: int = 20,
+        author: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            kwargs: Dict[str, Any] = {"sha": branch}
+            if author:
+                kwargs["author"] = author
+            if since:
+                kwargs["since"] = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            if until:
+                kwargs["until"] = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            commits_iter = repo.get_commits(**kwargs)
+            results = []
+            for commit in commits_iter:
+                if len(results) >= limit:
+                    break
+                results.append({
+                    "sha": commit.sha,
+                    "message": commit.commit.message,
+                    "author": commit.commit.author.name,
+                    "date": commit.commit.author.date.isoformat(),
+                    "url": commit.html_url,
+                })
+            return {"commits": results, "count": len(results), "branch": branch, "repo": repo_name}
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "list_commits"))
+
+    @handle_rate_limits
+    def get_commit(self, repo_name: str, sha: str) -> Dict[str, Any]:
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            commit = repo.get_commit(sha)
+            raw_files = list(commit.files)  # materialise once (GitHub caps at 300)
+            return {
+                "sha": commit.sha,
+                "message": commit.commit.message,
+                "author": commit.commit.author.name,
+                "author_email": commit.commit.author.email,
+                "date": commit.commit.author.date.isoformat(),
+                "files": [
+                    {
+                        "filename": f.filename,
+                        "status": f.status,
+                        "additions": f.additions,
+                        "deletions": f.deletions,
+                    }
+                    for f in raw_files[:100]
+                ],
+                "files_truncated": len(raw_files) > 100,
+                "stats": {
+                    "additions": commit.stats.additions,
+                    "deletions": commit.stats.deletions,
+                    "total": commit.stats.total,
+                },
+                "url": commit.html_url,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "get_commit"))
+
+    # === Release Management Operations ===
+
+    @handle_rate_limits
+    def list_releases(self, repo_name: str, limit: int = 10) -> Dict[str, Any]:
+        """List GitHub releases for a repository.
+
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+            limit: Maximum number of releases to return (default: 10)
+
+        Returns:
+            Dict with releases list and count
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            results = []
+            for release in repo.get_releases():
+                if len(results) >= limit:
+                    break
+                results.append({
+                    "id": release.id,
+                    "tag_name": release.tag_name,
+                    "name": release.title,
+                    "draft": release.draft,
+                    "prerelease": release.prerelease,
+                    "created_at": release.created_at.isoformat(),
+                    "published_at": release.published_at.isoformat() if release.published_at else None,
+                    "url": release.html_url,
+                })
+            return {"releases": results, "count": len(results), "repo": repo_name}
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "list_releases"))
+
+    @handle_rate_limits
+    def create_release(
+        self,
+        repo_name: str,
+        tag_name: str,
+        name: str,
+        body: str = "",
+        draft: bool = False,
+        prerelease: bool = False,
+        target_commitish: str = "main",
+    ) -> Dict[str, Any]:
+        """Create a new GitHub release with a tag.
+
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+            tag_name: Tag name for the release (e.g. 'v1.0.0')
+            name: Release title
+            body: Release notes / description
+            draft: Create as a draft release
+            prerelease: Mark as a pre-release
+            target_commitish: Branch or commit SHA to tag (default: 'main')
+
+        Returns:
+            Created release metadata
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            release = repo.create_git_release(
+                tag=tag_name,
+                name=name,
+                message=body,
+                draft=draft,
+                prerelease=prerelease,
+                target_commitish=target_commitish,
+            )
+            return {
+                "id": release.id,
+                "tag_name": release.tag_name,
+                "name": release.title,
+                "draft": release.draft,
+                "prerelease": release.prerelease,
+                "url": release.html_url,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "create_release"))
+
+    # === GitHub Actions Operations ===
+
+    @handle_rate_limits
+    def trigger_workflow(
+        self,
+        repo_name: str,
+        workflow_id: str,
+        ref: str = "main",
+        inputs: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Trigger a GitHub Actions workflow dispatch event.
+
+        Args:
+            repo_name: Repository name (format: 'owner/repo' or just 'repo')
+            workflow_id: Workflow filename (e.g. 'ci.yml') or numeric ID string
+            ref: Branch or tag ref to trigger the workflow on (default: 'main')
+            inputs: Optional key/value inputs for the workflow_dispatch event
+
+        Returns:
+            Dict with triggered status, workflow_id, ref, inputs, and repo
+        """
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            # workflow_id can be a filename ("ci.yml") or numeric ID string
+            try:
+                wf = repo.get_workflow(int(workflow_id))
+            except (ValueError, TypeError):
+                wf = repo.get_workflow(workflow_id)
+            result = wf.create_dispatch(ref=ref, inputs=inputs or {})
+            return {
+                "triggered": result,
+                "workflow_id": workflow_id,
+                "ref": ref,
+                "inputs": inputs,
+                "repo": repo_name,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "trigger_workflow"))
+
+    # === Webhook Management Operations ===
+
+    @handle_rate_limits
+    def create_webhook(
+        self,
+        repo_name: str,
+        url: str,
+        events: Optional[List[str]] = None,
+        content_type: str = "json",
+        active: bool = True,
+        secret: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        _validate_safe_url(url)  # SSRF guard — same as commit_file.file_url
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            config: Dict[str, Any] = {"url": url, "content_type": content_type}
+            if secret:
+                config["secret"] = secret
+            hook = repo.create_hook(
+                name="web",
+                config=config,
+                events=events or ["push"],
+                active=active,
+            )
+            return {
+                "hook_id": hook.id,
+                "url": url,
+                "events": events or ["push"],
+                "active": hook.active,
+                "repo": repo_name,
+            }
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "create_webhook"))
+
+    @handle_rate_limits
+    def list_webhooks(self, repo_name: str) -> Dict[str, Any]:
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            results = []
+            for hook in repo.get_hooks():
+                config = hook.config or {}
+                results.append({
+                    "id": hook.id,
+                    "name": hook.name,
+                    "events": list(hook.events),
+                    "active": hook.active,
+                    "url": config.get("url", ""),
+                })
+            return {"webhooks": results, "count": len(results), "repo": repo_name}
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "list_webhooks"))
+
+    @handle_rate_limits
+    def delete_webhook(self, repo_name: str, hook_id: int) -> Dict[str, Any]:
+        try:
+            if '/' not in repo_name:
+                repo_name = f"{self.user.login}/{repo_name}"
+            repo = self.client.get_repo(repo_name)
+            hook = repo.get_hook(hook_id)
+            hook.delete()
+            return {"deleted": True, "hook_id": hook_id, "repo": repo_name}
+        except GithubException as e:
+            raise ValueError(_enrich_github_error(e, "delete_webhook"))
+
     @handle_rate_limits
     def browse_files(
         self,
@@ -792,7 +1239,12 @@ class GitHubTools:
                     "url": item.html_url,
                 })
 
-            return result_list
+            return {
+                "results": result_list,
+                "count": len(result_list),
+                "query": query,
+                "note": "GitHub code search indexes with 30–60s lag for newly pushed content.",
+            }
         except Exception as e:
             if "404" in str(e):
                 raise ValueError(f"Repository '{repo_name}' not found for code search.")
@@ -999,11 +1451,12 @@ def list_repos(
     token: Optional[str] = None,
     visibility: str = "all",
     sort: str = "updated",
-    limit: int = 10
+    limit: int = 10,
+    page: int = 1
 ) -> List[Dict[str, Any]]:
     """List user repositories (convenience wrapper)."""
     tools = GitHubTools(token=token)
-    return tools.list_repos(visibility=visibility, sort=sort, limit=limit)
+    return tools.list_repos(visibility=visibility, sort=sort, limit=limit, page=page)
 
 
 def create_repo(
