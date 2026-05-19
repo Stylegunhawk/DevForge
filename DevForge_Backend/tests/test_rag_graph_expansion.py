@@ -137,7 +137,7 @@ def test_chat_file_chunk_serialization_includes_graph_fields():
 
 
 def test_semantic_search_response_expansion_count_counts_expanded():
-    """Verify expansion_count counts only is_graph_expansion=True chunks."""
+    """Verify the expansion_count computation matches is_graph_expansion flags."""
     from src.api.schemas.rag import ChatFileChunk, SemanticSearchResponse
 
     def make_chunk(is_graph: bool) -> ChatFileChunk:
@@ -147,9 +147,14 @@ def test_semantic_search_response_expansion_count_counts_expanded():
             is_graph_expansion=is_graph
         )
 
+    chunks = [make_chunk(False), make_chunk(True), make_chunk(True)]
+    # Simulate the router's computation
+    computed_count = sum(1 for c in chunks if c.is_graph_expansion)
+
     resp = SemanticSearchResponse(
-        chunks=[make_chunk(False), make_chunk(True), make_chunk(True)],
+        chunks=chunks,
         queryId="q1",
-        expansion_count=2
+        expansion_count=computed_count,
     )
     assert resp.expansion_count == 2
+    assert computed_count == 2
