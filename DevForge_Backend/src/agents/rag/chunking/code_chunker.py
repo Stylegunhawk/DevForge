@@ -235,30 +235,38 @@ class CodeChunker(BaseChunker):
             lang_obj = get_language(language)
             query = lang_obj.query(query_str)
             captures = query.captures(root)
-            
-            for node, _ in captures:
-                start_byte = node.start_byte
-                end_byte = node.end_byte
-                import_text = content[start_byte:end_byte]
-                
-                # Parse import symbols to populate the imports field
-                imported_symbols = self._extract_imported_symbols(import_text, language)
-                
-                metadata = ChunkMetadata(
-                    chunk_type="import",
-                    name="imports",
-                    language=language,
-                    source=file_path,
-                    start_line=node.start_point[0] + 1,
-                    end_line=node.end_point[0] + 1,
-                    imports=list(imported_symbols),  # Fix: Populate with actual symbols
-                )
-                
-                # DEBUG: Log types right after ChunkMetadata creation
-                logger.info(f"[IMPORT_METADATA_DEBUG] After ChunkMetadata creation - imports type: {type(metadata.imports)}, value: {metadata.imports}")
-                
-                chunks.append(self._create_chunk_dict(import_text, metadata))
-        
+
+            # Collect all import nodes then emit ONE chunk per file.
+            # Each import statement must not be its own chunk — that floods the
+            # result set with low-signal lines and pushes class/function chunks
+            # past the default chunksPerFile() window.
+            import_nodes = [node for node, _ in captures]
+            if not import_nodes:
+                return []
+
+            all_symbols: Set[str] = set()
+            import_lines: List[str] = []
+            for node in import_nodes:
+                text = content[node.start_byte:node.end_byte]
+                import_lines.append(text)
+                all_symbols.update(self._extract_imported_symbols(text, language))
+
+            combined_text = "\n".join(import_lines)
+            first_node = import_nodes[0]
+            last_node = import_nodes[-1]
+
+            metadata = ChunkMetadata(
+                chunk_type="import",
+                name="imports",
+                language=language,
+                source=file_path,
+                start_line=first_node.start_point[0] + 1,
+                end_line=last_node.end_point[0] + 1,
+                imports=list(all_symbols),
+            )
+            logger.info(f"[IMPORT_METADATA_DEBUG] Single import chunk: {len(import_nodes)} statements, {len(all_symbols)} symbols")
+            chunks.append(self._create_chunk_dict(combined_text, metadata))
+
         except Exception as e:
             logger.debug(f"Import extraction failed: {e}")
         

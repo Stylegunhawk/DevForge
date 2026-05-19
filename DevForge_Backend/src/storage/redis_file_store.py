@@ -95,9 +95,12 @@ class RedisFileStore:
     async def delete_file_metadata(self, file_id: str) -> None:
         """Delete file metadata and reverse lookup"""
         metadata = await self.get_file_metadata(file_id)
-        if metadata and "url" in metadata:
-            await self.client.delete(f"path:{metadata['url']}")
-        
+        if metadata:
+            if "url" in metadata:
+                await self.client.delete(f"path:{metadata['url']}")
+            if "diskPath" in metadata:
+                await self.client.delete(f"path:{metadata['diskPath']}")
+
         await self.client.delete(f"file:{file_id}")
     
     async def get_all_files_for_tenant(self, tenant_id: str) -> List[Dict]:

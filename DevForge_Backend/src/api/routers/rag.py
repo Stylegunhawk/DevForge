@@ -65,8 +65,8 @@ async def upload_files(
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         safe_filename = f"{file_id}_{file.filename}"
-        file_path = upload_dir / safe_filename
-        
+        file_path = (upload_dir / safe_filename).resolve()
+
         # Save file to disk
         content = await file.read()
         with open(file_path, "wb") as f:
