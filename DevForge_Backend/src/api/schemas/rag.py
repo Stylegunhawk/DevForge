@@ -60,6 +60,10 @@ class ChatFileChunk(BaseModel):
     # Phase 13: Context Roles (entry, dependency, supporting)
     role: Optional[str] = "supporting"  # Default to supporting if missing
 
+    # Phase 12A: Graph expansion provenance
+    is_graph_expansion: bool = False
+    expanded_from: Optional[str] = None
+
 # ============================================================================
 # 5. SEMANTIC SEARCH (Request + Response)
 # ============================================================================
@@ -78,6 +82,7 @@ class SemanticSearchResponse(BaseModel):
     """Response for semantic search"""
     chunks: List[ChatFileChunk]
     queryId: Optional[str] = None  # For tracking/deletion
+    expansion_count: int = 0
 
 # ============================================================================
 # 6. UPLOAD RESPONSE

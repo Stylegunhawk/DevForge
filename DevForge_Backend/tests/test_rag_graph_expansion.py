@@ -74,3 +74,44 @@ async def test_expand_with_graph_context_sets_expanded_from():
     assert results[0]["expanded_from"] == f"{tenant_id}::auth.py::authenticate"
     assert results[0]["is_graph_expansion"] is True
     assert results[0]["id"] == "chunk-validate-token"
+
+
+def test_chat_file_chunk_has_graph_fields():
+    from src.api.schemas.rag import ChatFileChunk
+    chunk = ChatFileChunk(
+        id="c1",
+        fileId="f1",
+        filename="auth.py",
+        fileType="text/plain",
+        fileUrl="http://example.com/auth.py",
+        text="def authenticate(): pass",
+        similarity=0.65,
+    )
+    assert hasattr(chunk, "is_graph_expansion")
+    assert hasattr(chunk, "expanded_from")
+    assert chunk.is_graph_expansion is False
+    assert chunk.expanded_from is None
+
+
+def test_chat_file_chunk_graph_fields_set():
+    from src.api.schemas.rag import ChatFileChunk
+    chunk = ChatFileChunk(
+        id="c1",
+        fileId="f1",
+        filename="auth.py",
+        fileType="text/plain",
+        fileUrl="http://example.com/auth.py",
+        text="def validate_token(): pass",
+        similarity=0.0,
+        is_graph_expansion=True,
+        expanded_from="tenant1::auth.py::authenticate"
+    )
+    assert chunk.is_graph_expansion is True
+    assert chunk.expanded_from == "tenant1::auth.py::authenticate"
+
+
+def test_semantic_search_response_has_expansion_count():
+    from src.api.schemas.rag import SemanticSearchResponse
+    resp = SemanticSearchResponse(chunks=[], queryId="q1")
+    assert hasattr(resp, "expansion_count")
+    assert resp.expansion_count == 0
