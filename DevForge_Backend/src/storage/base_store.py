@@ -22,6 +22,7 @@ class ChunkResult:
     score: Optional[float] = None
     rerank_score: Optional[float] = None  # Phase 11: Reranking score
     is_graph_expansion: bool = False     # Phase 12A: Graph-injected chunk
+    expanded_from: Optional[str] = None  # Phase 12A: Anchor QID that triggered expansion
 
 
 class BaseVectorStore(ABC):
