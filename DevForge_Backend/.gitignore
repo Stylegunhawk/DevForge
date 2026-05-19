@@ -72,3 +72,4 @@ chroma_db/
 !manifests/devforge.json
 !tests/fixtures/*.json
 
+.audit/

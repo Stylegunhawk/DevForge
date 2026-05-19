@@ -1,8 +1,9 @@
 # DevForge RAG Architecture
 
-**Version:** 0.8.0  
+**Version:** 1.1.0  
 **Phase:** Phase 16 (Redis-Cached Graph Persistence). Note: phase numbering across the repo is inconsistent (sibling docs reference Phase 15.4); this doc pins to the highest active phase in `src/agents/rag/agent.py`.  
-**Last Updated:** 2026-05-08  
+**Last Updated:** 2026-05-19  
+**Last Verified:** 2026-05-19 — graph expansion provenance fields live in endpoint response, see version history  
 **Status:** Production Ready - Backend Contract Frozen
 
 This document outlines the architecture of the Retrieval-Augmented Generation (RAG) system in DevForge Backend, covering ingestion, retrieval, reranking, and query intelligence.
@@ -28,10 +29,16 @@ Primary retrieval endpoint for Lobe Chat sessions.
     *   `rewriteQuery` (Optional): LLM-optimized query for better vector matching
     *   `fileIds` (Optional): whitelist of file IDs to search within
 *   **Response Schema:** `SemanticSearchResponse`
+    *   `chunks: List[ChatFileChunk]` — result chunks; each chunk now includes:
+        *   `is_graph_expansion: bool` — `true` if the chunk was injected via BFS dependency-graph expansion (not direct vector similarity)
+        *   `expanded_from: Optional[str]` — the anchor QID (`tenant::file::entity`) that triggered BFS expansion; `null` for vector-retrieved chunks
+    *   `queryId: Optional[str]`
+    *   `expansion_count: int` — number of chunks in the response that have `is_graph_expansion=true`; `0` if graph expansion found no edges or was not triggered
 *   **Guaranteed Behaviors:**
     *   **Strict Orphan Filtering:** Chunks belonging to files that have been deleted from Redis are automatically dropped.
     *   **Empty Content Filtering:** Chunks with empty or whitespace-only text are never returned.
     *   **Semantic Priority:** Results are returned in order of relevance (Rerank Logits → Sigmoid Normalized Similarity).
+    *   **Graph Provenance:** When `ENABLE_CODE_GRAPH=true` and BFS expansion finds related chunks, each expanded chunk carries `is_graph_expansion=true` and `expanded_from=<anchor_qid>`. When BFS finds no edges (e.g., functions with no `calls`/`imports` metadata), `expansion_count=0` and all chunks have `is_graph_expansion=false`.
 
 #### `GET /api/v1/rag/file/{fileId}`
 Polling endpoint for processing status.
@@ -155,6 +162,8 @@ curl -X POST "http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat" \
 - **Tenant Isolation:** No leakage from other users.
 - **Semantic Priority:** Ordered by combined similarity + rerank score.
 - `queryId` always returned.
+- `expansion_count` always present (integer, `0` when no graph expansion).
+- Each chunk includes `is_graph_expansion` (bool) and `expanded_from` (QID string or null).
 
 ### 4. Semantic Search (Rewrite Query Path)
 **Purpose:** Ensure `rewriteQuery` is honored for better vector matching.
@@ -665,6 +674,7 @@ OLLAMA_HOST=http://localhost:11434
 
 **Maintainer:** DevForge Team  
 **Version History:**
+- v1.1.0 (2026-05-19) — Graph expansion provenance: `is_graph_expansion`, `expanded_from` on `ChatFileChunk`; `expansion_count` on `SemanticSearchResponse`. API contract updated. Live-verified 2026-05-19.
 - v0.8.0 (May 2026) - Doc reconciliation: JWT auth (drop `X-User-ID`), `tenant::file::entity` QID, Redis-cached graph (Phase 16), Phase 12A query intelligence in retrieval flow, expanded module table, `VECTOR_BACKEND=chroma|postgres` (Qdrant marked legacy/optional), Lobe Chat + ops endpoints surfaced.
 - v15.4 (early 2026) - Sibling integration-flow doc reference (Phase 15.4).
 - v15.3 (Feb 2026) - Sequential chunk retrieval; backend contract frozen.

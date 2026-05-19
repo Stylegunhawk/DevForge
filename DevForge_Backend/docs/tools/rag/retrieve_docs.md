@@ -1,8 +1,9 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
-**Version:** 0.8.0  
+**Version:** 1.1.0  
 **Status:** ✅ Implemented & Frozen  
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-19  
+**Last Verified:** 2026-05-19 — graph expansion provenance fields live in endpoint response, see `§Changelog`
 
 > **Note:** `retrieve_docs` is **not** registered in `SUPPORTED_TOOLS` and is not callable via `POST /api/gateway`. The canonical retrieval entry point is **`POST /api/v1/rag/chunk/semanticSearchForChat`** (tenant-JWT authenticated).
 
@@ -202,35 +203,36 @@ curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
 **Response (with expansion):**
 ```json
 {
-  "success": true,
-  "data": {
-    "results": [
-      {
-        "content": "def validate_token(token): ...",
-        "score": 0.92,
-        "metadata": {
-          "source": "auth.py",
-          "chunk_type": "function",
-          "name": "validate_token",
-          "role": "entry"
-        }
-      },
-      {
-        "content": "def decode_jwt(token): ...",
-        "score": null,  // Graph-expanded (no direct similarity)
-        "metadata": {
-          "source": "utils.py",
-          "chunk_type": "function",
-          "name": "decode_jwt",
-          "expanded_from": "auth.py::validate_token",
-          "role": "dependency"
-        }
-      }
-    ],
-    "query": "JWT token validation",
-    "expanded": true,
-    "expansion_count": 3
-  }
+  "chunks": [
+    {
+      "id": "chunk-uuid-1",
+      "fileId": "file-uuid",
+      "filename": "auth.py",
+      "fileType": "text/x-python",
+      "fileUrl": "http://localhost:8001/static/...",
+      "text": "def validate_token(token): ...",
+      "similarity": 0.92,
+      "pageNumber": null,
+      "role": "entry",
+      "is_graph_expansion": false,
+      "expanded_from": null
+    },
+    {
+      "id": "chunk-uuid-2",
+      "fileId": "file-uuid-2",
+      "filename": "utils.py",
+      "fileType": "text/x-python",
+      "fileUrl": "http://localhost:8001/static/...",
+      "text": "def decode_jwt(token): ...",
+      "similarity": 0.0,
+      "pageNumber": null,
+      "role": "supporting",
+      "is_graph_expansion": true,
+      "expanded_from": "tenant_id::auth.py::validate_token"
+    }
+  ],
+  "queryId": "qid-abc123",
+  "expansion_count": 1
 }
 ```
 
@@ -629,7 +631,19 @@ All other endpoints are legacy or internal tools.
 
 
 
-**Last Updated:** 2026-05-08  
-**Version:** 0.8.0  
+**Last Updated:** 2026-05-19  
+**Version:** 1.1.0  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
+
+---
+
+## Changelog
+
+### 2026-05-19 — v1.1.0: Graph Expansion Provenance Fields
+
+- Added `is_graph_expansion: bool` to each `ChatFileChunk` in the response — `true` for BFS-expanded chunks, `false` for vector-retrieved chunks.
+- Added `expanded_from: Optional[str]` to each `ChatFileChunk` — the anchor QID (`tenant::file::entity`) that triggered BFS expansion for this chunk; `null` for vector-retrieved chunks.
+- Added `expansion_count: int` to `SemanticSearchResponse` — total number of graph-expanded chunks in the result set; `0` if graph expansion was not triggered or found no neighbors.
+- Fixed response example: `expanded_from` is a **top-level chunk field**, not a metadata subfield. Previous docs showed it inside `metadata` — that was incorrect.
+- Implementation: `src/storage/base_store.py` (`ChunkResult`), `src/agents/rag/agent.py` (`_expand_with_graph_context`), `src/api/schemas/rag.py` (`ChatFileChunk`, `SemanticSearchResponse`), `src/api/routers/rag.py` (router wiring). 8 unit tests in `tests/test_rag_graph_expansion.py`.

@@ -1,9 +1,10 @@
 # rerank_docs - Document Reranking (Internal Stage)
 
 **Tool Name:** `rerank_docs` (internal — not a standalone gateway tool)
-**Version:** 0.8.0 (Phase 4)
+**Version:** 1.1.0 (Phase 4)
 **Status:** Implemented
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-19
+**Last Verified:** 2026-05-19 — reranker behavior unchanged; version bump aligns with RAG v1.1.0 provenance rollout
 
 ---
 
@@ -191,5 +192,15 @@ Covers basic reranking, score reset between calls, top-k selection, empty-input 
 
 ---
 
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-19
 **Maintainer:** DevForge Team
+
+---
+
+## Changelog
+
+### 2026-05-19 — v1.1.0: Version alignment
+
+- No behavioral changes to the reranker itself.
+- Version bumped to align with RAG v1.1.0 rollout (graph expansion provenance fields added upstream in `retrieve_docs`, `rag_integration_flow`, `rag_architecture`).
+- Graph-expanded chunks entering the reranker now carry `is_graph_expansion=True` and `expanded_from` in their dict; the reranker treats them identically to vector-retrieved chunks (scores them without special-casing).

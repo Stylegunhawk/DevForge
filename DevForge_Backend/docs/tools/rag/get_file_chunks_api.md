@@ -40,11 +40,17 @@ GET /api/v1/rag/file/{fileId}/chunks
       "text": "Extracted text content from the first chunk...",
       "similarity": 1.0,
       "pageNumber": 1,
-      "role": "supporting"
+      "role": "supporting",
+      "is_graph_expansion": false,
+      "expanded_from": null
     }
   ],
-  "queryId": null
+  "queryId": null,
+  "expansion_count": 0
 }
+```
+
+> **Note on graph expansion fields:** Sequential chunk retrieval returns chunks in file order and does not run BFS graph expansion. `is_graph_expansion` will always be `false` and `expanded_from` will always be `null` on this endpoint. `expansion_count` will always be `0`. These fields exist in the response schema for consistency with `semanticSearchForChat`.
 ```
 
 ## Guarantees
@@ -72,4 +78,13 @@ curl "http://localhost:8001/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10"
 
 ---
 
-**Version:** 0.8.0 (2026-05-08)
+**Version:** 1.1.0 (2026-05-19)
+
+---
+
+## Changelog
+
+### 2026-05-19 — v1.1.0: Graph expansion fields in response schema
+
+- Response schema now includes `is_graph_expansion: bool` and `expanded_from: Optional[str]` on each `ChatFileChunk`, and `expansion_count: int` on `SemanticSearchResponse`.
+- These fields will always be `false`/`null`/`0` on this endpoint (sequential retrieval does not run BFS expansion), but are present for schema consistency with `semanticSearchForChat`.

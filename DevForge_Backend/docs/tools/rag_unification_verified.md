@@ -1,7 +1,7 @@
 # RAG Unification Verification Report
 
-**Version:** 2
-**Last Updated:** 2026-05-08
+**Version:** 3
+**Last Updated:** 2026-05-19
 **Branch:** rag_resolve
 
 Conclusion: The RAG pipelines are fully unified.
@@ -111,6 +111,66 @@ This is a ranking and grouping characteristic, not a correctness defect of the r
 
 `ChangelogGenerator` and `_fetch_commits` referenced above are real symbols in `src/tools/changelog.py`.
 
+## PART 7 — Graph Expansion Provenance Verification (v1.1.0)
+
+**Date:** 2026-05-19 **Branch:** rag_resolve
+
+### What was added
+
+Three previously doc-only fields are now implemented end-to-end:
+
+| Field | Location | Description |
+|-------|----------|-------------|
+| `ChunkResult.expanded_from` | `src/storage/base_store.py` | Anchor QID set on BFS-expanded chunk results |
+| `ChatFileChunk.is_graph_expansion` | `src/api/schemas/rag.py` | Propagated to API response |
+| `ChatFileChunk.expanded_from` | `src/api/schemas/rag.py` | Propagated to API response |
+| `SemanticSearchResponse.expansion_count` | `src/api/schemas/rag.py` | Total expanded chunks in response |
+
+### Implementation path verified
+
+1. `_expand_with_graph_context()` (`agent.py`) — sets `"is_graph_expansion": True` and `"expanded_from": qid` on each BFS-expanded chunk dict
+2. `retrieve_with_reranking()` (`agent.py`) — `ChunkResult(expanded_from=r.get("expanded_from"), ...)` conversion preserves the field
+3. `semantic_search_for_chat()` (`routers/rag.py`) — extracts `is_graph = bool(doc.get("is_graph_expansion", False))` and `expanded_from = doc.get("expanded_from")`, passes both to `ChatFileChunk` constructor
+4. Response builder computes `expansion_count = sum(1 for c in response_chunks if c.is_graph_expansion)`
+
+### Test coverage
+
+8 unit tests in `tests/test_rag_graph_expansion.py` (all passing 2026-05-19):
+- `test_chunk_result_has_expanded_from`
+- `test_chunk_result_expanded_from_set`
+- `test_expand_with_graph_context_sets_expanded_from` (async, mocked CodeGraph + vector store)
+- `test_chat_file_chunk_has_graph_fields`
+- `test_chat_file_chunk_graph_fields_set`
+- `test_semantic_search_response_has_expansion_count`
+- `test_chat_file_chunk_serialization_includes_graph_fields`
+- `test_semantic_search_response_expansion_count_counts_expanded`
+
+### Live endpoint verification
+
+Live curl test 2026-05-19 against running Docker stack confirmed:
+- `is_graph_expansion: false`, `expanded_from: null` present on all chunks for a single-function Python file (expected — no cross-function call edges → BFS returns `[]`)
+- `expansion_count: 0` returned correctly at response level
+- Fields are present in response JSON for all chunks; no serialization errors
+
+### Re-verify commands
+
+```bash
+# Confirm fields exist in models
+grep -n "expanded_from\|is_graph_expansion\|expansion_count" \
+  src/storage/base_store.py src/api/schemas/rag.py
+
+# Confirm expander sets the field
+grep -n "expanded_from" src/agents/rag/agent.py
+
+# Confirm router wires it
+grep -n "is_graph\|expanded_from\|expansion_count" src/api/routers/rag.py
+
+# Run the graph expansion test suite
+pytest tests/test_rag_graph_expansion.py -v
+```
+
+---
+
 ## How to re-verify
 
 The checks below are the exact commands used to produce this report. Run them from the repo root.
@@ -136,4 +196,7 @@ grep -n "async_ingest_documents\|ingest_document" \
 
 # 6. Run the RAG test suite.
 pytest tests/test_rag.py -v
+
+# 7. Run the graph expansion provenance test suite.
+pytest tests/test_rag_graph_expansion.py -v
 ```

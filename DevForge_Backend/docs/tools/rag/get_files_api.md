@@ -67,4 +67,13 @@ curl "http://localhost:8001/api/v1/rag/files"
 
 ---
 
-**Version:** 0.8.0 (2026-05-08)
+**Version:** 1.1.0 (2026-05-19)
+
+---
+
+## Changelog
+
+### 2026-05-19 — v1.1.0: Version alignment
+
+- No behavioral changes to this endpoint.
+- Version bumped to align with RAG v1.1.0 rollout. The `FileStatusResponse` schema returned here is unaffected by graph expansion provenance fields (those apply to `ChatFileChunk` in semantic search responses only).

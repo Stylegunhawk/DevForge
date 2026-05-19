@@ -1,7 +1,8 @@
 # RAG Integration Flow
 
-**Version:** 0.8.0  
-**Last Updated:** 2026-05-08
+**Version:** 1.1.0  
+**Last Updated:** 2026-05-19  
+**Last Verified:** 2026-05-19 — graph expansion provenance fields wired end-to-end, see `§Changelog`
 
 This document details the integration flow of the RAG pipeline, including Phase 12A query intelligence features.
 
@@ -212,9 +213,26 @@ CodeGraph.get_related(qid, depth=2, max_results=3)
 BFS traversal of calls/imports edges
   ↓
 Fetch related chunks via vector_store.get_chunk_by_qualified_id(related_qid)
-
+  ↓
+Set is_graph_expansion=True and expanded_from=<anchor_qid> on each expanded chunk dict
+  ↓
 Merge initial_results + related_chunks → deduplicate by QID → pass to reranker
 ```
+
+**Provenance fields on expanded chunks** (`src/agents/rag/agent.py: _expand_with_graph_context`):
+
+```python
+chunk_dict = {
+    "id": related_chunk.id,
+    "content": related_chunk.content,
+    "metadata": related_chunk.metadata,
+    "score": 0.0,
+    "is_graph_expansion": True,
+    "expanded_from": qid,   # anchor QID that triggered this expansion
+}
+```
+
+These fields propagate through `ChunkResult` → router extraction → `ChatFileChunk` → `SemanticSearchResponse`. The response also includes a top-level `expansion_count` field (count of chunks where `is_graph_expansion=True`).
 
 
 ## Code Path Details
@@ -515,4 +533,13 @@ QID: tenant123::utils.py::validate
 
 ---
 
-**Last Updated:** 2026-05-08
+## Changelog
+
+### 2026-05-19 — v1.1.0: Graph Expansion Provenance
+
+- Updated Graph Expansion Detail section: documents `is_graph_expansion=True` and `expanded_from=<anchor_qid>` being set on each BFS-expanded chunk dict in `_expand_with_graph_context()`.
+- Documents the full propagation path: `_expand_with_graph_context` → `ChunkResult` → router → `ChatFileChunk` → `SemanticSearchResponse.expansion_count`.
+
+---
+
+**Last Updated:** 2026-05-19
