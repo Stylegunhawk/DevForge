@@ -115,3 +115,41 @@ def test_semantic_search_response_has_expansion_count():
     resp = SemanticSearchResponse(chunks=[], queryId="q1")
     assert hasattr(resp, "expansion_count")
     assert resp.expansion_count == 0
+
+
+def test_chat_file_chunk_serialization_includes_graph_fields():
+    """Verify ChatFileChunk JSON output includes the graph fields."""
+    from src.api.schemas.rag import ChatFileChunk
+    chunk = ChatFileChunk(
+        id="c1",
+        fileId="f1",
+        filename="auth.py",
+        fileType="text/plain",
+        fileUrl="http://example.com/auth.py",
+        text="def validate_token(): pass",
+        similarity=0.0,
+        is_graph_expansion=True,
+        expanded_from="tenant1::auth.py::authenticate"
+    )
+    data = chunk.model_dump()
+    assert data["is_graph_expansion"] is True
+    assert data["expanded_from"] == "tenant1::auth.py::authenticate"
+
+
+def test_semantic_search_response_expansion_count_counts_expanded():
+    """Verify expansion_count counts only is_graph_expansion=True chunks."""
+    from src.api.schemas.rag import ChatFileChunk, SemanticSearchResponse
+
+    def make_chunk(is_graph: bool) -> ChatFileChunk:
+        return ChatFileChunk(
+            id="c1", fileId="f1", filename="f.py", fileType="text/plain",
+            fileUrl="http://x.com/f.py", text="x", similarity=0.5,
+            is_graph_expansion=is_graph
+        )
+
+    resp = SemanticSearchResponse(
+        chunks=[make_chunk(False), make_chunk(True), make_chunk(True)],
+        queryId="q1",
+        expansion_count=2
+    )
+    assert resp.expansion_count == 2

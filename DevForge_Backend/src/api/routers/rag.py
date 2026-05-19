@@ -239,11 +239,15 @@ async def semantic_search_for_chat(
             content = doc.get("content") or doc.get("page_content") or ""
             score = doc.get("score") or doc.get("similarity") or 0.0
             doc_id = doc.get("id")
+            is_graph = doc.get("is_graph_expansion", False)
+            expanded_from = doc.get("expanded_from")
         else:
             metadata = getattr(doc, "metadata", {})
             content = getattr(doc, "content", None) or getattr(doc, "page_content", "") or ""
             score = getattr(doc, "score", 0.0)
             doc_id = getattr(doc, "id", None)
+            is_graph = getattr(doc, "is_graph_expansion", False)
+            expanded_from = getattr(doc, "expanded_from", None)
 
         # 🛑 STRICT FILTER 1: Drop empty content
         if not content or not str(content).strip():
@@ -298,7 +302,9 @@ async def semantic_search_for_chat(
             text=content,
             similarity=float(normalized_score),
             pageNumber=metadata.get("page", None),
-            role=metadata.get("role", "supporting")
+            role=metadata.get("role", "supporting"),
+            is_graph_expansion=is_graph,
+            expanded_from=expanded_from,
         ))
     
     query_id = str(uuid.uuid4())
@@ -310,9 +316,11 @@ async def semantic_search_for_chat(
         chunk_ids=[chunk.id for chunk in response_chunks]
     )
     
+    expansion_count = sum(1 for c in response_chunks if c.is_graph_expansion)
     return SemanticSearchResponse(
         chunks=response_chunks,
-        queryId=query_id
+        queryId=query_id,
+        expansion_count=expansion_count,
     )
     
 @router.delete("/dev/purge-tenant-collection", tags=["rag", "dev"])
