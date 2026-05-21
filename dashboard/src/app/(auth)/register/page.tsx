@@ -8,7 +8,6 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
@@ -22,42 +21,26 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
     setIsLoading(true);
-
     try {
-      // Register the user
-      const registerResponse = await fetch("/api/proxy/auth/register", {
+      const res = await fetch("/api/proxy/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          name,
-        }),
+        body: JSON.stringify({ email, password, name }),
       });
 
-      if (!registerResponse.ok) {
-        const errorData = await registerResponse.json().catch(() => ({}));
-        if (registerResponse.status === 400) {
-          setError("Email already exists");
-        } else {
-          setError(errorData.message || "Registration failed");
-        }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(res.status === 400 ? "Email already exists" : data.message || "Registration failed");
         return;
       }
 
-      // Auto-sign in after successful registration
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
-
+      const result = await signIn("credentials", { email, password, redirect: false });
       if (result?.error) {
-        setError("Registration successful but login failed. Please try signing in manually.");
+        setError("Registration succeeded but login failed. Please sign in manually.");
       } else if (result?.ok) {
         router.push("/dashboard/keys");
       }
-    } catch (error) {
+    } catch {
       setError("An error occurred. Please try again.");
     } finally {
       setIsLoading(false);
@@ -65,79 +48,78 @@ export default function RegisterPage() {
   };
 
   return (
-    <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm rounded-xl p-8">
-      <CardHeader className="text-center px-0 pb-6">
-        <div className="flex justify-center mb-4">
-          <Logo size="lg" />
-        </div>
-        <CardTitle className="text-2xl">Create account</CardTitle>
-        <CardDescription>
-          Enter your information to get started
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 px-0">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
-            <Input
-              id="name"
-              type="text"
-              placeholder="John Doe"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={isLoading}
-              className="border-zinc-300 dark:border-zinc-700 focus:ring-indigo-500 bg-white dark:bg-zinc-950"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="name@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
-              className="border-zinc-300 dark:border-zinc-700 focus:ring-indigo-500 bg-white dark:bg-zinc-950"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-              className="border-zinc-300 dark:border-zinc-700 focus:ring-indigo-500 bg-white dark:bg-zinc-950"
-              required
-            />
-          </div>
-          
-          {error && (
-            <div className="text-red-600 text-sm text-center">
-              {error}
-            </div>
-          )}
-          
-          <Button 
-            type="submit" 
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-md py-2.5"
+    <div className="bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-[10px] shadow-[0_4px_24px_rgba(26,24,21,0.08)] p-8 w-full max-w-sm">
+      {/* Header */}
+      <div className="flex flex-col items-center text-center mb-8">
+        <Logo size="md" />
+        <h1 className="text-xl font-bold text-[rgb(var(--text))] text-center mt-4">
+          Create your account
+        </h1>
+        <p className="text-sm text-[rgb(var(--text-muted))] text-center mt-1">
+          Get started with DevForge today
+        </p>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="name">Full name</Label>
+          <Input
+            id="name"
+            type="text"
+            placeholder="Jane Smith"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             disabled={isLoading}
-          >
-            {isLoading ? "Creating account..." : "Create account"}
-          </Button>
-        </form>
-        
-        <div className="text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <Link href="/login" className="text-indigo-600 hover:underline">
-            Sign in
-          </Link>
+            required
+            autoComplete="name"
+          />
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={isLoading}
+            required
+            autoComplete="email"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isLoading}
+            required
+            autoComplete="new-password"
+          />
+        </div>
+
+        {error && (
+          <p className="text-sm text-[rgb(var(--danger))]">{error}</p>
+        )}
+
+        <Button type="submit" className="w-full mt-2" disabled={isLoading}>
+          {isLoading ? "Creating account…" : "Create account"}
+        </Button>
+      </form>
+
+      {/* Footer */}
+      <p className="mt-6 text-center text-sm text-[rgb(var(--text-muted))]">
+        Already have an account?{" "}
+        <Link href="/login" className="text-[rgb(var(--accent))] hover:underline font-medium">
+          Sign in
+        </Link>
+      </p>
+    </div>
   );
 }
