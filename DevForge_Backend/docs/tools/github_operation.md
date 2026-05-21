@@ -1,10 +1,10 @@
 # github_operation - Intelligent GitHub Automation Tool
 
 **Tool Name:** `github_operation`
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Manifest Version:** 0.12.0
-**Last Updated:** 2026-05-19
-**Last Verified:** 2026-05-19 — aggressive live MCP verification (all 26 structured ops, 64/64 Python MCP tests), see `§Changelog` below and `docs/tools/github_operation_curl_tests.md`
+**Last Updated:** 2026-05-21
+**Last Verified:** 2026-05-21 — content-hallucination guard added for natural-language `commit_file` (LLM cannot populate `content`); 46/46 NL + structured + new guard tests green. See `§Changelog`.
 **Phase:** GitOps v1.0 - 26 structured ops
 **Status:** ✅ Production Ready (Hardened)
 
@@ -88,8 +88,8 @@ class GitHubState:
 **Workflow Nodes:**
 | Node | Function | Description |
 |------|----------|-------------|
-| `parse` | `parse_github_request()` | LLM extracts intent, operation, parameters from query (30s timeout) |
-| `enhance` | `enhance_with_intelligence()` | Apply fuzzy repo, commit gen, log parsing |
+| `parse` | `parse_github_request()` | LLM extracts intent, operation, parameters from query (30s timeout). **Content-hallucination guard:** if `operation == commit_file` and the LLM populated `content`, the field is discarded and a `hallucination_guard` event is emitted on the timeline. The LLM's output token cap (~4K) silently truncates/fabricates file bodies; the byte-safe `file_url` is injected later by `enhance_with_intelligence`. |
+| `enhance` | `enhance_with_intelligence()` | Apply fuzzy repo, commit gen, log parsing. For `commit_file`, injects `file_url` from `context.available_files` whenever it's missing; also drops any LLM-set `content` from non-structured calls (belt-and-suspenders for the `parse` guard). |
 | `validate` | `validate_parameters()` | Strict Pydantic validation of all parameters |
 | `policy_gate` | `policy_gate_check()` | **Phase 4:** Environment-level hard blocks (Production/Staging) |
 | `risk_gate` | `risk_gate_check()` | **Phase 1-3:** Severity assessment and user confirmation requirement |
@@ -490,6 +490,24 @@ All high-risk attempts are logged to a dedicated escalation channel (`src/core/a
 - **Sanitization**: Tokens, passwords, and keys are automatically redacted (`[REDACTED]`) before logging.
 - **Privacy**: Raw tokens are never stored; only truncated SHA-256 hashes for correlation.
 
+### 5. Content-Hallucination Guard (commit_file, NL path)
+
+**Threat:** The LLM intent classifier output is capped at the model's `max_tokens` (~4K ≈ ~8KB ≈ ~220 lines of Python). When the classification prompt allowed the LLM to set `content`, an upload like `tests/test_rag.py` (708 lines, ~25KB) was silently **fabricated** by the LLM from the filename alone and committed as a plausible-looking 221-line file. This is data corruption that passes naive code review.
+
+**Defense (three independent layers, all in `src/agents/github/agent.py`):**
+
+| Layer | Where | Behavior |
+|-------|-------|----------|
+| 1. Prompt close | classification prompt for `commit_file` | The LLM is explicitly told **NEVER** to set `content`; the system auto-injects `file_url` from `context.available_files`. Reason is stated inline ("your output is token-limited"). |
+| 2. Post-classification scrub | `parse_github_request`, immediately after `json.loads` | If `operation == "commit_file"` and `content` appears in the LLM-extracted parameters, it is popped and a `WARNING` is logged with the discarded length. A `hallucination_guard` event is appended to the audit timeline. |
+| 3. Injection-time scrub | `enhance_with_intelligence`, just before `file_url` injection | Belt-and-suspenders: for non-structured calls only, drop any `content` that survived Layer 2. The `file_url` injection now fires whenever `file_url` is missing (the old gate that also required `content` to be absent was the path that let the bug through). |
+
+**Scope:** Layers 2 & 3 fire only for **natural-language** calls (`entry_method != "structured"`). Structured callers (programmatic MCP clients) are trusted to pass `content` directly and are unaffected.
+
+**Audit trail:** Every scrub emits an audit timeline event with `step=hallucination_guard` and the discarded character count, so silent regressions are observable.
+
+**Regression tests:** `tests/test_github_integration.py::TestCommitFileContentHallucinationGuard` — two tests covering NL-drop-and-inject and structured-preserve.
+
 ---
 
 ## API Request Format
@@ -755,11 +773,11 @@ GITOPS_ENV=development
 # Run all tests
 pytest tests/ -v
 
-# Specific test files (68 tests total)
+# Specific test files (161 tests total as of 2026-05-21)
 pytest tests/test_repo_discovery.py -v     # 13 tests
 pytest tests/test_commit_generator.py -v   # 19 tests
 pytest tests/test_log_parser.py -v         # 18 tests
-pytest tests/test_github_integration.py -v # 18 tests
+pytest tests/test_github_integration.py -v # 111 tests (incl. TestCommitFileContentHallucinationGuard)
 ```
 
 ---
@@ -778,14 +796,30 @@ pytest tests/test_github_integration.py -v # 18 tests
 
 ---
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 **Manifest Version:** 0.12.0
-**Last Updated:** 2026-05-19
+**Last Updated:** 2026-05-21
 **Maintainer:** DevForge Team
 
 ---
 
 ## Changelog
+
+### 2026-05-21 — v1.0.1: Content-Hallucination Guard for `commit_file` (NL path)
+
+**Incident:** A 708-line `tests/test_rag.py` committed via the natural-language path landed on `sidcollege/testing_devforge@rag` as a **221-line LLM-fabricated file** (9,605 bytes ≈ exactly the model's `max_tokens` ceiling). Raw-GitHub diff confirmed the committed file was not a prefix of the source: function bodies were shortened, and `test_rag_agent_ingestion_error` (local line 564) appeared as the last function in the committed file — impossible under prefix-truncation. Root cause: the classification prompt explicitly allowed the LLM to populate `content`, whose output is capped at ~4K tokens (~8KB ≈ ~220 lines of Python). The `file_url` injection at `enhance_with_intelligence` was gated on `content not in parameters`, so once the LLM set `content`, the byte-safe path was bypassed.
+
+**Fix (3 layers, all in `src/agents/github/agent.py`):**
+
+1. **Classification prompt** — the `commit_file` parameter list no longer mentions `content`; the LLM is explicitly instructed never to write it, with the reason stated inline.
+2. **Post-classification scrub** — `parse_github_request` drops any `content` from LLM-extracted parameters for `commit_file` and emits a `hallucination_guard` audit-timeline event recording the discarded character count.
+3. **Injection-time scrub + relaxed gate** — `enhance_with_intelligence` now injects `file_url` whenever it's missing (not gated on absent `content`), and drops any `content` that survived from non-structured calls before injection.
+
+**Structured callers are unaffected** — the scrub fires only when `entry_method != "structured"`, so programmatic MCP clients can still pass `content` directly.
+
+**Tests added:** `TestCommitFileContentHallucinationGuard` — `test_nl_path_drops_llm_hallucinated_content_and_injects_file_url` asserts the byte-safe `file_url` reaches `GitHubTools.commit_file` and `content` does not; `test_structured_call_preserves_explicit_content` asserts the inverse for structured callers. Full suite: 46/46 NL + structured + new guard tests green; no regressions on existing structured `commit_file` paths.
+
+**Known follow-up (not in this revision):** `enhance_with_intelligence` wraps the entire body in a single try/except — a transient failure in fuzzy `RepoDiscovery` (network blip, 401, rate limit) currently aborts the function before `file_url` injection runs, leaving the request to fail validation with "Either content or file_url required". The injection block should be moved to its own try-scope so it runs even when repo discovery is non-fatally degraded.
 
 ### 2026-05-19 — v1.0.0: GitOps v3 Expansion
 

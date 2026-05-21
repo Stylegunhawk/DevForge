@@ -4,22 +4,21 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, Zap, DollarSign, CheckCircle2, XCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Activity, Zap, DollarSign, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
 import { getUserUsage, getUserRequestLogs } from "@/lib/api";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
 
-const TOOL_COLORS = ["#D97757", "#C8B286", "#8EA898", "#B291AD", "#D4B88E"];
+const CHART_COLORS = [
+  "rgb(var(--chart-violet))",
+  "rgb(var(--chart-cyan))",
+  "rgb(var(--chart-emerald))",
+  "rgb(var(--chart-rose))",
+  "rgb(var(--chart-amber))",
+];
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -36,10 +35,7 @@ function formatCurrency(n: number): string {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
 function buildBarData(tokenUsage: any[]): { name: string; requests: number }[] {
@@ -61,6 +57,42 @@ function buildBarData(tokenUsage: any[]): { name: string; requests: number }[] {
   return result;
 }
 
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  loading,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  loading: boolean;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center gap-2 text-[rgb(var(--text-muted))] mb-3">
+          <Icon className="h-4 w-4" />
+          <span className="text-xs font-medium uppercase tracking-wider">{label}</span>
+        </div>
+        {loading ? (
+          <Skeleton className="h-8 w-24" />
+        ) : (
+          <div className="text-2xl font-bold text-[rgb(var(--text))]">{value}</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const tooltipStyle = {
+  backgroundColor: "rgb(var(--surface-2))",
+  border: "1px solid rgb(var(--border))",
+  borderRadius: "8px",
+  color: "rgb(var(--text))",
+  fontSize: "12px",
+};
+
 export default function OverviewPage() {
   const { data: session } = useSession();
   const [usageData, setUsageData] = useState<any>(null);
@@ -76,14 +108,10 @@ export default function OverviewPage() {
   async function load() {
     const [usageResult, logsResult] = await Promise.allSettled([
       getUserUsage(session!.user!.accessToken, session!.user!.id, 30),
-      getUserRequestLogs(session!.user!.accessToken, {
-        user_id: session!.user!.id,
-        limit: 12,
-      }),
+      getUserRequestLogs(session!.user!.accessToken, { user_id: session!.user!.id, limit: 12 }),
     ]);
     if (usageResult.status === "fulfilled") setUsageData(usageResult.value);
-    if (logsResult.status === "fulfilled")
-      setActivity(logsResult.value.requests || []);
+    if (logsResult.status === "fulfilled") setActivity(logsResult.value.requests || []);
     setLoading(false);
   }
 
@@ -93,137 +121,117 @@ export default function OverviewPage() {
     value: t.call_count,
   }));
 
-  if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <Skeleton className="h-8 w-40" />
-        <div className="grid grid-cols-3 gap-4">
-          {[0, 1, 2].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <Skeleton className="h-4 w-28 mb-3" />
-                <Skeleton className="h-8 w-20" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Skeleton className="h-72" />
-          <Skeleton className="h-72" />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Overview</h1>
-        <p className="text-muted-foreground">Last 30 days</p>
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      {/* Page header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[rgb(var(--text))]">Overview</h1>
+          <p className="text-sm text-[rgb(var(--text-muted))] mt-0.5">Last 30 days</p>
+        </div>
+        {!loading && (
+          <Badge variant="secondary" className="gap-1.5 text-xs">
+            <TrendingUp className="h-3 w-3" />
+            Live
+          </Badge>
+        )}
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <Activity className="h-4 w-4" />
-              Total Requests
-            </div>
-            <div className="text-3xl font-bold">
-              {(usageData?.total_requests || 0).toLocaleString()}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <Zap className="h-4 w-4" />
-              Tokens Used
-            </div>
-            <div className="text-3xl font-bold">
-              {formatTokens(usageData?.total_tokens || 0)}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <DollarSign className="h-4 w-4" />
-              Est. Cost
-            </div>
-            <div className="text-3xl font-bold">
-              {formatCurrency(usageData?.total_cost || 0)}
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard
+          icon={Activity}
+          label="Total Requests"
+          value={(usageData?.total_requests || 0).toLocaleString()}
+          loading={loading}
+        />
+        <StatCard
+          icon={Zap}
+          label="Tokens Used"
+          value={formatTokens(usageData?.total_tokens || 0)}
+          loading={loading}
+        />
+        <StatCard
+          icon={DollarSign}
+          label="Est. Cost"
+          value={formatCurrency(usageData?.total_cost || 0)}
+          loading={loading}
+        />
       </div>
 
-      {/* Charts + activity feed */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Left column: bar chart + donut */}
+      {/* Charts + activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Left: charts */}
         <div className="space-y-4">
+          {/* Bar chart */}
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">
-                Requests — last 7 days
-              </CardTitle>
+            <CardHeader>
+              <CardTitle>Requests — last 7 days</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={barData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 12 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 12 }}
-                    tickLine={false}
-                    axisLine={false}
-                    allowDecimals={false}
-                  />
-                  <Tooltip
-                    formatter={(v) => [v, "requests"]}
-                    cursor={{ fill: "rgba(217,119,87,0.10)" }}
-                  />
-                  <Bar dataKey="requests" fill="#D97757" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {loading ? (
+                <Skeleton className="h-44 w-full" />
+              ) : (
+                <ResponsiveContainer width="100%" height={176}>
+                  <BarChart data={barData} margin={{ top: 4, right: 4, bottom: 0, left: -22 }}>
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11, fill: "rgb(var(--text-muted))" }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "rgb(var(--text-muted))" }}
+                      tickLine={false}
+                      axisLine={false}
+                      allowDecimals={false}
+                    />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      cursor={{ fill: "rgb(var(--accent)/0.08)" }}
+                      formatter={(v) => [v, "requests"]}
+                    />
+                    <Bar dataKey="requests" fill="rgb(var(--chart-violet))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
+          {/* Tool split donut */}
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Tool split</CardTitle>
+            <CardHeader>
+              <CardTitle>Tool usage split</CardTitle>
             </CardHeader>
             <CardContent>
-              {donutData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={170}>
+              {loading ? (
+                <Skeleton className="h-40 w-full" />
+              ) : donutData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
                       data={donutData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={45}
-                      outerRadius={68}
+                      innerRadius={42}
+                      outerRadius={62}
                       paddingAngle={3}
                       dataKey="value"
                     >
                       {donutData.map((_: any, i: number) => (
-                        <Cell
-                          key={i}
-                          fill={TOOL_COLORS[i % TOOL_COLORS.length]}
-                        />
+                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Legend iconType="circle" iconSize={8} />
-                    <Tooltip />
+                    <Legend
+                      iconType="circle"
+                      iconSize={8}
+                      wrapperStyle={{ fontSize: "12px", color: "rgb(var(--text-muted))" }}
+                    />
+                    <Tooltip contentStyle={tooltipStyle} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-center text-muted-foreground py-10 text-sm">
+                <p className="text-center text-sm text-[rgb(var(--text-muted))] py-10">
                   No tool usage yet
                 </p>
               )}
@@ -231,34 +239,43 @@ export default function OverviewPage() {
           </Card>
         </div>
 
-        {/* Right column: activity feed */}
+        {/* Right: activity feed */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Recent activity</CardTitle>
+          <CardHeader>
+            <CardTitle>Recent activity</CardTitle>
           </CardHeader>
           <CardContent>
-            {activity.length > 0 ? (
+            {loading ? (
               <div className="space-y-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : activity.length > 0 ? (
+              <div className="space-y-0.5">
                 {activity.map((req) => (
-                  <div key={req.id} className="flex items-start gap-3 text-sm">
+                  <div
+                    key={req.id}
+                    className="flex items-start gap-3 px-2 py-2.5 rounded-lg hover:bg-[rgb(var(--surface-2))] transition-colors duration-100"
+                  >
                     {req.success ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                      <CheckCircle2 className="h-4 w-4 text-[rgb(var(--success))] mt-0.5 shrink-0" />
                     ) : (
-                      <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                      <XCircle className="h-4 w-4 text-[rgb(var(--danger))] mt-0.5 shrink-0" />
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-xs text-primary truncate">
+                        <span className="font-mono text-xs text-[rgb(var(--accent-2))] truncate">
                           {req.tool_name}
                         </span>
-                        <span className="text-xs text-muted-foreground shrink-0">
+                        <span className="text-[10px] text-[rgb(var(--text-muted))] shrink-0 tabular-nums">
                           {formatTime(req.created_at)}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      <p className="text-xs text-[rgb(var(--text-muted))] truncate mt-0.5">
                         {req.input_summary || "—"}
                       </p>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-[10px] text-[rgb(var(--text-muted))]">
                         {req.duration_ms}ms
                       </span>
                     </div>
@@ -266,9 +283,13 @@ export default function OverviewPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-center text-muted-foreground py-16 text-sm">
-                No recent activity
-              </p>
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <Activity className="h-8 w-8 text-[rgb(var(--border-2))] mb-3" />
+                <p className="text-sm text-[rgb(var(--text-muted))]">No recent activity</p>
+                <p className="text-xs text-[rgb(var(--text-muted))] mt-1">
+                  Make your first API call to see logs here
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>

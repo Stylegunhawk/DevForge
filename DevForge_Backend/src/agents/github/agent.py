@@ -239,7 +239,7 @@ For update_issue, parameters must include: repo_name, issue_number, and can incl
 For add_comment, parameters must include: repo_name, issue_number, body
 For list_commits, parameters must include: repo_name, and can include: branch, limit, author, since, until
 For get_commit, parameters must include: repo_name, sha
-- For commit_file, parameters must include: repo_name, commit_message, and can include: file_path, content, branch. (Intelligence will try to find the file if file_path or content the user is thinking of is an uploaded file).
+- For commit_file, parameters must include: repo_name, commit_message, and can include: file_path, branch. CRITICAL: NEVER set a `content` field — the system auto-injects the uploaded file's URL from context.available_files. Your output is token-limited, so any `content` you write will be truncated/fabricated and corrupt the commit.
 For create_pull_request, parameters must include: repo_name, title, head, and can include: base, body, draft
 For scaffold_repo, parameters must include: name, template, and can include: description, private, force
 For generate_changelog, parameters must include: repo_name, and can include: from_tag, to_tag, format
@@ -317,7 +317,24 @@ Extract all relevant parameters from the user request."""
         operation = parsed.get("operation")
         parameters = parsed.get("parameters", {})
         intent_confidence = parsed.get("confidence", 0.8)  # Default if not provided
-        
+
+        # Hallucination guard: the LLM must never populate `content` for commit_file.
+        # Its output is capped at the model's max_tokens (~4K ≈ 8KB ≈ 220 lines of
+        # Python), so any `content` it writes is fabricated or truncated. The
+        # intelligence layer injects `file_url` from context.available_files instead.
+        if operation == "commit_file" and "content" in parameters:
+            content_len = len(str(parameters.get("content", "")))
+            logger.warning(
+                f"[{audit_id}] LLM populated `content` for commit_file "
+                f"(length={content_len}) — discarding to force file_url injection."
+            )
+            parameters.pop("content", None)
+            timeline.add_event(
+                EventType.STEP_COMPLETE,
+                f"Discarded LLM-fabricated content ({content_len} chars)",
+                step="hallucination_guard",
+            )
+
         logger.info(
             f"[{audit_id}] Parsed operation: {operation} (confidence: {intent_confidence})",
             extra={"operation": operation, "confidence": intent_confidence}
@@ -633,10 +650,19 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                 )
         
         # 4. Commit file context injection (before validation)
-        if (operation == "commit_file" and 
-            "file_url" not in parameters and 
-            "content" not in parameters):
-            
+        if operation == "commit_file" and "file_url" not in parameters:
+            # Belt-and-suspenders: if Layer 2 (parse_request scrub) was bypassed
+            # for any reason, drop LLM-set `content` from non-structured calls
+            # before injecting file_url. Structured callers are trusted.
+            entry_method = state.get("entry_method", "natural_language")
+            if entry_method != "structured" and "content" in parameters:
+                content_len = len(str(parameters["content"]))
+                logger.warning(
+                    f"[{audit_id}] Dropping LLM-set `content` at injection layer "
+                    f"(length={content_len}); using file_url from available_files."
+                )
+                parameters.pop("content", None)
+
             available_files = context.get("available_files", [])
             file_path = parameters.get("file_path", "").lower()
             logger.debug(f"[{audit_id}] commit_file injection started. file_path: '{file_path}', available_files count: {len(available_files)}")
@@ -683,6 +709,20 @@ async def enhance_with_intelligence(state: GitHubState) -> GitHubState:
                 logger.info(f"Pre-validation file injection: {matched['filename']} → {matched['file_url']}")
                 if timeline:
                     timeline.add_event(EventType.STEP_COMPLETE, f"Injected file_url: {matched['filename']}")
+            else:
+                # Fallback: context.file_url (flat key) — frontend injects the URL directly
+                # when it doesn't send context.available_files (e.g. chat-ui file attachments)
+                ctx_file_url = context.get("file_url")
+                if ctx_file_url:
+                    parameters["file_url"] = ctx_file_url
+                    logger.info(
+                        f"[{audit_id}] Injected context.file_url into parameters: {ctx_file_url}"
+                    )
+                    if timeline:
+                        timeline.add_event(
+                            EventType.STEP_COMPLETE,
+                            f"Injected file_url from context.file_url: {ctx_file_url}",
+                        )
         
         return {
             **state,

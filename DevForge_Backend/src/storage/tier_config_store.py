@@ -76,7 +76,7 @@ class TierConfigStore:
                         cost_per_1k_tokens,
                         max_expiry_days,
                         tc.is_active,
-                        updated_at,
+                        tc.updated_at,
                         u.email as updated_by_email
                     FROM tier_config tc
                     LEFT JOIN users u ON tc.updated_by = u.id

@@ -114,14 +114,25 @@ def _validate_safe_url(url: str) -> None:
 
 
 def _safe_fetch_url(url: str, *, max_redirects: int = 2, timeout: float = 60.0) -> bytes:
-    """Fetch URL bytes with SSRF validation on every hop.
+    """Fetch URL bytes — local disk read or SSRF-validated HTTP, in that order.
 
-    Disables automatic redirect following so we can validate each Location
-    header against the SSRF rules before chasing it. Returns raw bytes
-    (caller decides encoding). Caps total redirects at `max_redirects`.
+    1. Delegates to the FileStore registry first (LocalFileStore for own-server
+       URLs; S3FileStore / MongoFileStore when those backends are activated).
+       Local reads happen in-process with no network call and no SSRF risk.
+    2. Falls back to SSRF-validated HTTP fetch for external / CDN URLs.
 
-    Raises ValueError for SSRF rejections, RuntimeError for HTTP failures.
+    Disables automatic redirect following so every hop is validated against
+    the SSRF rules before being chased. Caps hops at `max_redirects`.
+
+    Raises:
+        ValueError  — SSRF rejection or file too large (> 100 MB)
+        RuntimeError — HTTP failure or redirect limit exceeded
     """
+    from src.storage.file_store import read_upload_url
+    local_bytes = read_upload_url(url)
+    if local_bytes is not None:
+        return local_bytes
+
     current_url = url
     for hop in range(max_redirects + 1):
         _validate_safe_url(current_url)
@@ -456,7 +467,8 @@ class GitHubTools:
         commit_message: str = "",
         branch: str = "main",
         create_if_missing: bool = True,
-        file_url: Optional[str] = None
+        file_url: Optional[str] = None,
+        delete: bool = False,
     ) -> Dict[str, Any]:
         """Commit a file to a repository.
         
@@ -468,15 +480,16 @@ class GitHubTools:
             branch: Branch name (default: 'main')
             create_if_missing: Create file if it doesn't exist, else update
             file_url: Optional URL to fetch binary content from
+            delete: Delete the target file instead of creating/updating it
             
         Returns:
             Commit information
         """
         try:
-            if not content and not file_url:
+            if not delete and not content and not file_url:
                 raise ValueError("Either 'content' or 'file_url' must be provided")
 
-            if file_url:
+            if file_url and not delete:
                 logger.info(f"Fetching binary content from: {file_url}")
                 max_retries = 3
                 fetch_success = False
@@ -514,7 +527,16 @@ class GitHubTools:
             repo = self.client.get_repo(repo_name)
             
             start_time = time.time()
-            if file_url:
+            if delete:
+                existing_file = repo.get_contents(file_path, ref=branch)
+                result = repo.delete_file(
+                    path=existing_file.path,
+                    message=commit_message,
+                    sha=existing_file.sha,
+                    branch=branch,
+                )
+                action = "deleted"
+            elif file_url:
                 # URL path: Always Delete-then-Create for clean upload (prevents corruption)
                 # This works for both binary (PDF/images) and text (JS/Python) files
                 try:
@@ -1490,6 +1512,7 @@ def commit_file(
     commit_message: str = "",
     token: Optional[str] = None,
     file_url: Optional[str] = None,
+    delete: bool = False,
     **kwargs
 ) -> Dict[str, Any]:
     """Commit file (convenience wrapper)."""
@@ -1500,6 +1523,7 @@ def commit_file(
         content=content,
         commit_message=commit_message,
         file_url=file_url,
+        delete=delete,
         **kwargs
     )
 

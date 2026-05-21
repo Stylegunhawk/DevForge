@@ -5,7 +5,7 @@ export default function KeysPage() {
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-3xl font-bold">API Keys</h1>
-        <p className="text-muted-foreground">Manage your API keys and tokens</p>
+        <p className="text-[rgb(var(--text-muted))]">Manage your API keys and tokens</p>
       </div>
       
       <Card>
@@ -16,7 +16,7 @@ export default function KeysPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">
+          <p className="text-[rgb(var(--text-muted))]">
             API key management will be implemented in the next phase.
           </p>
         </CardContent>

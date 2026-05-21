@@ -4,7 +4,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-[rgb(var(--bg))]">
       <div className="flex-1 overflow-auto">
         <main className="h-full">
           {children}

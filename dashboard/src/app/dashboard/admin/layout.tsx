@@ -48,7 +48,7 @@ export default function AdminLayout({
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Admin Panel</h1>
-        <p className="text-muted-foreground">
+        <p className="text-[rgb(var(--text-muted))]">
           Manage users, monitor requests, and view system analytics
         </p>
       </div>

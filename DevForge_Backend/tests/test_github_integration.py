@@ -829,6 +829,242 @@ class TestStructuredCallMode:
             assert "Risk gate" in msg or "reason" in msg.lower()
 
 
+class TestCommitFileContentHallucinationGuard:
+    """Regression: NL classifier must never let LLM-fabricated `content` reach the
+    GitHub commit tool. The LLM's max_tokens cap (~4K) silently truncates file
+    bodies — incident where 708-line test_rag.py was committed as 221-line
+    hallucination. Three defense layers must each work independently.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nl_path_drops_llm_hallucinated_content_and_injects_file_url(self):
+        """End-to-end: LLM returns commit_file with bogus `content`; agent must
+        scrub it and inject file_url from available_files so the tool receives
+        the byte-safe URL path, not the truncated string."""
+        from src.agents.github.agent import github_agent_invoke
+        from unittest.mock import patch as _patch, MagicMock
+
+        hallucinated = "def fake_test():\n    assert False  # LLM made this up\n" * 50
+        real_file_url = "https://files.example.com/uploads/test_rag.py"
+
+        llm_response = MagicMock()
+        llm_response.content = _json.dumps({
+            "operation": "commit_file",
+            "parameters": {
+                "repo_name": "owner/r",
+                "file_path": "tests/test_rag.py",
+                "branch": "rag",
+                "commit_message": "feat: add rag tests",
+                "content": hallucinated,  # the bug
+            },
+            "confidence": 0.95,
+        })
+
+        # Mock RepoDiscovery so fuzzy_search doesn't make a live GitHub call
+        # (it would raise 401 with a test token and abort enhance_with_intelligence
+        # before our injection block runs — the function's outer try/except
+        # swallows the error and skips injection. That's a separate fragility
+        # worth a follow-up, but not what this test is about.)
+        with _patch(
+            "src.core.model_router.ModelRouter.invoke_with_usage",
+            AsyncMock(return_value=llm_response),
+        ), _patch(
+            "src.agents.github.intelligence.repo_discovery.RepoDiscovery.get_best_match",
+            AsyncMock(return_value=None),
+        ), _patch(
+            "src.agents.github.intelligence.repo_discovery.RepoDiscovery.fuzzy_search",
+            AsyncMock(return_value=[]),
+        ):
+            with _patch("src.tools.github.tools.GitHubTools.commit_file") as mock_commit:
+                mock_commit.return_value = {
+                    "action": "created", "file_path": "tests/test_rag.py",
+                    "commit_sha": "abc", "commit_message": "feat: add rag tests",
+                    "branch": "rag", "url": "https://github.com/owner/r/commit/abc",
+                }
+                await github_agent_invoke(
+                    query="commit my test_rag.py to owner/r on the rag branch",
+                    context={
+                        "github_token": "ghp_test",
+                        "available_files": [{
+                            "filename": "test_rag.py",
+                            "file_url": real_file_url,
+                            "file_type": "text/x-python",
+                            "createdAt": "2026-05-21T00:00:00Z",
+                        }],
+                    },
+                )
+
+        mock_commit.assert_called_once()
+        kwargs = mock_commit.call_args.kwargs
+        assert kwargs.get("file_url") == real_file_url, (
+            f"Expected file_url injection. Got kwargs: {kwargs}"
+        )
+        assert "content" not in kwargs or kwargs["content"] is None, (
+            f"Hallucinated content leaked to commit_file tool. kwargs: {kwargs}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_context_file_url_flat_key_injection(self):
+        """context.file_url (flat key) must be injected into parameters["file_url"]
+        when the frontend sends the URL directly instead of via context.available_files.
+        The local-disk bypass in _safe_fetch_url must be called instead of SSRF-blocked HTTP.
+        """
+        import json as _json
+        from src.agents.github.agent import github_agent_invoke
+        from unittest.mock import patch as _patch, MagicMock, AsyncMock
+
+        local_url = "http://localhost:8001/static/uploads/users/u1/default/test_script.py"
+        file_bytes = b"def hello():\n    return 'world'\n"
+
+        llm_response = MagicMock()
+        llm_response.content = _json.dumps({
+            "operation": "commit_file",
+            "parameters": {
+                "repo_name": "owner/repo",
+                "file_path": "scripts/test_script.py",
+                "commit_message": "feat: add script",
+                "branch": "feat-context-url",  # non-protected: stays MEDIUM risk
+            },
+            "confidence": 0.95,
+        })
+
+        with _patch(
+            "src.core.model_router.ModelRouter.invoke_with_usage",
+            AsyncMock(return_value=llm_response),
+        ), _patch(
+            "src.agents.github.intelligence.repo_discovery.RepoDiscovery.get_best_match",
+            AsyncMock(return_value=None),
+        ), _patch(
+            "src.agents.github.intelligence.repo_discovery.RepoDiscovery.fuzzy_search",
+            AsyncMock(return_value=[]),
+        ), _patch(
+            "src.tools.github.tools._safe_fetch_url",
+            return_value=file_bytes,
+        ) as mock_fetch:
+            with _patch("src.tools.github.tools.GitHubTools.commit_file") as mock_commit:
+                mock_commit.return_value = {
+                    "action": "created",
+                    "file_path": "scripts/test_script.py",
+                    "commit_sha": "def456",
+                    "commit_message": "feat: add script",
+                    "branch": "main",
+                    "url": "https://github.com/owner/repo/commit/def456",
+                }
+                await github_agent_invoke(
+                    query="commit test_script.py to owner/repo",
+                    context={
+                        "github_token": "ghp_test",
+                        "file_url": local_url,  # flat key — no available_files
+                    },
+                )
+
+        mock_commit.assert_called_once()
+        kwargs = mock_commit.call_args.kwargs
+        assert kwargs.get("file_url") == local_url, (
+            f"Expected context.file_url injected into parameters. Got kwargs: {kwargs}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_structured_call_preserves_explicit_content(self):
+        """Inverse guard: structured callers are trusted to pass `content` directly
+        (e.g. programmatic MCP clients without an uploaded file). The scrub must
+        only fire on natural-language entries."""
+        from src.agents.github.agent import github_agent_invoke
+        from unittest.mock import patch as _patch
+
+        explicit_content = "print('hello from structured caller')\n"
+        with _patch("src.tools.github.tools.GitHubTools.commit_file") as mock_commit:
+            mock_commit.return_value = {
+                "action": "created", "file_path": "x.py",
+                "commit_sha": "abc", "commit_message": "feat: x",
+                "branch": "main", "url": "https://github.com/owner/r/commit/abc",
+            }
+            await github_agent_invoke(
+                operation="commit_file",
+                parameters={
+                    "repo": "owner/r",
+                    "file_path": "x.py",
+                    "branch": "feature",
+                    "content": explicit_content,
+                    "commit_message": "feat: x",
+                },
+                context={"github_token": "ghp_test"},
+            )
+
+        mock_commit.assert_called_once()
+        kwargs = mock_commit.call_args.kwargs
+        assert kwargs.get("content") == explicit_content, (
+            f"Structured-caller content was scrubbed (it shouldn't be). kwargs: {kwargs}"
+        )
+
+
+class TestCommitFileDeleteSupport:
+    def test_commit_file_schema_allows_delete_without_content_or_file_url(self):
+        from src.agents.github.schemas import validate_op_params
+
+        result = validate_op_params("commit_file", {
+            "repo_name": "o/r",
+            "file_path": "log_parser.py",
+            "commit_message": "feat: delete obsolete log_parser.py",
+            "branch": "rag",
+            "delete": True,
+        })
+
+        assert result["delete"] is True
+        assert result["file_path"] == "log_parser.py"
+
+    def test_commit_file_schema_requires_content_or_file_url_when_not_deleting(self):
+        from src.agents.github.schemas import validate_op_params
+
+        with pytest.raises(Exception):
+            validate_op_params("commit_file", {
+                "repo_name": "o/r",
+                "file_path": "log_parser.py",
+                "commit_message": "feat: update log_parser.py",
+                "branch": "rag",
+            })
+
+    def test_commit_file_delete_calls_github_delete_file(self):
+        from src.tools.github.tools import GitHubTools
+
+        mock_client = MagicMock()
+        mock_existing_file = MagicMock()
+        mock_existing_file.path = "log_parser.py"
+        mock_existing_file.sha = "blob123"
+
+        mock_commit = MagicMock()
+        mock_commit.sha = "commit123"
+        mock_commit.html_url = "https://github.com/o/r/commit/commit123"
+
+        mock_repo = MagicMock()
+        mock_repo.get_contents.return_value = mock_existing_file
+        mock_repo.delete_file.return_value = {"commit": mock_commit}
+        mock_client.get_repo.return_value = mock_repo
+
+        tools = GitHubTools.__new__(GitHubTools)
+        tools._client = mock_client
+        tools._user = MagicMock()
+        tools._mock_mode = False
+        tools._token = "ghp_test"
+
+        result = tools.commit_file(
+            repo_name="owner/repo",
+            file_path="log_parser.py",
+            commit_message="feat: delete obsolete log_parser.py",
+            branch="rag",
+            delete=True,
+        )
+
+        mock_repo.delete_file.assert_called_once_with(
+            path="log_parser.py",
+            message="feat: delete obsolete log_parser.py",
+            sha="blob123",
+            branch="rag",
+        )
+        assert result["action"] == "deleted"
+        assert result["commit_sha"] == "commit123"
+
+
 class TestSlice2Persistence:
     """Integration tests for the cross-worker persistence story.
 
