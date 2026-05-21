@@ -22,8 +22,8 @@ interface TierState {
 function getTierColor(tier: string): string {
   switch (tier?.toLowerCase()) {
     case 'free': return 'bg-secondary text-secondary-foreground border-border';
-    case 'pro': return 'bg-indigo-100 text-indigo-800 border-indigo-200';
-    case 'enterprise': return 'bg-purple-100 text-purple-800 border-purple-200';
+    case 'pro': return 'bg-[rgb(var(--accent)/0.15)] text-[rgb(var(--accent))] border-[rgb(var(--accent)/0.3)]';
+    case 'enterprise': return 'bg-[rgb(var(--accent)/0.15)] text-[rgb(var(--accent))] border-[rgb(var(--accent)/0.3)]';
     default: return 'bg-secondary text-secondary-foreground border-border';
   }
 }
@@ -250,21 +250,21 @@ export default function PricingPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Pricing & Limits</h1>
-          <p className="text-muted-foreground">Configure rate limits and pricing per tier</p>
+          <p className="text-[rgb(var(--text-muted))]">Configure rate limits and pricing per tier</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[1, 2, 3].map((i) => (
             <Card key={i}>
               <CardHeader>
-                <div className="h-6 w-24 bg-zinc-200 rounded animate-pulse"></div>
-                <div className="h-4 w-32 bg-zinc-200 rounded animate-pulse"></div>
+                <div className="h-6 w-24 bg-[rgb(var(--surface-2))] rounded animate-pulse"></div>
+                <div className="h-4 w-32 bg-[rgb(var(--surface-2))] rounded animate-pulse"></div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {[1, 2, 3, 4].map((j) => (
                     <div key={j}>
-                      <div className="h-4 w-20 mb-2 bg-zinc-200 rounded animate-pulse"></div>
-                      <div className="h-10 w-full bg-zinc-200 rounded animate-pulse"></div>
+                      <div className="h-4 w-20 mb-2 bg-[rgb(var(--surface-2))] rounded animate-pulse"></div>
+                      <div className="h-10 w-full bg-[rgb(var(--surface-2))] rounded animate-pulse"></div>
                     </div>
                   ))}
                 </div>
@@ -281,10 +281,10 @@ export default function PricingPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Pricing & Limits</h1>
-          <p className="text-muted-foreground">Configure rate limits and pricing per tier</p>
+          <p className="text-[rgb(var(--text-muted))]">Configure rate limits and pricing per tier</p>
         </div>
-        <div className="p-4 border border-red-200 bg-red-50 rounded-lg">
-          <p className="text-red-800">{error}</p>
+        <div className="p-4 border border-[rgb(var(--danger)/0.3)] bg-[rgb(var(--danger)/0.08)] rounded-lg">
+          <p className="text-[rgb(var(--danger))]">{error}</p>
         </div>
       </div>
     );
@@ -298,7 +298,7 @@ export default function PricingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Pricing & Limits</h1>
-        <p className="text-muted-foreground">Configure rate limits and pricing per tier</p>
+        <p className="text-[rgb(var(--text-muted))]">Configure rate limits and pricing per tier</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -316,7 +316,7 @@ export default function PricingPage() {
                     {tierName.charAt(0).toUpperCase() + tierName.slice(1)}
                   </Badge>
                   {tierState.saveStatus === 'success' && (
-                    <div className="flex items-center text-green-600 text-sm">
+                    <div className="flex items-center text-[rgb(var(--success))] text-sm">
                       <CheckCircle className="w-4 h-4 mr-1" />
                       Saved
                     </div>
@@ -357,7 +357,7 @@ export default function PricingPage() {
                           onChange={(e) => 
                             updateTierField(tierName, 'monthly_limit', e.target.checked ? null : 1000)
                           }
-                          className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-indigo-500"
+                          className="w-4 h-4 text-primary border-[rgb(var(--border))] rounded focus:ring-[rgb(var(--accent))]"
                         />
                         <Label htmlFor={`${tierName}-unlimited`} className="text-sm">Unlimited</Label>
                       </div>
@@ -409,7 +409,7 @@ export default function PricingPage() {
 
                   {/* Error Message */}
                   {tierState.saveStatus === 'error' && tierState.errorMessage && (
-                    <div className="flex items-center text-red-600 text-sm">
+                    <div className="flex items-center text-[rgb(var(--danger))] text-sm">
                       <AlertCircle className="w-4 h-4 mr-1" />
                       {tierState.errorMessage}
                     </div>
@@ -419,7 +419,7 @@ export default function PricingPage() {
                   <Button
                     onClick={() => saveTier(tierName)}
                     disabled={!hasUnsavedChanges || tierState.isSaving}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                    className="w-full bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent)/0.85)]"
                   >
                     {tierState.isSaving ? 'Saving...' : 'Save'}
                   </Button>

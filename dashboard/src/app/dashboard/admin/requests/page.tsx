@@ -124,7 +124,7 @@ export default function AdminRequests() {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <div className="bg-[rgb(var(--danger)/0.08)] border border-[rgb(var(--danger)/0.3)] text-[rgb(var(--danger))] px-4 py-3 rounded">
           {error}
         </div>
       )}
@@ -193,13 +193,13 @@ export default function AdminRequests() {
         <CardContent>
           <div className="space-y-4">
             {logs.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
+              <p className="text-[rgb(var(--text-muted))] text-center py-8">
                 No request logs found
               </p>
             ) : (
               <>
                 <div className="space-y-2">
-                  <div className="grid grid-cols-7 gap-4 text-sm font-medium text-muted-foreground pb-2 border-b">
+                  <div className="grid grid-cols-7 gap-4 text-sm font-medium text-[rgb(var(--text-muted))] pb-2 border-b">
                     <div>Time</div>
                     <div>Tool</div>
                     <div>User</div>
@@ -211,15 +211,15 @@ export default function AdminRequests() {
                   
                   {logs.map((log) => (
                     <div key={log.id} className="grid grid-cols-7 gap-4 items-center text-sm py-2 border-b">
-                      <div className="text-muted-foreground">
+                      <div className="text-[rgb(var(--text-muted))]">
                         {formatRelativeTime(log.created_at)}
                       </div>
                       <div>
                         <Badge variant="outline">{log.tool_name}</Badge>
                       </div>
-                      <div className="text-muted-foreground">
+                      <div className="text-[rgb(var(--text-muted))]">
                         {log.user_email === "Anonymous" ? (
-                          <span className="italic text-muted-foreground">Anonymous</span>
+                          <span className="italic text-[rgb(var(--text-muted))]">Anonymous</span>
                         ) : (
                           <span 
                             className="truncate max-w-[120px]" 
@@ -229,20 +229,20 @@ export default function AdminRequests() {
                           </span>
                         )}
                       </div>
-                      <div className="text-muted-foreground font-mono text-xs">
+                      <div className="text-[rgb(var(--text-muted))] font-mono text-xs">
                         {log.tenant_id.substring(0, 8)}...
                       </div>
-                      <div className="text-muted-foreground">
+                      <div className="text-[rgb(var(--text-muted))]">
                         {formatDuration(log.duration_ms)}
                       </div>
                       <div>
                         {log.success ? (
-                          <CheckCircle className="h-4 w-4 text-green-600" />
+                          <CheckCircle className="h-4 w-4 text-[rgb(var(--success))]" />
                         ) : (
-                          <XCircle className="h-4 w-4 text-red-600" />
+                          <XCircle className="h-4 w-4 text-[rgb(var(--danger))]" />
                         )}
                       </div>
-                      <div className="text-muted-foreground" title={log.input_summary}>
+                      <div className="text-[rgb(var(--text-muted))]" title={log.input_summary}>
                         {truncateText(log.input_summary, 60)}
                       </div>
                     </div>
@@ -252,7 +252,7 @@ export default function AdminRequests() {
                 {/* Pagination */}
                 {pagination && pagination.total_pages > 1 && (
                   <div className="flex items-center justify-between pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
+                    <div className="text-sm text-[rgb(var(--text-muted))]">
                       Page {pagination.current_page} of {pagination.total_pages}
                     </div>
                     <div className="flex space-x-2">

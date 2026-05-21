@@ -302,7 +302,7 @@ export default function UserDetailPage() {
 
         <Card>
           <CardContent className="p-6">
-            <div className="text-center text-red-600">
+            <div className="text-center text-[rgb(var(--danger))]">
               <p className="font-medium">{error}</p>
               <p className="text-sm">Please try again later.</p>
             </div>
@@ -327,7 +327,7 @@ export default function UserDetailPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div className="space-y-2">
                       <div className="flex items-center space-x-2">
-                        <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                        <BarChart3 className="h-4 w-4 text-[rgb(var(--text-muted))]" />
                         <span className="text-sm font-medium">Total Requests</span>
                       </div>
                       <div className="text-2xl font-bold">{userUsage?.total_requests || 0}</div>
@@ -335,7 +335,7 @@ export default function UserDetailPage() {
                     
                     <div className="space-y-2">
                       <div className="flex items-center space-x-2">
-                        <Zap className="h-4 w-4 text-muted-foreground" />
+                        <Zap className="h-4 w-4 text-[rgb(var(--text-muted))]" />
                         <span className="text-sm font-medium">Total Tokens</span>
                       </div>
                       <div className="text-2xl font-bold">{(userUsage?.total_tokens || 0).toLocaleString()}</div>
@@ -343,7 +343,7 @@ export default function UserDetailPage() {
                     
                     <div className="space-y-2">
                       <div className="flex items-center space-x-2">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        <DollarSign className="h-4 w-4 text-[rgb(var(--text-muted))]" />
                         <span className="text-sm font-medium">Total Cost</span>
                       </div>
                       <div className="text-2xl font-bold">{formatCurrency(userUsage?.total_cost || 0)}</div>
@@ -357,18 +357,18 @@ export default function UserDetailPage() {
                         <div key={tool.tool_name} className="flex items-center justify-between p-3 border rounded">
                           <div className="flex items-center space-x-3">
                             <Badge variant="outline">{tool.tool_name}</Badge>
-                            <span className="text-sm text-muted-foreground">
+                            <span className="text-sm text-[rgb(var(--text-muted))]">
                               {tool.call_count} calls • {formatDuration(tool.avg_duration_ms)} avg • {tool.total_tokens ? tool.total_tokens.toLocaleString() : '0'} tokens • {tool.success_rate.toFixed(1)}% success
                             </span>
                           </div>
                           <div className="text-right">
-                            <div className="text-sm text-muted-foreground">
+                            <div className="text-sm text-[rgb(var(--text-muted))]">
                               {tool.success_rate.toFixed(1)}% success rate
                             </div>
                           </div>
                         </div>
                       )) || (
-                        <p className="text-muted-foreground text-center py-8">
+                        <p className="text-[rgb(var(--text-muted))] text-center py-8">
                           No tool usage data available
                         </p>
                       )}
@@ -398,8 +398,8 @@ export default function UserDetailPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold">{userUsage.user.name}</h1>
-                <p className="text-muted-foreground">{userUsage.user.email}</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-[rgb(var(--text-muted))]">{userUsage.user.email}</p>
+                <p className="text-sm text-[rgb(var(--text-muted))]">
                   Member since {new Date(userUsage.user.member_since).toLocaleDateString()}
                 </p>
               </div>
@@ -421,7 +421,7 @@ export default function UserDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
-                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                  <BarChart3 className="h-4 w-4 text-[rgb(var(--text-muted))]" />
                   <span className="text-sm font-medium">Total Requests</span>
                 </div>
                 <div className="text-2xl font-bold">{userUsage?.total_requests || 0}</div>
@@ -429,7 +429,7 @@ export default function UserDetailPage() {
               
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
-                  <Zap className="h-4 w-4 text-muted-foreground" />
+                  <Zap className="h-4 w-4 text-[rgb(var(--text-muted))]" />
                   <span className="text-sm font-medium">Total Tokens</span>
                 </div>
                 <div className="text-2xl font-bold">{(userUsage?.total_tokens || 0).toLocaleString()}</div>
@@ -437,7 +437,7 @@ export default function UserDetailPage() {
               
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  <DollarSign className="h-4 w-4 text-[rgb(var(--text-muted))]" />
                   <span className="text-sm font-medium">Total Cost</span>
                 </div>
                 <div className="text-2xl font-bold">{formatCurrency(userUsage?.total_cost || 0)}</div>
@@ -451,12 +451,12 @@ export default function UserDetailPage() {
                   <div key={tool.tool_name} className="flex items-center justify-between p-3 border rounded">
                     <div className="flex items-center space-x-3">
                       <Badge variant="outline">{tool.tool_name}</Badge>
-                      <span className="text-sm text-muted-foreground">
+                      <span className="text-sm text-[rgb(var(--text-muted))]">
                         {tool.call_count} calls • {formatDuration(tool.avg_duration_ms)} avg
                       </span>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm text-muted-foreground">
+                      <div className="text-sm text-[rgb(var(--text-muted))]">
                         {tool.success_rate.toFixed(1)}% success rate
                       </div>
                       <div className="text-sm font-medium">
@@ -465,7 +465,7 @@ export default function UserDetailPage() {
                     </div>
                   </div>
                 )) || (
-                  <p className="text-muted-foreground text-center py-8">
+                  <p className="text-[rgb(var(--text-muted))] text-center py-8">
                     No tool usage data available
                   </p>
                 )}
@@ -483,7 +483,7 @@ export default function UserDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="grid grid-cols-5 gap-4 items-center text-xs text-muted-foreground uppercase tracking-wide py-2 border-b">
+              <div className="grid grid-cols-5 gap-4 items-center text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide py-2 border-b">
                 <div>Key Name</div>
                 <div>Integration</div>
                 <div>Tier</div>
@@ -499,18 +499,18 @@ export default function UserDetailPage() {
                   return (
                     <div key={key.id} className="grid grid-cols-5 gap-4 items-center text-sm py-2 border-b">
                       <div className="font-medium">{key.name}</div>
-                      <div className="text-muted-foreground">{key.integration_name}</div>
+                      <div className="text-[rgb(var(--text-muted))]">{key.integration_name}</div>
                       <div>
-                        <Badge variant="outline" className={key.tier === 'free' ? 'border-zinc-300' : key.tier === 'pro' ? 'border-indigo-300' : 'border-purple-300'}>
+                        <Badge variant="outline" className={key.tier === 'free' ? 'border-[rgb(var(--border))]' : key.tier === 'pro' ? 'border-[rgb(var(--accent)/0.4)]' : 'border-[rgb(var(--accent)/0.4)]'}>
                           {key.tier}
                         </Badge>
                       </div>
-                      <div className={hasKeyOverride ? 'text-primary font-medium' : 'text-muted-foreground'}>
+                      <div className={hasKeyOverride ? 'text-primary font-medium' : 'text-[rgb(var(--text-muted))]'}>
                         {formatLimits(effectiveLimits.hourly, effectiveLimits.monthly)}
                       </div>
                       <div>
                         {hasKeyOverride ? (
-                          <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200">
+                          <Badge className="bg-[rgb(var(--accent)/0.15)] text-[rgb(var(--accent))] border-[rgb(var(--accent)/0.3)]">
                             Custom Limits
                           </Badge>
                         ) : (
@@ -547,7 +547,7 @@ export default function UserDetailPage() {
           <div className="space-y-4">
             {userRequests?.length > 0 ? (
               <>
-                <div className="grid grid-cols-6 gap-4 items-center text-xs text-muted-foreground uppercase tracking-wide py-2 border-b">
+                <div className="grid grid-cols-6 gap-4 items-center text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide py-2 border-b">
                   <div>Time</div>
                   <div>Tool</div>
                   <div>Tenant ID</div>
@@ -558,26 +558,26 @@ export default function UserDetailPage() {
                 <div className="space-y-2">
                   {userRequests.map((request) => (
                     <div key={request.id} className="grid grid-cols-6 gap-4 items-center text-sm py-2 border-b">
-                      <div className="text-muted-foreground">
+                      <div className="text-[rgb(var(--text-muted))]">
                         {formatRelativeTime(request.created_at)}
                       </div>
                       <div>
                         <Badge variant="outline">{request.tool_name}</Badge>
                       </div>
-                      <div className="text-muted-foreground font-mono text-xs">
+                      <div className="text-[rgb(var(--text-muted))] font-mono text-xs">
                         {request.tenant_id?.substring(0, 8)}...
                       </div>
-                      <div className="text-muted-foreground">
+                      <div className="text-[rgb(var(--text-muted))]">
                         {formatDuration(request.duration_ms)}
                       </div>
                       <div>
                         {request.success ? (
-                          <CheckCircle className="h-4 w-4 text-green-600" />
+                          <CheckCircle className="h-4 w-4 text-[rgb(var(--success))]" />
                         ) : (
-                          <XCircle className="h-4 w-4 text-red-600" />
+                          <XCircle className="h-4 w-4 text-[rgb(var(--danger))]" />
                         )}
                       </div>
-                      <div className="text-muted-foreground truncate max-w-[200px]" title={request.input_summary}>
+                      <div className="text-[rgb(var(--text-muted))] truncate max-w-[200px]" title={request.input_summary}>
                         {request.input_summary?.substring(0, 60)}{request.input_summary?.length > 60 ? '...' : ''}
                       </div>
                     </div>
@@ -585,7 +585,7 @@ export default function UserDetailPage() {
                 </div>
                 {userRequests.length > 10 && (
                   <div className="flex items-center justify-between pt-4 border-t">
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-[rgb(var(--text-muted))]">
                       Showing 1-{Math.min(10, userRequests.length)} of {userRequests.length} requests
                     </p>
                     <div className="flex space-x-2">
@@ -600,7 +600,7 @@ export default function UserDetailPage() {
                 )}
               </>
             ) : (
-              <p className="text-center text-muted-foreground py-8">
+              <p className="text-center text-[rgb(var(--text-muted))] py-8">
                 No requests yet
               </p>
             )}
@@ -620,13 +620,13 @@ export default function UserDetailPage() {
           
           {overrideLoading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[rgb(var(--accent))]"></div>
             </div>
           ) : (
             <div className="space-y-4">
               {overrideSuccess && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-green-800 text-sm">Limits updated</p>
+                <div className="p-3 bg-[rgb(var(--success)/0.1)] border border-[rgb(var(--success)/0.3)] rounded-lg">
+                  <p className="text-[rgb(var(--success))] text-sm">Limits updated</p>
                 </div>
               )}
               
@@ -686,8 +686,8 @@ export default function UserDetailPage() {
                 </div>
               </div>
               
-              <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg">
-                <p className="text-zinc-700 text-sm">
+              <div className="p-3 bg-[rgb(var(--surface-2))] border border-[rgb(var(--border))] rounded-lg">
+                <p className="text-[rgb(var(--text-muted))] text-sm">
                   Leaving a field empty will use the tier default.
                   Free tier defaults: 50/hr • 500/mo
                 </p>
@@ -697,10 +697,10 @@ export default function UserDetailPage() {
                 <Button variant="outline" onClick={closeOverrideDialog} disabled={overrideSaving}>
                   Cancel
                 </Button>
-                <Button 
-                  onClick={saveOverride} 
+                <Button
+                  onClick={saveOverride}
                   disabled={overrideSaving}
-                  className="bg-indigo-600 hover:bg-indigo-700"
+                  className="bg-[rgb(var(--accent))] hover:bg-[rgb(var(--accent)/0.85)]"
                 >
                   {overrideSaving ? 'Saving...' : 'Save Override'}
                 </Button>

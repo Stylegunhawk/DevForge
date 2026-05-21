@@ -32,9 +32,9 @@ function formatDuration(ms: number): string {
 }
 
 function getSuccessRateColor(rate: number): string {
-  if (rate >= 95) return 'bg-green-100 text-green-800 border-green-200';
+  if (rate >= 95) return 'bg-[rgb(var(--success)/0.15)] text-[rgb(var(--success))] border-[rgb(var(--success)/0.3)]';
   if (rate >= 80) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-  return 'bg-red-100 text-red-800 border-red-200';
+  return 'bg-[rgb(var(--danger)/0.15)] text-[rgb(var(--danger))] border-[rgb(var(--danger)/0.3)]';
 }
 
 export default function AdminOverview() {
@@ -134,7 +134,7 @@ export default function AdminOverview() {
   if (error) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-600">{error}</p>
+        <p className="text-[rgb(var(--danger))]">{error}</p>
       </div>
     );
   }
@@ -146,11 +146,11 @@ export default function AdminOverview() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <Users className="h-4 w-4 text-[rgb(var(--text-muted))]" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary?.total_users || 0}</div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[rgb(var(--text-muted))]">
               {summary?.active_users_today || 0} active today
             </p>
           </CardContent>
@@ -159,11 +159,11 @@ export default function AdminOverview() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Requests Today</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
+            <Activity className="h-4 w-4 text-[rgb(var(--text-muted))]" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary?.total_requests_today || 0}</div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[rgb(var(--text-muted))]">
               Avg: {formatDuration(summary?.avg_duration_today || 0)}
             </p>
           </CardContent>
@@ -172,13 +172,13 @@ export default function AdminOverview() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Tokens Today</CardTitle>
-            <Zap className="h-4 w-4 text-muted-foreground" />
+            <Zap className="h-4 w-4 text-[rgb(var(--text-muted))]" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
               {(summary?.total_tokens_today || 0).toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[rgb(var(--text-muted))]">
               Total tokens processed
             </p>
           </CardContent>
@@ -187,13 +187,13 @@ export default function AdminOverview() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Cost Today</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <DollarSign className="h-4 w-4 text-[rgb(var(--text-muted))]" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
               {formatCurrency(summary?.total_cost_today || 0)}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[rgb(var(--text-muted))]">
               Total API costs
             </p>
           </CardContent>
@@ -257,12 +257,12 @@ export default function AdminOverview() {
         <CardContent>
           <div className="space-y-4">
             {toolStats.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
+              <p className="text-[rgb(var(--text-muted))] text-center py-8">
                 No tool statistics available
               </p>
             ) : (
               <div className="space-y-2">
-                <div className="grid grid-cols-7 gap-4 text-sm font-medium text-muted-foreground pb-2 border-b">
+                <div className="grid grid-cols-7 gap-4 text-sm font-medium text-[rgb(var(--text-muted))] pb-2 border-b">
                   <div>Tool</div>
                   <div className="text-right">Calls</div>
                   <div className="text-right">Avg Duration</div>

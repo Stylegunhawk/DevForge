@@ -135,7 +135,7 @@ export default function AdminUsers() {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <div className="bg-[rgb(var(--danger)/0.08)] border border-[rgb(var(--danger)/0.3)] text-[rgb(var(--danger))] px-4 py-3 rounded">
           {error}
         </div>
       )}
@@ -150,7 +150,7 @@ export default function AdminUsers() {
         <CardContent>
           <div className="space-y-4">
             {users.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
+              <p className="text-[rgb(var(--text-muted))] text-center py-8">
                 No users found
               </p>
             ) : (
@@ -160,9 +160,9 @@ export default function AdminUsers() {
                     <div className="space-y-1">
                       <div className="flex items-center space-x-2">
                         <span className="font-medium">{user.name}</span>
-                        {user.is_admin && <Crown className="h-4 w-4 text-yellow-600" />}
+                        {user.is_admin && <Crown className="h-4 w-4 text-[rgb(var(--accent))]" />}
                       </div>
-                      <div className="text-sm text-muted-foreground">{user.email}</div>
+                      <div className="text-sm text-[rgb(var(--text-muted))]">{user.email}</div>
                     </div>
                     
                     <div className="flex items-center space-x-4">
@@ -174,7 +174,7 @@ export default function AdminUsers() {
                         {user.is_active ? "Active" : "Inactive"}
                       </Badge>
                       
-                      <span className="text-sm text-muted-foreground">
+                      <span className="text-sm text-[rgb(var(--text-muted))]">
                         {formatRelativeTime(user.created_at)}
                       </span>
                       
