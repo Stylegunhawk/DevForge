@@ -293,7 +293,7 @@ function PlaygroundContent() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Playground</h1>
-        <p className="text-muted-foreground">Test tools interactively</p>
+        <p className="text-[rgb(var(--text-muted))]">Test tools interactively</p>
       </div>
 
       <div className="grid grid-cols-[360px_1fr] gap-6 items-start">
@@ -315,7 +315,7 @@ function PlaygroundContent() {
                 />
                 <button
                   type="button"
-                  className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                  className="absolute right-2.5 top-2.5 text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text))]"
                   onClick={() => setShowKey((s) => !s)}
                 >
                   {showKey ? (
@@ -325,7 +325,7 @@ function PlaygroundContent() {
                   )}
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1.5">
+              <p className="text-xs text-[rgb(var(--text-muted))] mt-1.5">
                 Saved locally. Get yours from API Keys.
               </p>
             </CardContent>
@@ -350,7 +350,7 @@ function PlaygroundContent() {
                 </SelectContent>
               </Select>
 
-              <p className="text-xs text-muted-foreground -mt-1">
+              <p className="text-xs text-[rgb(var(--text-muted))] -mt-1">
                 {TOOLS[tool].description}
               </p>
 
@@ -358,7 +358,7 @@ function PlaygroundContent() {
                 <div key={f.name} className="space-y-1.5">
                   <Label className="text-xs">
                     {f.label}
-                    {f.required && <span className="text-red-500 ml-1">*</span>}
+                    {f.required && <span className="text-[rgb(var(--danger))] ml-1">*</span>}
                   </Label>
 
                   {f.type === "textarea" ? (
@@ -397,7 +397,7 @@ function PlaygroundContent() {
                 </div>
               ))}
 
-              {error && <p className="text-xs text-red-500">{error}</p>}
+              {error && <p className="text-xs text-[rgb(var(--danger))]">{error}</p>}
 
               <Button
                 className="w-full"
@@ -434,7 +434,7 @@ function PlaygroundContent() {
             </CardHeader>
             <CardContent>
               {loading ? (
-                <div className="flex items-center gap-2 text-muted-foreground text-sm py-20 justify-center">
+                <div className="flex items-center gap-2 text-[rgb(var(--text-muted))] text-sm py-20 justify-center">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Running...
                 </div>
@@ -443,7 +443,7 @@ function PlaygroundContent() {
                   {JSON.stringify(response, null, 2)}
                 </pre>
               ) : (
-                <p className="text-center text-muted-foreground py-20 text-sm">
+                <p className="text-center text-[rgb(var(--text-muted))] py-20 text-sm">
                   Hit <span className="font-mono">Run</span> to see the JSON
                   response
                 </p>
@@ -477,10 +477,10 @@ export default function PlaygroundPage() {
     <Suspense
       fallback={
         <div className="p-6">
-          <div className="h-8 w-40 bg-muted animate-pulse rounded mb-6" />
+          <div className="h-8 w-40 bg-[rgb(var(--surface-2))] animate-pulse rounded mb-6" />
           <div className="grid grid-cols-2 gap-4">
-            <div className="h-96 bg-muted animate-pulse rounded" />
-            <div className="h-96 bg-muted animate-pulse rounded" />
+            <div className="h-96 bg-[rgb(var(--surface-2))] animate-pulse rounded" />
+            <div className="h-96 bg-[rgb(var(--surface-2))] animate-pulse rounded" />
           </div>
         </div>
       }

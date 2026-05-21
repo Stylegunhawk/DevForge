@@ -137,7 +137,7 @@ export default function SettingsPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">Manage your account preferences</p>
+          <p className="text-[rgb(var(--text-muted))]">Manage your account preferences</p>
         </div>
         <div className="space-y-6">
           {[1, 2, 3].map((i) => (
@@ -162,7 +162,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">Manage your account preferences</p>
+        <p className="text-[rgb(var(--text-muted))]">Manage your account preferences</p>
       </div>
 
       {/* Profile Section */}
@@ -188,9 +188,9 @@ export default function SettingsPage() {
               id="email"
               value={session?.user?.email || ""}
               disabled
-              className="bg-muted text-muted-foreground"
+              className="bg-[rgb(var(--surface-2))] text-[rgb(var(--text-muted))]"
             />
-            <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+            <p className="text-xs text-[rgb(var(--text-muted))]">Email cannot be changed</p>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -201,11 +201,11 @@ export default function SettingsPage() {
           </div>
 
           {error && (
-            <div className="text-sm text-red-600">{error}</div>
+            <div className="text-sm text-[rgb(var(--danger))]">{error}</div>
           )}
-          
+
           {success && (
-            <div className="text-sm text-green-600">{success}</div>
+            <div className="text-sm text-[rgb(var(--success))]">{success}</div>
           )}
 
           <Button 
@@ -247,13 +247,13 @@ export default function SettingsPage() {
               <div className="grid grid-cols-3 gap-6 text-center">
                 <div>
                   <div className="text-2xl font-bold">{apiKeys.length}</div>
-                  <div className="text-sm text-muted-foreground">Total Keys</div>
+                  <div className="text-sm text-[rgb(var(--text-muted))]">Total Keys</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold">
                     {apiKeys.filter(key => key.is_active).length}
                   </div>
-                  <div className="text-sm text-muted-foreground">Active Keys</div>
+                  <div className="text-sm text-[rgb(var(--text-muted))]">Active Keys</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold">
@@ -263,12 +263,12 @@ export default function SettingsPage() {
                         .sort((a, b) => new Date(b.last_used).getTime() - new Date(a.last_used).getTime())[0]?.last_used || null
                     )}
                   </div>
-                  <div className="text-sm text-muted-foreground">Last Used</div>
+                  <div className="text-sm text-[rgb(var(--text-muted))]">Last Used</div>
                 </div>
               </div>
               
               <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
+                <div className="grid grid-cols-3 gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide">
                   <div>Name</div>
                   <div>Integration</div>
                   <div>Status</div>
@@ -299,7 +299,7 @@ export default function SettingsPage() {
             </>
           ) : (
             <div className="text-center py-8">
-              <p className="text-muted-foreground mb-4">No API keys yet.</p>
+              <p className="text-[rgb(var(--text-muted))] mb-4">No API keys yet.</p>
               <Button 
                 variant="outline" 
                 onClick={() => router.push('/dashboard/keys')}
@@ -331,8 +331,8 @@ export default function SettingsPage() {
                   onClick={() => setTheme(themeOption.value)}
                   className={`flex items-center space-x-2 ${
                     isActive 
-                      ? 'bg-indigo-600 text-white border-indigo-600' 
-                      : 'bg-transparent border-border text-muted-foreground'
+                      ? 'bg-[rgb(var(--accent))] text-white border-[rgb(var(--accent))]'
+                      : 'bg-transparent border-[rgb(var(--border))] text-[rgb(var(--text-muted))]'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -384,7 +384,7 @@ export default function SettingsPage() {
                 placeholder="Confirm new password"
               />
               {newPassword && confirmPassword && newPassword !== confirmPassword && (
-                <p className="text-xs text-red-600">Passwords do not match</p>
+                <p className="text-xs text-[rgb(var(--danger))]">Passwords do not match</p>
               )}
             </div>
 
@@ -396,7 +396,7 @@ export default function SettingsPage() {
               Update password (Coming soon)
             </Button>
             
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[rgb(var(--text-muted))]">
               TODO: Backend endpoint not yet implemented
             </p>
           </CardContent>
@@ -404,20 +404,20 @@ export default function SettingsPage() {
       )}
 
       {/* Danger Zone */}
-      <Card className="border-red-200 dark:border-red-900">
+      <Card className="border-[rgb(var(--danger)/0.3)]">
         <CardHeader>
-          <CardTitle className="text-red-600">Danger Zone</CardTitle>
+          <CardTitle className="text-[rgb(var(--danger))]">Danger Zone</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
             <div>
               <h4 className="font-medium">Sign out of all sessions</h4>
-              <p className="text-sm text-muted-foreground">Signs you out everywhere</p>
+              <p className="text-sm text-[rgb(var(--text-muted))]">Signs you out everywhere</p>
             </div>
             <Button 
               variant="outline" 
               onClick={handleSignOutAll}
-              className="border-red-600 text-red-600 hover:bg-red-50 hover:text-red-700"
+              className="border-[rgb(var(--danger)/0.5)] text-[rgb(var(--danger))] hover:bg-[rgb(var(--danger-bg))] hover:text-[rgb(var(--danger))]"
             >
               Sign out
             </Button>
@@ -434,7 +434,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">User ID</span>
             <div className="flex items-center space-x-2">
-              <code className="text-xs bg-muted px-2 py-1 rounded">
+              <code className="text-xs bg-[rgb(var(--surface-2))] px-2 py-1 rounded">
                 {session?.user?.id}
               </code>
               <Button
@@ -449,7 +449,7 @@ export default function SettingsPage() {
           
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Member since</span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-[rgb(var(--text-muted))]">
               {currentUser?.created_at ? formatDate(currentUser.created_at) : 'Unknown'}
             </span>
           </div>

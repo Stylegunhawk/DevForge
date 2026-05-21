@@ -87,9 +87,9 @@ function formatDate(dateString: string): string {
 }
 
 function getSuccessRateColor(successRate: number): string {
-  if (successRate >= 95) return 'text-green-600';
+  if (successRate >= 95) return 'text-[rgb(var(--success))]';
   if (successRate >= 80) return 'text-yellow-600';
-  return 'text-red-600';
+  return 'text-[rgb(var(--danger))]';
 }
 
 export default function UsagePage() {
@@ -141,7 +141,7 @@ export default function UsagePage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Usage</h1>
-          <p className="text-muted-foreground">Last 30 days</p>
+          <p className="text-[rgb(var(--text-muted))]">Last 30 days</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -221,12 +221,12 @@ export default function UsagePage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Usage</h1>
-          <p className="text-muted-foreground">Last 30 days</p>
+          <p className="text-[rgb(var(--text-muted))]">Last 30 days</p>
         </div>
 
         <Card>
           <CardContent className="p-6">
-            <div className="text-center text-red-600">
+            <div className="text-center text-[rgb(var(--danger))]">
               <p className="font-medium">{error}</p>
               <p className="text-sm">Please try again later.</p>
             </div>
@@ -240,7 +240,7 @@ export default function UsagePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Usage</h1>
-        <p className="text-muted-foreground">Last 30 days</p>
+        <p className="text-[rgb(var(--text-muted))]">Last 30 days</p>
       </div>
 
       {/* Stats Row */}
@@ -248,7 +248,7 @@ export default function UsagePage() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center space-x-2">
-              <Activity className="h-4 w-4 text-muted-foreground" />
+              <Activity className="h-4 w-4 text-[rgb(var(--text-muted))]" />
               <span className="text-sm font-medium">Total Requests</span>
             </div>
             <div className="text-2xl font-bold">{usageData?.total_requests || 0}</div>
@@ -258,7 +258,7 @@ export default function UsagePage() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center space-x-2">
-              <Zap className="h-4 w-4 text-muted-foreground" />
+              <Zap className="h-4 w-4 text-[rgb(var(--text-muted))]" />
               <span className="text-sm font-medium">Total Tokens</span>
             </div>
             <div className="text-2xl font-bold">{(usageData?.total_tokens || 0).toLocaleString()}</div>
@@ -268,7 +268,7 @@ export default function UsagePage() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center space-x-2">
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <DollarSign className="h-4 w-4 text-[rgb(var(--text-muted))]" />
               <span className="text-sm font-medium">Total Cost</span>
             </div>
             <div className="text-2xl font-bold">{formatCurrency(usageData?.total_cost || 0)}</div>
@@ -343,7 +343,7 @@ export default function UsagePage() {
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-center text-muted-foreground py-14 text-sm">
+                <p className="text-center text-[rgb(var(--text-muted))] py-14 text-sm">
                   No tool usage yet
                 </p>
               )}
@@ -360,7 +360,7 @@ export default function UsagePage() {
         <CardContent>
           {usageData?.token_usage && usageData.token_usage.length > 0 ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-7 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
+              <div className="grid grid-cols-7 gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide">
                 <div>Date</div>
                 <div>Model</div>
                 <div>Task</div>
@@ -382,7 +382,7 @@ export default function UsagePage() {
               ))}
             </div>
           ) : (
-            <p className="text-center text-muted-foreground py-8">
+            <p className="text-center text-[rgb(var(--text-muted))] py-8">
               No token usage in the last 30 days
             </p>
           )}
@@ -397,7 +397,7 @@ export default function UsagePage() {
         <CardContent>
           {usageData?.tool_usage && usageData.tool_usage.length > 0 ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-4 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
+              <div className="grid grid-cols-4 gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide">
                 <div>Tool</div>
                 <div>Calls</div>
                 <div>Avg Duration</div>
@@ -415,7 +415,7 @@ export default function UsagePage() {
               ))}
             </div>
           ) : (
-            <p className="text-center text-muted-foreground py-8">
+            <p className="text-center text-[rgb(var(--text-muted))] py-8">
               No tool usage in the last 30 days
             </p>
           )}
@@ -430,7 +430,7 @@ export default function UsagePage() {
         <CardContent>
           {apiKeys?.length > 0 ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-5 gap-4 text-xs text-muted-foreground uppercase tracking-wide">
+              <div className="grid grid-cols-5 gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide">
                 <div>Name</div>
                 <div>Integration</div>
                 <div>Tier</div>
@@ -452,7 +452,7 @@ export default function UsagePage() {
               ))}
             </div>
           ) : (
-            <p className="text-center text-muted-foreground py-8">
+            <p className="text-center text-[rgb(var(--text-muted))] py-8">
               No API keys found
             </p>
           )}

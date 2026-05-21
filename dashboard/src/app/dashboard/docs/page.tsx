@@ -79,7 +79,7 @@ export default function DocsPage() {
       {/* Page Header */}
       <div>
         <h1 className="text-3xl font-bold">Documentation</h1>
-        <p className="text-muted-foreground">Learn how to integrate with DevForge API</p>
+        <p className="text-[rgb(var(--text-muted))]">Learn how to integrate with DevForge API</p>
       </div>
 
       {/* Quick Start */}
@@ -104,7 +104,7 @@ export default function DocsPage() {
         <Card>
           <CardContent className="p-6">
             <p className="mb-4">
-              All requests require an <code className="bg-muted px-2 py-1 rounded text-sm">x-api-key</code> header.
+              All requests require an <code className="bg-[rgb(var(--surface-2))] px-2 py-1 rounded text-sm">x-api-key</code> header.
               Get your API key from the API Keys page.
             </p>
             <div className="relative">
@@ -144,13 +144,13 @@ export default function DocsPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-foreground">Arguments:</p>
+                    <p className="text-sm font-medium text-[rgb(var(--text))]">Arguments:</p>
                     <div className="flex flex-wrap gap-2">
                       {tool.arguments.map((arg, argIndex) => (
                         <Badge key={argIndex} variant="outline" className="text-xs">
                           {arg.name}
-                          <span className="ml-1 text-muted-foreground">({arg.type})</span>
-                          {arg.required && <span className="ml-1 text-red-500">*</span>}
+                          <span className="ml-1 text-[rgb(var(--text-muted))]">({arg.type})</span>
+                          {arg.required && <span className="ml-1 text-[rgb(var(--danger))]">*</span>}
                         </Badge>
                       ))}
                     </div>
@@ -187,7 +187,7 @@ export default function DocsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg text-green-600">Success Response</CardTitle>
+              <CardTitle className="text-lg text-[rgb(var(--success))]">Success Response</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="relative">
@@ -201,7 +201,7 @@ export default function DocsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg text-red-600">Error Response</CardTitle>
+              <CardTitle className="text-lg text-[rgb(var(--danger))]">Error Response</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="relative">
