@@ -1,6 +1,5 @@
-import * as React from "react"
-
-import { cn } from "@/lib/utils"
+import * as React from "react";
+import { cn } from "@/lib/utils";
 
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
@@ -8,14 +7,18 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       type={type}
       data-slot="input"
       className={cn(
-        "h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30",
-        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
+        "flex h-9 w-full rounded-[6px] border border-[rgb(var(--border))]",
+        "bg-[rgb(var(--surface-2))] px-3 py-1 text-sm text-[rgb(var(--text))]",
+        "placeholder:text-[rgb(var(--text-faint))]",
+        "focus-visible:outline-none focus-visible:ring-[1.5px] focus-visible:ring-[rgb(var(--accent))]",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        "transition-colors",
+        "file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-[rgb(var(--text))]",
         className
       )}
       {...props}
     />
-  )
+  );
 }
 
-export { Input }
+export { Input };
