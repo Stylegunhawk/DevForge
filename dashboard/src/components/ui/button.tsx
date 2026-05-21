@@ -1,9 +1,10 @@
 import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
 import { cn } from "@/lib/utils";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "default" | "outline" | "ghost" | "destructive" | "secondary" | "link";
-  size?: "default" | "sm" | "lg" | "icon" | "xs";
+  size?: "default" | "sm" | "lg" | "icon";
   asChild?: boolean;
 }
 
@@ -27,7 +28,6 @@ const sizeClasses: Record<NonNullable<ButtonProps["size"]>, string> = {
   sm: "h-8 px-3 text-xs gap-1.5",
   lg: "h-11 px-6 text-base gap-2",
   icon: "h-9 w-9 p-0 [&_svg]:size-4",
-  xs: "h-6 px-2 text-xs gap-1",
 };
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -36,14 +36,15 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       className,
       variant = "default",
       size = "default",
-      asChild: _asChild,
+      asChild,
       disabled,
       ...props
     },
     ref
   ) => {
+    const Comp = asChild ? Slot : "button";
     return (
-      <button
+      <Comp
         ref={ref}
         disabled={disabled}
         className={cn(
