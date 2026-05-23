@@ -1,10 +1,10 @@
 # rerank_docs - Document Reranking (Internal Stage)
 
 **Tool Name:** `rerank_docs` (internal — not a standalone gateway tool)
-**Version:** 1.1.0 (Phase 4)
+**Version:** 1.2.0 (Phase 4)
 **Status:** Implemented
-**Last Updated:** 2026-05-19
-**Last Verified:** 2026-05-19 — reranker behavior unchanged; version bump aligns with RAG v1.1.0 provenance rollout
+**Last Updated:** 2026-05-23
+**Last Verified:** 2026-05-23 — graph expansion truncation fix applied; expanded chunks now survive top_k cut
 
 ---
 
@@ -44,11 +44,24 @@ After threshold filtering against `RERANK_SCORE_THRESHOLD = 0.3`:
 
 | Chunks passing threshold | Behaviour |
 |--------------------------|-----------|
-| ≥ 3 | Return the chunks that passed |
+| ≥ 3 | Return those chunks + any graph-expanded extras beyond top_k (see below) |
 | 1–2 | Pad back up to `top_k` from the boosted-but-below-threshold pool |
 | 0 | Bypass threshold entirely; return the top-K boosted chunks as-is |
 
 This keeps the agent from returning empty context on weak queries while still preferring high-confidence chunks when they exist.
+
+### Graph-expanded chunk preservation (fix: 2026-05-23)
+
+Graph-expanded chunks enter the pipeline with `rerank_score = 0.0`. After sorting
+by score, they land below all vector-retrieved chunks and were previously cut by
+`passed[:top_k]` before they could be returned.
+
+**Current behaviour:** graph-expanded chunks are **exempt** from threshold filtering
+(`is_graph_expansion=True` bypasses the `RERANK_SCORE_THRESHOLD` gate). In the ≥ 3
+branch, after `top_k` vector chunks are selected, any remaining graph-expanded chunks
+in `passed[top_k:]` are collected as `graph_extras` and **appended after** the top_k
+cut. These extras are visible in the response as `is_graph_expansion: true` and are
+counted in `expansion_count`.
 
 ### Code-aware boosting
 
@@ -117,9 +130,22 @@ reranked = await self.reranker.rerank(query, candidates, top_k=top_k * 2)
 boosted = self.reranker.apply_code_boost(reranked)
 boosted.sort(key=lambda c: c.rerank_score, reverse=True)
 
-passed = [c for c in boosted if c.rerank_score >= settings.RERANK_SCORE_THRESHOLD]
+# Graph-expanded chunks are exempt from threshold; vector chunks must pass
+passed = [
+    c for c in boosted
+    if c.rerank_score >= settings.RERANK_SCORE_THRESHOLD
+    or getattr(c, 'is_graph_expansion', False)
+]
 if len(passed) >= 3:
-    final = passed[:top_k]
+    top_k_results = passed[:top_k]
+    top_k_ids = {getattr(c, 'id', None) for c in top_k_results}
+    # Preserve graph-expanded chunks that were cut by the top_k slice
+    graph_extras = [
+        c for c in passed[top_k:]
+        if getattr(c, 'is_graph_expansion', False)
+        and getattr(c, 'id', None) not in top_k_ids
+    ]
+    final = top_k_results + graph_extras
 elif len(passed) >= 1:
     final = (passed + [c for c in boosted if c not in passed])[:top_k]
 else:
@@ -192,12 +218,21 @@ Covers basic reranking, score reset between calls, top-k selection, empty-input 
 
 ---
 
-**Last Updated:** 2026-05-19
+**Last Updated:** 2026-05-23
 **Maintainer:** DevForge Team
 
 ---
 
 ## Changelog
+
+### 2026-05-23 — v1.2.0: Graph expansion truncation fix
+
+- **Bug fixed:** Graph-expanded chunks (initial `rerank_score=0.0`) were previously cut by `passed[:top_k]` and never surfaced in responses, keeping `expansion_count` permanently at `0`.
+- **Root cause:** The threshold exemption for `is_graph_expansion=True` only prevented threshold removal — it did not prevent truncation at the `top_k` boundary.
+- **Fix:** In the ≥ 3 branch, graph-expanded chunks remaining in `passed[top_k:]` are collected as `graph_extras` and appended after `top_k_results`. The final list is `top_k_results + graph_extras`.
+- Updated code snippet in "Integration with RAG" section to match live `agent.py`.
+- Verified end-to-end: `expansion_count: 1–2` now appears in `/api/v1/rag/chunk/semanticSearchForChat` responses.
+- See [`known_issues.md`](./known_issues.md) for remaining open bugs.
 
 ### 2026-05-19 — v1.1.0: Version alignment
 

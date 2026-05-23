@@ -1,8 +1,8 @@
 # RAG Integration Flow
 
-**Version:** 1.1.0  
-**Last Updated:** 2026-05-19  
-**Last Verified:** 2026-05-19 — graph expansion provenance fields wired end-to-end, see `§Changelog`
+**Version:** 1.2.0  
+**Last Updated:** 2026-05-23  
+**Last Verified:** 2026-05-23 — graph expansion truncation fix; Celery cache key mismatch documented
 
 This document details the integration flow of the RAG pipeline, including Phase 12A query intelligence features.
 
@@ -439,6 +439,8 @@ async def init_graph(self) -> None:
 5. Write rebuilt graph back to Redis
 6. Cache is invalidated by `ingest_document` and `delete_file_cascade`
 
+> ⚠️ **Known bug:** The Celery task in `src/workers/tasks/rag_tasks.py` invalidates the cache using the **old** key format `rag_graph:{collection_name}` instead of the current `rag_graph:v2:{collection_name}`. As a result, when a file is ingested via the async Celery path (`POST /api/rag/ingest-async`), the graph cache is **not** invalidated — the stale graph persists until the 1-hour TTL expires or Redis is manually flushed. See [`known_issues.md`](./known_issues.md#1-celery-graph-cache-invalidation-uses-wrong-key).
+
 ---
 
 ## Integration Verification ✅
@@ -453,6 +455,7 @@ async def init_graph(self) -> None:
 | 6 | Extract metadata | ✅ | Functions, classes, imports, calls |
 | 7 | Convert to LangChain Documents | ✅ | Standard format |
 | 8 | ChromaVectorStore.add_chunks | ✅ | BaseVectorStore abstraction |
+| 9 | Graph cache invalidation (Celery path) | ⚠️ BUG | `rag_tasks.py` uses old key `rag_graph:{col}` — new files don't clear the v2 cache. See [`known_issues.md`](./known_issues.md). |
 
 ---
 
@@ -535,6 +538,12 @@ QID: tenant123::utils.py::validate
 
 ## Changelog
 
+### 2026-05-23 — v1.2.0: Graph expansion fix + Celery cache key bug documented
+
+- **Graph expansion fix:** Graph-expanded chunks with `score=0.0` were silently dropped by the `top_k` slice after reranking. Fixed in `agent.py`: graph extras are now appended after the top_k cut (`top_k_results + graph_extras`). `expansion_count` now reflects actual BFS results.
+- **Celery cache key bug documented:** `rag_tasks.py` uses `rag_graph:{collection_name}` (old format) instead of `rag_graph:v2:{collection_name}`. Graph cache not invalidated on async ingestion. Flagged in Integration Verification table and `init_graph` Flow section.
+- Added link to new [`known_issues.md`](./known_issues.md).
+
 ### 2026-05-19 — v1.1.0: Graph Expansion Provenance
 
 - Updated Graph Expansion Detail section: documents `is_graph_expansion=True` and `expanded_from=<anchor_qid>` being set on each BFS-expanded chunk dict in `_expand_with_graph_context()`.
@@ -542,4 +551,4 @@ QID: tenant123::utils.py::validate
 
 ---
 
-**Last Updated:** 2026-05-19
+**Last Updated:** 2026-05-23

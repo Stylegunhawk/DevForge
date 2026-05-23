@@ -1,9 +1,9 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
-**Version:** 1.1.0  
+**Version:** 1.2.0  
 **Status:** ✅ Implemented & Frozen  
-**Last Updated:** 2026-05-19  
-**Last Verified:** 2026-05-19 — graph expansion provenance fields live in endpoint response, see `§Changelog`
+**Last Updated:** 2026-05-23  
+**Last Verified:** 2026-05-23 — graph expansion truncation fix; `expansion_count` now non-zero in live responses
 
 > **Note:** `retrieve_docs` is **not** registered in `SUPPORTED_TOOLS` and is not callable via `POST /api/gateway`. The canonical retrieval entry point is **`POST /api/v1/rag/chunk/semanticSearchForChat`** (tenant-JWT authenticated).
 
@@ -556,11 +556,20 @@ If Tree-sitter parsing fails, automatically falls back to text chunking:
 **Issue:** Code files not parsed correctly  
 **Solution:** Check Tree-sitter installation: `pip install tree-sitter tree-sitter-python`
 
-**Issue:** Graph expansion returns no results  
-**Solution:** Verify `ENABLE_CODE_GRAPH=true` in config
+**Issue:** `expansion_count` always 0 despite `ENABLE_CODE_GRAPH=true`  
+**Root cause (fixed 2026-05-23):** Graph-expanded chunks enter with `rerank_score=0.0`. After reranking, they sort below all vector chunks and were cut by `filtered[:top_k]`. The fix appends graph extras after the top_k cut.  
+**Resolution:** Fixed in `src/agents/rag/agent.py`. Ensure you are running the latest build.
+
+**Issue:** `chunks: []` returned — all results empty  
+**Likely cause:** Redis file metadata is absent. The orphan filter in `semantic_search_for_chat` drops any chunk whose `file_id` has no corresponding `file:<id>` key in Redis. This happens after a Redis flush or container restart without re-injecting metadata.  
+**Workaround:** Re-upload files through the `/api/v1/rag/file/upload` endpoint so metadata is rebuilt, or inject Redis metadata manually.
 
 **Issue:** Async tasks stuck in PENDING  
 **Solution:** Check Celery worker and Redis: `celery -A src.workers.celery_app worker`
+
+**Issue:** New file ingested but graph expansion ignores it  
+**Root cause (open bug):** `rag_tasks.py` invalidates the graph cache using the old key `rag_graph:{collection_name}` instead of `rag_graph:v2:{collection_name}`. The v2 cache is not cleared, so the rebuilt graph does not include newly ingested files until the 1-hour TTL expires.  
+**Workaround:** Flush the specific Redis key manually: `redis-cli del rag_graph:v2:<collection_name>`. See [`known_issues.md`](./known_issues.md).
 
 **Issue:** Poor search results for code  
 **Solution:** Ensure `ENABLE_CODE_GRAPH=true` server-side so graph expansion supplies related functions
@@ -631,14 +640,21 @@ All other endpoints are legacy or internal tools.
 
 
 
-**Last Updated:** 2026-05-19  
-**Version:** 1.1.0  
+**Last Updated:** 2026-05-23  
+**Version:** 1.2.0  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
 
 ---
 
 ## Changelog
+
+### 2026-05-23 — v1.2.0: Graph expansion truncation fix + updated troubleshooting
+
+- **Bug fixed:** `expansion_count` was always `0` because graph-expanded chunks (score=0.0) were cut by `filtered[:top_k]` after reranking. Fixed in `agent.py` — graph extras are now appended after the `top_k` cut.
+- **Verified end-to-end:** `expansion_count: 1–2` confirmed in live API responses for queries like "bcrypt hash password" and "authenticate user validate credentials jwt".
+- **Troubleshooting updated:** Added entries for the real root cause of `expansion_count=0`, orphan filter causing `chunks: []`, and the Celery cache key mismatch for new file ingestion.
+- See [`known_issues.md`](./known_issues.md) for all open bugs with fix guidance.
 
 ### 2026-05-19 — v1.1.0: Graph Expansion Provenance Fields
 

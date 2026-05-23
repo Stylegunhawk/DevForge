@@ -287,13 +287,13 @@ class CodeChunker(BaseChunker):
             ) @class
             """
         elif language in ('javascript', 'typescript'):
+            # TypeScript exports wrap declarations in export_statement;
+            # class names use type_identifier (not identifier) in TS grammar
             query_str = """
-            (function_declaration
-              name: (identifier) @func_name
-            ) @function
-            (class_declaration
-              name: (identifier) @class_name
-            ) @class
+            (function_declaration name: (identifier) @func_name) @function
+            (class_declaration name: (type_identifier) @class_name) @class
+            (export_statement (function_declaration name: (identifier) @func_name) @function)
+            (export_statement (class_declaration name: (type_identifier) @class_name) @class)
             """
         else:
             return []

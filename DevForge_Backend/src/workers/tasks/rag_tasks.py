@@ -1,7 +1,6 @@
 from typing import List, Optional
 import asyncio
-from celery import shared_task  # <--- Use this instead of importing 'app'
-from pathlib import Path
+from celery import shared_task
 import logging
 
 from src.core.config import settings
@@ -36,7 +35,7 @@ def async_ingest_documents(
             )
             
             # 3. Invalidate Graph Cache
-            cache_key = f"rag_graph:{collection_name}"
+            cache_key = f"rag_graph:v2:{collection_name}"
             
             if settings.REDIS_URL:
                 try:
