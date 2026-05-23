@@ -45,10 +45,7 @@ Empty tenant returns `[]`.
 ```bash
 # Get all files for tenant
 curl "http://localhost:8001/api/v1/rag/files" \
-  -H "X-User-ID: my_tenant"
-
-# Use default tenant
-curl "http://localhost:8001/api/v1/rag/files"
+  -H "Authorization: Bearer <tenant_jwt>"
 ```
 
 ## Guarantees
@@ -67,13 +64,24 @@ curl "http://localhost:8001/api/v1/rag/files"
 
 ---
 
-**Version:** 1.1.0 (2026-05-19)
+**Version:** 1.3.0 (2026-05-24)
+
+---
+
+## Notes
+
+**Issue #7 — ast_fallback not visible:** `chunkingStatus` in this response returns `"success"` even when all chunks were produced by the text fallback chunker (i.e., `ast_fallback=True` on every chunk). For TypeScript/JavaScript files, this occurred silently before the 2026-05-24 AST fix. A future improvement will expose `ast_fallback_count` in this response — see [known_issues.md](./known_issues.md#issue-7).
 
 ---
 
 ## Changelog
 
+### 2026-05-24 — v1.3.0
+
+- **Auth example corrected:** Example curl commands now use `Authorization: Bearer <tenant_jwt>` instead of the stale `X-User-ID` header. The endpoint has always required tenant JWT via `JWTAuthMiddleware`.
+- **Issue #7 noted:** Added warning that `chunkingStatus: "success"` does not distinguish between AST chunks and text-fallback chunks.
+
 ### 2026-05-19 — v1.1.0: Version alignment
 
 - No behavioral changes to this endpoint.
-- Version bumped to align with RAG v1.1.0 rollout. The `FileStatusResponse` schema returned here is unaffected by graph expansion provenance fields (those apply to `ChatFileChunk` in semantic search responses only).
+- Version bumped to align with RAG v1.1.0 rollout.

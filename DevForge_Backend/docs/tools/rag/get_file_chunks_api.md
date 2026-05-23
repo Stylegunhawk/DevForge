@@ -65,10 +65,11 @@ GET /api/v1/rag/file/{fileId}/chunks
 ```bash
 # Get first 10 chunks of a file
 curl "http://localhost:8001/api/v1/rag/file/uuid-123/chunks?limit=10" \
-  -H "X-User-ID: my_tenant"
+  -H "Authorization: Bearer <tenant_jwt>"
 
 # Get next 10 chunks (offset)
-curl "http://localhost:8001/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10"
+curl "http://localhost:8001/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10" \
+  -H "Authorization: Bearer <tenant_jwt>"
 ```
 
 ## Related Endpoints
@@ -78,11 +79,15 @@ curl "http://localhost:8001/api/v1/rag/file/uuid-123/chunks?limit=10&offset=10"
 
 ---
 
-**Version:** 1.1.0 (2026-05-19)
+**Version:** 1.3.0 (2026-05-24)
 
 ---
 
 ## Changelog
+
+### 2026-05-24 — v1.3.0
+
+- **Auth examples corrected:** Example curl commands now use `Authorization: Bearer <tenant_jwt>` instead of the stale `X-User-ID` header. Both examples (first page and paginated) now include the auth header.
 
 ### 2026-05-19 — v1.1.0: Graph expansion fields in response schema
 

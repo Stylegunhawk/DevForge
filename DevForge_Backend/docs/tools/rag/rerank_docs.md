@@ -1,10 +1,10 @@
 # rerank_docs - Document Reranking (Internal Stage)
 
 **Tool Name:** `rerank_docs` (internal — not a standalone gateway tool)
-**Version:** 1.2.0 (Phase 4)
+**Version:** 1.3.0 (Phase 4)
 **Status:** Implemented
-**Last Updated:** 2026-05-23
-**Last Verified:** 2026-05-23 — graph expansion truncation fix applied; expanded chunks now survive top_k cut
+**Last Updated:** 2026-05-24
+**Last Verified:** 2026-05-24 — TypeScript AST fix applied; TS class/function chunks now receive BOOST_CLASS/BOOST_FUNCTION factors
 
 ---
 
@@ -218,12 +218,18 @@ Covers basic reranking, score reset between calls, top-k selection, empty-input 
 
 ---
 
-**Last Updated:** 2026-05-23
+**Last Updated:** 2026-05-24
 **Maintainer:** DevForge Team
 
 ---
 
 ## Changelog
+
+### 2026-05-24 — v1.3.0: TypeScript class boosting now active
+
+- **TypeScript AST fix (upstream):** Before 2026-05-24, TypeScript files produced `chunk_type=text` chunks (ast_fallback=True) because the tree-sitter query missed `export_statement` wrappers and `type_identifier` class names. These chunks received `BOOST_TEXT=0.95` instead of `BOOST_CLASS=1.15` or `BOOST_FUNCTION=1.2`.
+- **Current behaviour:** TypeScript class and function chunks now arrive in the reranker with `chunk_type=class` or `chunk_type=function`, receiving the correct boost factors. The reranker code itself is unchanged.
+- See [known_issues.md](./known_issues.md#issue-5) for the root-cause analysis.
 
 ### 2026-05-23 — v1.2.0: Graph expansion truncation fix
 

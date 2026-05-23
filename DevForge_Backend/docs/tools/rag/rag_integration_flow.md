@@ -1,8 +1,8 @@
 # RAG Integration Flow
 
-**Version:** 1.2.0  
-**Last Updated:** 2026-05-23  
-**Last Verified:** 2026-05-23 — graph expansion truncation fix; Celery cache key mismatch documented
+**Version:** 1.3.0  
+**Last Updated:** 2026-05-24  
+**Last Verified:** 2026-05-24 — TypeScript AST fix applied; Celery cache key fixed; cross-file graph expansion limitation documented
 
 This document details the integration flow of the RAG pipeline, including Phase 12A query intelligence features.
 
@@ -14,92 +14,84 @@ This document details the integration flow of the RAG pipeline, including Phase 
 
 ```mermaid
 graph TD
-    A[User Uploads Documents] --> B[POST /api/rag/ingest-async]
-    B --> C[Celery Task: async_ingest_documents]
-    C --> D[RAGAgent.ingest_document]
-    D --> E[tools.ingest_documents]
+    A[User Uploads Files] --> B[POST /api/v1/rag/file/upload]
+    B --> C[Redis: file metadata stored]
+    C --> D[Celery Task: async_ingest_documents]
+    D --> E[RAGAgent.ingest_document]
     E --> F[tools.read_document]
     F --> G[tools.chunk_document]
-    G --> H{File Type?}
-    H -->|.py,.js,.ts| I[CodeChunker + Tree-sitter]
+    G --> H{File Extension?}
+    H -->|.py,.js,.ts,.tsx,.jsx| I[CodeChunker + Tree-sitter]
     H -->|Other| J[TextChunker]
-    I --> K[Extract AST Metadata]
-    J --> L[Text Chunks + Metadata]
-    K --> M[Convert to LangChain Documents]
-    L --> M
-    M --> N[Generate Embeddings]
-    N --> O[ChromaVectorStore.add_chunks]
-    O --> P[Vector DB Storage]
-   P --> Q[Task Complete]
+    I --> K[Extract AST Metadata: imports, classes, functions, calls]
+    K --> L{Entities found?}
+    L -->|Yes| M[AST chunks: chunk_type=class/function/import]
+    L -->|No — ast_fallback=True| N[Text chunks fallback]
+    J --> N
+    M --> O[Generate Embeddings via Ollama]
+    N --> O
+    O --> P[pgvector: rag_vectors table]
+    P --> Q[Redis: finishEmbedding=true]
 ```
+
+### Primary Upload Path
+
+The primary ingestion path is file upload, **not** the legacy `ingest-async` endpoint:
+
+```
+POST /api/v1/rag/file/upload
+  → multipart/form-data with files=@<file>
+  → Redis: file metadata (status=pending)
+  → Celery task queued → CodeChunker/TextChunker → embeddings → pgvector
+  → Redis: status=success, finishEmbedding=true
+```
+
+Poll for completion: `GET /api/v1/rag/file/{file_id}` until `finishEmbedding: true`.
 
 ### Detailed Call Chain
 
 ```
 1. HTTP Request
-   POST /api/rag/ingest-async
-   Body: {"file_paths": ["utils.py"], "collection_name": "devforge_docs"}
-   
-2. API Endpoint (src/api/routers/__init__.py)
-   async def ingest_async_endpoint(request: IngestAsyncRequest)
-   ↓
-   Creates Celery task
-   
-3. Celery Task Queue (src/workers/tasks/rag_tasks.py)
-   @shared_task
-   def async_ingest_documents(file_paths, collection_name)
-   ↓
-   Initializes RAGAgent
-   
-4. RAGAgent (src/agents/rag/agent.py)
-   async def ingest_document(file_path)
-   ↓
-   Delegates to tools layer
-   
-5. Tools Layer (src/tools/rag/tools.py)
-   async def ingest_documents(file_paths, ...)
-   ↓
-   Parallel file reading
-   
-6. Document Reading
-   async def read_document(file_path) -> str
-   ↓
-   Returns text content
-   
-7. Chunking Decision (tools.chunk_document)
-   def chunk_document(text, file_path, chunk_size, chunk_overlap)
-   ↓
-   Checks file extension
-   
-8A. Code Path (.py, .js, .ts)
-    CodeChunker.chunk(text, file_path)
-    ↓
-    Tree-sitter AST parsing
-    ↓
-    Extract: functions, classes, imports, calls, docstrings
-    ↓
-    Return chunks with rich metadata
-    
-8B. Text Path (.md, .txt, .pdf, .docx)
-    TextChunker.chunk(text, file_path)
-    ↓
-    RecursiveCharacterTextSplitter
-    ↓
-    Return chunks with basic metadata
-    
-9. Convert to LangChain Format
-   Document(page_content=content, metadata=metadata)
-   
-10. Generate Embeddings
-    OllamaEmbeddings.embed_documents(contents)
-    
-11. Store in Vector DB
-    ChromaVectorStore.add_chunks(chunks, embeddings)
-    ↓
-    collection.add(ids, embeddings, metadatas, documents)
-    
-12. Return Result
-    {"success": true, "chunks_created": 15, "task_id": "..."}
+   POST /api/v1/rag/file/upload
+   Headers: Authorization: Bearer <tenant_jwt>
+   Body: multipart/form-data, files=@<file>
+
+2. API Router (src/api/routers/rag.py)
+   → Saves file to disk under data/uploads/users/{tenant_id}/default/
+   → Creates Redis metadata entry: file:{file_id}
+   → Queues Celery task: async_ingest_documents(file_path, collection_name, file_id)
+
+3. Celery Task (src/workers/tasks/rag_tasks.py)
+   @shared_task async_ingest_documents(file_path, collection_name, file_id, tenant_id)
+   → Initializes RAGAgent with collection_name=user_{tenant_id}
+   → Calls agent.ingest_document(file_path)
+   → Invalidates graph cache: redis DEL rag_graph:v2:{collection_name}
+
+4. RAGAgent.ingest_document (src/agents/rag/agent.py)
+   → Delegates to tools.ingest_documents()
+
+5. tools.ingest_documents (src/tools/rag/tools.py)
+   → Calls chunk_document(text, file_path)
+
+6. chunk_document → CodeChunker or TextChunker
+   → .py/.js/.ts/.tsx/.jsx: CodeChunker.chunk(text, file_path)
+   → other: TextChunker.chunk(text, file_path)
+
+7A. CodeChunker (src/agents/rag/chunking/code_chunker.py)
+    → Tree-sitter AST parse
+    → _extract_imports(): import chunks
+    → _extract_entities(): class + function chunks
+    → If 0 entities found: ast_fallback=True → TextChunker fallback
+    → Returns chunks with metadata: chunk_type, name, source, calls, imports
+
+7B. TextChunker: RecursiveCharacterTextSplitter → text chunks
+
+8. Generate embeddings via OllamaEmbeddings (nomic-embed-text, 768-dim)
+
+9. pgvector: INSERT INTO rag_vectors (chunk_id, content, metadata, embedding)
+   collection_name = user_{tenant_id}
+
+10. Redis: update file:{file_id} → status=success, finishEmbedding=true
 ```
 
 ---
@@ -112,80 +104,61 @@ graph TD
 1. User Query
    POST /api/v1/rag/chunk/semanticSearchForChat
    Headers: Authorization: Bearer <tenant_jwt>
-   Body: {"query": "...", "top_k": 5}
+   Body: {
+     "messageId": "...",
+     "userQuery": "...",
+     "fileIds": ["uuid1", "uuid2"],   # optional filter
+     "top_k": 5
+   }
 
-   Note: retrieve_docs is NOT in SUPPORTED_TOOLS and is not callable via
-   POST /api/gateway. The canonical entry point is semanticSearchForChat.
+2. JWTAuthMiddleware
+   → Validates HS256 JWT, extracts tenant_id claim
+   → Sets request.state.tenant_id
+   → collection_name = user_{tenant_id}
 
-2. Intent Classification (3-tier)
-   IntentClassifier.classify(query)
-   ↓
-   Tier 1: Rule-based keywords (fast, 0ms)
-   Tier 2: LLM classification (if enabled, 100ms)
-   Tier 3: Default fallback → "general"
-   ↓
-   Returns: code_search | explain | debug | general
-   
-3. Query Expansion (intent-aware)
-   QueryExpander.expand(query, intent)
-   ↓
-   Generate 2-3 related queries based on intent
-   ↓
-   e.g., "RAG config" → ["RAG configuration", "RAG_EMBED_MODEL", "RAG settings"]
-   
-4. Semantic Cache Check
-   SemanticCache.get(query, intent)
-   ↓
-   If similarity ≥ 0.92 → Return cached result (10ms)
-   Else → Continue to retrieval
-   
-5. Multi-Query Vector Search
-   For each expanded query:
-     ChromaVectorStore.similarity_search(query, top_k)
-   ↓
-   Returns multiple result sets
-   
-6. Result Fusion (RRF)
-   ResultFusion.fuse(all_results)
-   ↓
-   Reciprocal Rank Fusion + Deduplication
-   ↓
-   Returns merged, ranked results
-   
-7. Cross-Encoder Reranking
-   Reranker.rerank(query, fused_results)
-   ↓
-   Stage 2 precision ranking
-   
-8. Deterministic Context Shaping (Phase 13)
-   ContextShaper.shape_context(reranked_results)
-   ↓
-   - Deduplicate by Qualified ID
-   - Assign Roles (Entry / Dependency / Supporting)
-   - Apply Hard Limits (Max 12)
-   
-9. Response Generation
-   model_router.select_model("rag_simple", prefer_local=False)
-   ↓
-   Uses cloud model (gpt-oss:20b-cloud) for memory efficiency
-   ↓
-   Generate answer from context
-   
-9. Cache Update
-   SemanticCache.set(query, intent, result)
-   
-10. Return Response
+3. Intent Classification (3-tier)
+   → Tier 1: Rule-based keywords (0ms)
+   → Tier 2: LLM classification (if enabled, ~100ms)
+   → Tier 3: Fallback → "general"
+   → Returns: code_search | explain | debug | general
+
+4. Query Expansion (intent-aware)
+   → Generate 2-3 related queries based on intent
+
+5. Semantic Cache Check
+   → Cosine similarity ≥ 0.92 → return cached result (<50ms)
+
+6. Vector/Hybrid Search
+   → fileIds present: vector-only search with WHERE metadata->>'file_id' = ANY(fileIds)
+   → No fileIds: hybrid BM25 + vector with RRF fusion (if ENABLE_HYBRID_SEARCH=true)
+   → top_k × VECTOR_SEARCH_CANDIDATES=30 initial candidates
+
+7. Graph Context Expansion (Phase 12A, when ENABLE_CODE_GRAPH=true)
+   → For each anchor chunk: build QID = tenant::source::name
+   → CodeGraph.get_related(qid, depth=2, max_results=3)
+   → BFS on calls + imports edges
+   → vector_store.get_chunk_by_qualified_id(related_qid) for each
+   → Append as is_graph_expansion=True candidates
+   ⚠️ Cross-file expansion limited — see Issue #6 in known_issues.md
+
+8. Cross-Encoder Reranking (ENABLE_RERANKING=true)
+   → ms-marco-MiniLM-L-6-v2, top_k × 2 candidates
+   → Sigmoid normalization, code-type boost factors
+   → Threshold fallback ladder
+
+9. Orphan Filter (src/api/routers/rag.py)
+   → Drops chunks whose file_id has no file:{id} key in Redis
+   → Prevents stale pgvector rows from appearing after file deletion
+
+10. Response
     {
-      "success": true,
-      "data": {
-        "response": "...",
-        "documents": [...],
-        "backend": "chroma"
-      }
+      "chunks": [...],
+      "queryId": "...",
+      "expansion_count": N
     }
 ```
 
-### Analytics Endpoints (Phase 12A)
+### Analytics Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -199,205 +172,93 @@ graph TD
 
 ## Graph Expansion Detail
 
-Code-graph BFS expansion happens unconditionally when `ENABLE_CODE_GRAPH=true`
-(there is no per-request `include_context` flag). It runs inside the Phase 12A
-pipeline after the initial vector/hybrid results are collected:
+Graph BFS runs automatically inside `retrieve_with_reranking` when `ENABLE_CODE_GRAPH=true` (no per-request flag). It runs after initial vector search, before reranking.
 
 ```
-For each result chunk:
+For each anchor chunk in initial_results:
   ↓
-Extract QID (tenant::file::entity)
+  name = metadata.get("name")        # entity name, e.g. "CacheStore"
+  source = metadata.get("source")    # full file path
+  qid = f"{tenant_id}::{source}::{name}"
   ↓
-CodeGraph.get_related(qid, depth=2, max_results=3)
+  if qid not in code_graph → skip (no edges)
   ↓
-BFS traversal of calls/imports edges
+  related_qids = CodeGraph.get_related(qid, depth=2, max_results=3)
+    → BFS traversal over calls + imports edges
   ↓
-Fetch related chunks via vector_store.get_chunk_by_qualified_id(related_qid)
+  for each related_qid:
+    chunk = vector_store.get_chunk_by_qualified_id(related_qid, ...)
+    if chunk: append with is_graph_expansion=True, expanded_from=qid
   ↓
-Set is_graph_expansion=True and expanded_from=<anchor_qid> on each expanded chunk dict
-  ↓
-Merge initial_results + related_chunks → deduplicate by QID → pass to reranker
+  Merge with initial_results → deduplicate → pass to reranker
 ```
 
-**Provenance fields on expanded chunks** (`src/agents/rag/agent.py: _expand_with_graph_context`):
+**Provenance fields on expanded chunks:**
 
 ```python
 chunk_dict = {
     "id": related_chunk.id,
     "content": related_chunk.content,
     "metadata": related_chunk.metadata,
-    "score": 0.0,
+    "score": 0.0,                    # reranker will score it
     "is_graph_expansion": True,
-    "expanded_from": qid,   # anchor QID that triggered this expansion
+    "expanded_from": qid,            # anchor QID that triggered this expansion
 }
 ```
 
-These fields propagate through `ChunkResult` → router extraction → `ChatFileChunk` → `SemanticSearchResponse`. The response also includes a top-level `expansion_count` field (count of chunks where `is_graph_expansion=True`).
-
-
-## Code Path Details
-
-### 1. RAGAgent.ingest_document
-
-**File:** `src/agents/rag/agent.py` (lines 502-537)
-
-```python
-async def ingest_document(self, file_path: str, embed_model: Optional[str] = None) -> dict:
-    from src.tools.rag.tools import ingest_documents as _ingest_documents
-    
-    # ARCHITECTURE: Delegates to tools layer
-    result = await _ingest_documents(
-        file_paths=[file_path],
-        embed_model=embed_model or self.embed_model,
-        chunk_size=settings.RAG_CHUNK_SIZE,
-        chunk_overlap=settings.RAG_CHUNK_OVERLAP,
-        backend=self.backend,
-    )
-    
-    logger.info(f"Document ingested: {file_path}", extra={"chunks": result.get("chunks_created", 0)})
-    return result
-```
-
-**Status:** ✅ Calls `tools.ingest_documents`
+**Current limitation (Issue #6):** The graph resolves call targets within the same source file. When `UserRepository` (in user-repository.ts) calls `CacheStore` (imported from cache.ts), the graph creates edge `user-repository.ts::UserRepository → user-repository.ts::CacheStore`. But `user-repository.ts::CacheStore` has no pgvector entry — `CacheStore` is defined in cache.ts — so `get_chunk_by_qualified_id` returns `None` and the expansion is silently skipped. **Intra-file expansion works; cross-file expansion does not.**
 
 ---
 
-### 2. tools.ingest_documents
+## AST Chunking Detail
 
-**File:** `src/tools/rag/tools.py` (lines 354-445)
+### CodeChunker Tree-sitter Queries
 
+**Python** (works without issues):
 ```python
-async def ingest_documents(file_paths, embed_model, chunk_size, chunk_overlap, backend):
-    # Read all documents in parallel
-    read_tasks = [read_document(fp) for fp in file_paths]
-    contents = await asyncio.gather(*read_tasks, return_exceptions=True)
-    
-    # Process each document
-    all_chunks = []
-    for file_path, content in zip(file_paths, contents):
-        if isinstance(content, Exception):
-            logger.warning(f"Failed to read {file_path}: {content}")
-            continue
-        
-        try:
-            # CRITICAL: Call chunk_document for each file
-            chunks = chunk_document(
-                text=content,
-                file_path=file_path,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-            )
-            all_chunks.extend(chunks)
-        except Exception as e:
-            logger.warning(f"Failed to chunk {file_path}: {e}")
-    
-    # Add to vector store
-    if all_chunks:
-        vector_store.add_documents(all_chunks)
-    
-    return {"success": True, "chunks_created": len(all_chunks)}
+query_str = """
+(function_definition name: (identifier) @func_name) @function
+(class_definition name: (identifier) @class_name) @class
+"""
 ```
 
-**Status:** ✅ Calls `chunk_document()` for each file
-
----
-
-### 3. tools.chunk_document
-
-**File:** `src/tools/rag/tools.py` (lines 259-331)
-
+**TypeScript/JavaScript** (fixed 2026-05-24):
 ```python
-def chunk_document(text: str, file_path: str, chunk_size: int, chunk_overlap: int) -> List[Document]:
-    """Phase 10.1: Uses Tree-sitter for code, falls back to text."""
-    
-    try:
-        # NEW: Code-aware chunking
-        from src.agents.rag.chunking import CodeChunker, TextChunker
-        
-        code_chunker = CodeChunker()
-        
-        # Decision point: Code or Text?
-        if code_chunker.is_supported(file_path):  # Check .py, .js, .ts, .tsx, .jsx
-            # AST parsing for code files
-            chunks_data = code_chunker.chunk(text, file_path)
-            logger.info(f"Code chunking: {len(chunks_data)} chunks from {file_path}")
-        else:
-            # Text chunking for other files
-            text_chunker = TextChunker(chunk_size, chunk_overlap)
-            chunks_data = text_chunker.chunk(text, file_path)
-            logger.info(f"Text chunking: {len(chunks_data)} chunks from {file_path}")
-        
-        # Convert to LangChain Document format
-        documents = [
-            Document(page_content=c["content"], metadata=c["metadata"])
-            for c in chunks_data
-        ]
-        
-        return documents
-        
-    except ImportError:
-        # Legacy fallback: RecursiveCharacterTextSplitter
-        logger.warning("Chunkers not available, using legacy mode")
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        chunks = text_splitter.create_documents([text])
-        for i, chunk in enumerate(chunks):
-            chunk.metadata = {"source": file_path, "chunk_index": i}
-        return chunks
+# TypeScript grammar differences:
+# 1. Exported declarations are wrapped: export_statement > class_declaration
+# 2. Class names use type_identifier (not identifier) in TS grammar
+query_str = """
+(function_declaration name: (identifier) @func_name) @function
+(class_declaration name: (type_identifier) @class_name) @class
+(export_statement (function_declaration name: (identifier) @func_name) @function)
+(export_statement (class_declaration name: (type_identifier) @class_name) @class)
+"""
 ```
 
-**Status:** ✅ Uses code-aware chunkers with AST parsing
+**ast_fallback behavior:** When 0 entities are extracted, `ast_fallback=True` is set in chunk metadata and the file falls back to text chunking. `chunkingStatus` still shows `"success"` — callers cannot detect this from the upload response alone. See Issue #7 in known_issues.md.
 
-### 4. CodeChunker.chunk
+### Chunk Metadata Schema
 
-**File:** `src/agents/rag/chunking/code_chunker.py` (lines 89-144)
-
-```python
-def chunk(self, content: str, file_path: str) -> List[Dict]:
-    """Chunk code using AST parsing. Falls back to text on error."""
-    
-    ext = Path(file_path).suffix.lower()
-    language = SUPPORTED_LANGUAGES.get(ext)  # {'.py': 'python', '.js': 'javascript', '.ts': 'typescript'}
-    
-    if not language or language not in self.parsers:
-        return self.text_fallback.chunk(content, file_path)
-    
-    try:
-        return self._chunk_with_ast(content, file_path, language)
-    except Exception as e:
-        logger.warning(f"AST parsing failed for {file_path}: {e}, falling back to text")
-        return self.text_fallback.chunk(content, file_path)
-
-def _chunk_with_ast(self, content: str, file_path: str, language: str) -> List[Dict]:
-    """Parse code with Tree-sitter and extract chunks."""
-    from tree_sitter import Parser
-    
-    # Create parser with language
-    lang_obj = self.parsers[language]
-    parser = Parser(lang_obj)
-    tree = parser.parse(bytes(content, 'utf8'))
-    
-    chunks = []
-    
-    # Extract imports
-    imports = self._extract_imports(tree.root_node, content, file_path, language)
-    chunks.extend(imports)
-    
-    # Extract functions and classes
-    entities = self._extract_entities(tree.root_node, content, file_path, language)
-    chunks.extend(entities)
-    
-    return chunks
+```json
+{
+  "chunk_type": "class",          // function | class | import | text
+  "name": "CacheStore",           // entity name; "chunk_N" for text fallback
+  "language": "typescript",
+  "source": "/app/data/uploads/.../_cache.ts",
+  "start_line": 4,
+  "end_line": 74,
+  "imports": [],
+  "calls": ["CacheEntry"],        // detected calls/uses within entity
+  "docstring": "",
+  "ast_fallback": false,          // true when AST extraction failed
+  "file_id": "96af7ff2-...",
+  "chunk_id": "f26fc5f6-...",
+  "chunk_index": 1,
+  "total_chunks": 3,
+  "tenant_id": "6989d05d...",
+  "collection_name": "user_6989d05d..."
+}
 ```
-
-**Metadata Extracted:**
-- `chunk_type`: "function", "class", "import", "text"
-- `name`: Entity name (e.g., "add", "User")
-- `language`: "python", "javascript", "typescript"
-- `source`: File path
-- `start_line`, `end_line`: Line numbers
-- `imports`: List of import statements
-- `calls`: List of function calls within entity
-- `docstring`: Extracted docstring/JSDoc
 
 ---
 
@@ -405,106 +266,95 @@ def _chunk_with_ast(self, content: str, file_path: str, language: str) -> List[D
 
 ### RAGAgent.init_graph
 
-**File:** `src/agents/rag/agent.py`
-
-The graph is NOT a lazy `@property`. It requires explicit initialization via
-`await agent.init_graph()`. Accessing `agent.code_graph` before calling
-`init_graph()` raises `RuntimeError`.
-
 ```python
 async def init_graph(self) -> None:
     cache_key = f"rag_graph:v2:{self.collection_name}"
-    cached = redis_client.get(cache_key)
+
+    # Try Redis warm-start (1-hour TTL)
+    cached = await redis_client.get(cache_key)
     if cached:
         graph_dict = json.loads(cached)
-        # Reject legacy 2-segment QIDs and fall through to rebuild
-        if all(len(qid.split("::")) >= 3 for qid in graph_dict):
+        # Reject legacy 2-segment QIDs (pre-v2 format)
+        if all(node["id"].count("::") >= 2 for node in graph_dict["nodes"]):
             self._code_graph = CodeGraph.from_dict(graph_dict)
             return
 
-    # Cache miss: rebuild from vector store metadata
+    # Cold-start: build from pgvector metadata (no embeddings loaded)
     self._code_graph = CodeGraph()
-    async for batch in self.vector_store.iter_chunk_metadata(batch_size=500):
-        self._code_graph.add_chunks_batch(batch, tenant_id=self.tenant_id)
+    async for batch in self.vector_store.iter_chunk_metadata(batch_size=500, ...):
+        valid_batch = [c for c in batch if "source" in c and "name" in c]
+        self._code_graph.add_chunks_batch(valid_batch, tenant_id=self.tenant_id)
 
-    # Write back to Redis with 1-hour TTL
-    redis_client.set(cache_key, json.dumps(self._code_graph.to_dict()), ex=3600)
+    # Cache for 1 hour
+    await redis_client.set(cache_key, json.dumps(self._code_graph.to_dict()), ex=3600)
 ```
 
-**Flow:**
-1. Try Redis warm-start cache (key `rag_graph:v2:{collection_name}`, 1-hour TTL)
-2. Reject cached graphs that contain legacy 2-segment QIDs → fall through to rebuild
-3. Cache miss: stream chunk metadata via `BaseVectorStore.iter_chunk_metadata()` (NO embeddings loaded)
-4. For each batch, build QIDs (`tenant::file::entity`) and add to graph
-5. Write rebuilt graph back to Redis
-6. Cache is invalidated by `ingest_document` and `delete_file_cascade`
-
-> ⚠️ **Known bug:** The Celery task in `src/workers/tasks/rag_tasks.py` invalidates the cache using the **old** key format `rag_graph:{collection_name}` instead of the current `rag_graph:v2:{collection_name}`. As a result, when a file is ingested via the async Celery path (`POST /api/rag/ingest-async`), the graph cache is **not** invalidated — the stale graph persists until the 1-hour TTL expires or Redis is manually flushed. See [`known_issues.md`](./known_issues.md#1-celery-graph-cache-invalidation-uses-wrong-key).
+**Graph cache lifecycle:**
+- Written: on cold-start build inside `init_graph()`
+- Read: on each request if agent `_code_graph` is None (first request after TTL or restart)
+- Invalidated: by `async_ingest_documents` Celery task on every new file upload
+- TTL: 1 hour (Redis `ex=3600`)
 
 ---
 
-## Integration Verification ✅
+## Integration Verification
 
 | Step | Method | Status | Notes |
 |------|--------|--------|-------|
-| 1 | Celery → RAGAgent.ingest_document | ✅ | Architecture compliant |
-| 2 | RAGAgent → tools.ingest_documents | ✅ | Delegates to tools |
-| 3 | tools.ingest_documents → chunk_document | ✅ | Per-file processing |
-| 4 | chunk_document → CodeChunker/TextChunker | ✅ | Automatic detection |
-| 5 | CodeChunker → Tree-sitter AST | ✅ | Python, JS, TS support |
-| 6 | Extract metadata | ✅ | Functions, classes, imports, calls |
-| 7 | Convert to LangChain Documents | ✅ | Standard format |
-| 8 | ChromaVectorStore.add_chunks | ✅ | BaseVectorStore abstraction |
-| 9 | Graph cache invalidation (Celery path) | ⚠️ BUG | `rag_tasks.py` uses old key `rag_graph:{col}` — new files don't clear the v2 cache. See [`known_issues.md`](./known_issues.md). |
+| File upload endpoint | `POST /api/v1/rag/file/upload` | ✅ | JWT-protected; queues Celery task |
+| Celery task → RAGAgent | `async_ingest_documents` | ✅ | Invalidates `rag_graph:v2:` on completion |
+| CodeChunker Python | Tree-sitter `function_definition/class_definition` | ✅ | |
+| CodeChunker TypeScript | Tree-sitter with `export_statement` + `type_identifier` | ✅ Fixed 2026-05-24 | Was: `ast_fallback=True` for all TS |
+| fileIds filter | `retrieve_with_reranking(file_ids=...)` | ✅ | Disables BM25, uses vector-only |
+| Graph expansion (intra-file) | BFS via `calls` metadata | ✅ | Works when called entity is in same file |
+| Graph expansion (cross-file) | BFS across import boundaries | ⚠️ Open | Returns 0 — see Issue #6 |
+| Orphan filter | `routers/rag.py` file_id Redis check | ✅ | Drops chunks from deleted files |
+| ingest-async JWT auth | `JWTAuthMiddleware PROTECTED_EXACT` | ✅ | Was stale docs — always was protected |
 
 ---
 
 ## Metadata Flow Example
 
-### Input: utils.py
+### Input: cache.ts
 
-```python
-def add(a, b):
-    """Add two numbers."""
-    return a + b
-
-def validate(value):
-    if value < 0:
-        raise ValueError("Negative")
-    return add(value, 1)
+```typescript
+export class CacheStore<T> {
+  // ...
+}
+export class UserSessionCache extends CacheStore<string> {
+  // ...
+}
 ```
 
-### Output: Chunks
+### Output: Chunks (after 2026-05-24 fix)
 
 ```json
 [
   {
-    "content": "def add(a, b):\n    \"\"\"Add two numbers.\"\"\"\n    return a + b",
+    "content": "import { CacheEntry } from \"./types\";",
     "metadata": {
-      "chunk_type": "function",
-      "name": "add",
-      "language": "python",
-      "source": "utils.py",
-      "start_line": 1,
-      "end_line": 3,
-      "imports": [],
-      "calls": [],
-      "docstring": "Add two numbers."
+      "chunk_type": "import",
+      "name": "imports",
+      "imports": ["CacheEntry"],
+      "calls": []
     }
   },
   {
-    "content": "def validate(value):...",
+    "content": "export class CacheStore<T> { ... }",
     "metadata": {
-      "chunk_type": "function",
-      "name": "validate",
-      "language": "python",
-      "source": "utils.py",
-      "start_line": 5,
-      "end_line": 8,
-      "imports": [],
-      "calls": ["add"],  // Detected function call
-      "docstring": null,
-      "role": "dependency"
+      "chunk_type": "class",
+      "name": "CacheStore",
+      "calls": [],
+      "ast_fallback": false
+    }
+  },
+  {
+    "content": "export class UserSessionCache extends CacheStore<string> { ... }",
+    "metadata": {
+      "chunk_type": "class",
+      "name": "UserSessionCache",
+      "calls": [],
+      "ast_fallback": false
     }
   }
 ]
@@ -513,42 +363,44 @@ def validate(value):
 ### Graph Structure
 
 ```
-tenant123::utils.py::validate → tenant123::utils.py::add  (call edge)
-```
+tenant::cache.ts::imports → tenant::cache.ts::CacheEntry  (import edge)
+tenant::auth-service.ts::AuthService → tenant::auth-service.ts::UserSessionCache  (call edge)
 
-### QID Format
-
-```
-QID: tenant123::utils.py::add
-     └─ tenant └─ file  └─ entity
-
-QID: tenant123::utils.py::validate
-     └─ tenant └─ file   └─ entity
+# ⚠️ Cross-file edge NOT created:
+# tenant::auth-service.ts::UserSessionCache → tenant::cache.ts::UserSessionCache
+# (resolution gap — see Issue #6)
 ```
 
 ---
 
 ## Related Documentation
 
-- [RAG Architecture](../rag_architecture.md) — Architecture rules and component overview
-- [retrieve_docs](./retrieve_docs.md) — Endpoint reference and usage
-- [Sequential Chunk Retrieval](./get_file_chunks_api.md) — Direct chunk access for files
+- [retrieve_docs](./retrieve_docs.md) — Endpoint reference and semanticSearchForChat usage
+- [rerank_docs](./rerank_docs.md) — Cross-encoder reranking pipeline detail
+- [RAG_DEBUGGING.md](./RAG_DEBUGGING.md) — JWT tokens, curl tests, Redis/pgvector inspection
+- [known_issues.md](./known_issues.md) — All open and resolved issues with root causes
 
 ---
 
 ## Changelog
 
-### 2026-05-23 — v1.2.0: Graph expansion fix + Celery cache key bug documented
+### 2026-05-24 — v1.3.0
 
-- **Graph expansion fix:** Graph-expanded chunks with `score=0.0` were silently dropped by the `top_k` slice after reranking. Fixed in `agent.py`: graph extras are now appended after the top_k cut (`top_k_results + graph_extras`). `expansion_count` now reflects actual BFS results.
-- **Celery cache key bug documented:** `rag_tasks.py` uses `rag_graph:{collection_name}` (old format) instead of `rag_graph:v2:{collection_name}`. Graph cache not invalidated on async ingestion. Flagged in Integration Verification table and `init_graph` Flow section.
-- Added link to new [`known_issues.md`](./known_issues.md).
+- **TypeScript AST fix:** `code_chunker.py` tree-sitter query updated to handle `export_statement` wrapper and `type_identifier` for class names. TS files now produce `chunk_type=class/function` chunks with `ast_fallback=false`.
+- **Celery cache key fix:** `rag_tasks.py` now invalidates `rag_graph:v2:` (not the old `rag_graph:` key). Graph is properly cleared after async file ingestion.
+- **ingest-async auth clarified:** Endpoint is JWT-protected via `PROTECTED_EXACT` in `JWTAuthMiddleware` — previous docs were wrong.
+- **Cross-file graph limitation documented:** Issue #6 — intra-file BFS works, cross-file expansion returns 0 due to intra-file QID resolution.
+- **ast_fallback visibility gap documented:** Issue #7 — `chunkingStatus: "success"` even when all chunks are text fallback.
+- Updated retrieval flow to show `fileIds` filter disables BM25.
 
-### 2026-05-19 — v1.1.0: Graph Expansion Provenance
+### 2026-05-23 — v1.2.0
 
-- Updated Graph Expansion Detail section: documents `is_graph_expansion=True` and `expanded_from=<anchor_qid>` being set on each BFS-expanded chunk dict in `_expand_with_graph_context()`.
-- Documents the full propagation path: `_expand_with_graph_context` → `ChunkResult` → router → `ChatFileChunk` → `SemanticSearchResponse.expansion_count`.
+- Graph expansion truncation fix; Celery cache key mismatch documented.
+
+### 2026-05-19 — v1.1.0
+
+- Graph expansion provenance fields (`is_graph_expansion`, `expanded_from`, `expansion_count`).
 
 ---
 
-**Last Updated:** 2026-05-23
+**Last Updated:** 2026-05-24

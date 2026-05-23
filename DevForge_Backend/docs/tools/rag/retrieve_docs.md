@@ -1,9 +1,9 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Status:** ✅ Implemented & Frozen  
-**Last Updated:** 2026-05-23  
-**Last Verified:** 2026-05-23 — graph expansion truncation fix; `expansion_count` now non-zero in live responses
+**Last Updated:** 2026-05-24  
+**Last Verified:** 2026-05-24 — TypeScript AST fix applied; ingest-async auth corrected; cross-file expansion limitation documented
 
 > **Note:** `retrieve_docs` is **not** registered in `SUPPORTED_TOOLS` and is not callable via `POST /api/gateway`. The canonical retrieval entry point is **`POST /api/v1/rag/chunk/semanticSearchForChat`** (tenant-JWT authenticated).
 
@@ -52,7 +52,9 @@ The `retrieve_docs` tool provides intelligent semantic document search with **Ph
 **Supported Languages:**
 - Python (`.py`) - Functions, classes, docstrings, imports
 - JavaScript (`.js`, `.jsx`) - Functions, classes, JSDoc, imports
-- TypeScript (`.ts`, `.tsx`) - Functions, classes, JSDoc, imports
+- TypeScript (`.ts`, `.tsx`) - Functions, classes, JSDoc, imports (fixed 2026-05-24)
+
+> **TypeScript note (fixed 2026-05-24):** Before the fix, all TypeScript files produced `ast_fallback=True` chunks because the tree-sitter query did not handle `export_statement` wrappers or `type_identifier` class names. TypeScript now produces `chunk_type=class/function` chunks correctly. See [known_issues.md — Issue #5](./known_issues.md#issue-5).
 
 **AST Extraction:**
 ```python
@@ -70,7 +72,8 @@ def add(a, b):
     "start_line": 1,
     "end_line": 3,
     "calls": [],
-    "docstring": "Add two numbers."
+    "docstring": "Add two numbers.",
+    "ast_fallback": false
 }
 ```
 
@@ -100,10 +103,11 @@ Result: 3 related chunks (expanded context)
 
 **Endpoint:** `POST /api/rag/ingest-async`
 
-> **Auth warning:** This endpoint is mounted under `/api/` (not `/api/v1/rag/`), so the `JWTAuthMiddleware` does **not** apply — it is currently **unauthenticated** and does not enforce tenant isolation (chunks land in the global `devforge_docs` collection). This is a known tenant-isolation hole; treat the endpoint as internal-only until auth is added.
+> **Auth:** This endpoint is in `PROTECTED_EXACT` in `JWTAuthMiddleware` (`src/core/middleware.py`) — it **is** JWT-protected. Previous docs incorrectly described it as unauthenticated. See [known_issues.md — Issue #4](./known_issues.md#issue-4).
 
 ```bash
 curl -X POST http://localhost:8001/api/rag/ingest-async \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "file_paths": ["src/auth.py", "src/utils.py"],
@@ -153,7 +157,7 @@ The RAG system is fully integrated with Lobe Chat's TypeScript data contracts vi
 | Endpoint scope | Auth | Header |
 |----------------|------|--------|
 | `/api/v1/rag/*` (incl. `chunk/semanticSearchForChat`, `file/*`, `files`, `message/*`) | Tenant JWT (`JWTAuthMiddleware`) | `Authorization: Bearer <tenant_jwt>` |
-| `/api/rag/ingest-async`, `/api/rag/task/{id}` | **None** (no middleware applies — known tenant-isolation hole) | — |
+| `/api/rag/ingest-async`, `/api/rag/task/{id}` | Tenant JWT (`JWTAuthMiddleware`, `PROTECTED_EXACT`) | `Authorization: Bearer <tenant_jwt>` |
 | `/api/gateway`, `/mcp` | API key | `x-api-key: <key>` |
 
 Canonical analytics endpoints live under **`/api/rag/analytics/*`** (not `/api/v1/rag/analytics/*`).
@@ -162,14 +166,17 @@ Canonical analytics endpoints live under **`/api/rag/analytics/*`** (not `/api/v
 
 ## Parameters
 
+`POST /api/v1/rag/chunk/semanticSearchForChat` request body:
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | ✅ Yes | - | Search query for semantic retrieval |
-| `file_paths` | array[string] | No | `[]` | Documents to ingest before searching |
+| `messageId` | string | ✅ Yes | - | Client message ID for query logging |
+| `userQuery` | string | ✅ Yes | - | The search query text |
+| `fileIds` | array[string] | No | `null` | UUID list to restrict search to specific files |
 | `top_k` | integer | No | `5` | Number of results to return (1-50) |
-| `embed_model` | string | No | `"nomic-embed-text"` | Embedding model to use |
 
-> Graph expansion runs **unconditionally** when `ENABLE_CODE_GRAPH=true`; there is no per-request `include_context` flag in the request schema.
+> Graph expansion runs **unconditionally** when `ENABLE_CODE_GRAPH=true`; there is no per-request flag.  
+> When `fileIds` is provided, BM25/hybrid search is disabled and vector-only search runs with `WHERE metadata->>'file_id' = ANY(fileIds)`.
 
 ---
 
@@ -182,7 +189,9 @@ curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
   -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "explain authentication in Express.js"
+    "messageId": "msg-001",
+    "userQuery": "explain authentication in Express.js",
+    "top_k": 5
   }'
 ```
 
@@ -195,10 +204,33 @@ curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
   -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "JWT token validation",
+    "messageId": "msg-abc",
+    "userQuery": "JWT token validation",
     "top_k": 5
   }'
 ```
+
+### Search Scoped to Specific Files (fileIds filter)
+
+When `fileIds` is provided, the search is restricted to those files and BM25/hybrid search is disabled (vector-only):
+
+```bash
+curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
+  -H "Authorization: Bearer <tenant_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messageId": "msg-xyz",
+    "userQuery": "cache TTL expiry",
+    "fileIds": ["96af7ff2-...", "4009d097-..."],
+    "top_k": 5
+  }'
+```
+
+**Behaviour when `fileIds` present:**
+- Vector-only search: `WHERE metadata->>'file_id' = ANY(fileIds)`
+- BM25/hybrid fusion is skipped regardless of `ENABLE_HYBRID_SEARCH`
+- Graph expansion still runs on the anchors if `ENABLE_CODE_GRAPH=true`
+- ⚠️ Cross-file graph expansion will return 0 for inter-file call edges (see Issue #6 in [known_issues.md](./known_issues.md))
 
 **Response (with expansion):**
 ```json
@@ -236,11 +268,12 @@ curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
 }
 ```
 
-### Async Ingestion (New)
+### Async Ingestion
 
 ```bash
-# Queue ingestion
+# Queue ingestion (JWT required — endpoint is in PROTECTED_EXACT)
 curl -X POST http://localhost:8001/api/rag/ingest-async \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "file_paths": [
@@ -342,7 +375,7 @@ GRAPH_CONTEXT_DEPTH = 2      # Max traversal depth
 GRAPH_MAX_CONTEXT_CHUNKS = 3 # Max related chunks
 ```
 
-**Example:**
+**Example (intra-file — works):**
 ```
 Query: "authentication"
 Match: auth.py::authenticate
@@ -350,11 +383,13 @@ Match: auth.py::authenticate
 BFS Traversal:
   Depth 0: auth.py::authenticate
   Depth 1: auth.py::validate_token (called by authenticate)
-  Depth 1: utils.py::hash_password (imported by authenticate)
-  Depth 2: utils.py::generate_salt (called by hash_password)
+  Depth 2: auth.py::check_expiry (called by validate_token)
 
-Result: 4 chunks (1 initial + 3 related)
+Result: 3 chunks (1 initial + 2 related)
 ```
+
+**⚠️ Cross-file expansion (Issue #6 — open):**  
+When entity A calls entity B imported from another file, the graph creates edge `file1.ts::A → file1.ts::B` (same source) rather than `file1.ts::A → file2.ts::B`. Since `file1.ts::B` has no pgvector entry, expansion returns 0 for these cross-file calls. See [known_issues.md — Issue #6](./known_issues.md#issue-6).
 
 ### Test-Source Linking
 
@@ -568,8 +603,16 @@ If Tree-sitter parsing fails, automatically falls back to text chunking:
 **Solution:** Check Celery worker and Redis: `celery -A src.workers.celery_app worker`
 
 **Issue:** New file ingested but graph expansion ignores it  
-**Root cause (open bug):** `rag_tasks.py` invalidates the graph cache using the old key `rag_graph:{collection_name}` instead of `rag_graph:v2:{collection_name}`. The v2 cache is not cleared, so the rebuilt graph does not include newly ingested files until the 1-hour TTL expires.  
-**Workaround:** Flush the specific Redis key manually: `redis-cli del rag_graph:v2:<collection_name>`. See [`known_issues.md`](./known_issues.md).
+**Status (fixed 2026-05-23):** `rag_tasks.py` now correctly invalidates `rag_graph:v2:{collection_name}` after each file ingest. If you are on an older build, flush manually: `redis-cli del rag_graph:v2:<collection_name>`. See [known_issues.md — Issue #1](./known_issues.md#issue-1).
+
+**Issue:** `expansion_count` is 0 for cross-file calls (e.g. `UserRepository` calling `CacheStore` from another file)  
+**Root cause (open — Issue #6):** `code_graph.py::add_node` resolves all call targets with the same source file path. When entity A in `file1.ts` calls entity B imported from `file2.ts`, the graph creates edge `file1.ts::A → file1.ts::B`, but `file1.ts::B` has no pgvector entry. `get_chunk_by_qualified_id` returns `None` → expansion silently skipped.  
+**What works:** Intra-file BFS (entities calling other entities in the same file).  
+**Workaround:** None currently. See [known_issues.md — Issue #6](./known_issues.md#issue-6).
+
+**Issue:** `chunkingStatus: "success"` but results have no class/function chunks  
+**Root cause (open — Issue #7):** The file status API returns `"success"` even when all chunks are text fallback (`ast_fallback=True`). This occurred for all TypeScript files before the 2026-05-24 AST fix.  
+**Workaround:** Query `GET /api/v1/rag/file/{id}/chunks` and inspect `metadata.chunk_type` — all `"text"` means AST extraction failed. See [known_issues.md — Issue #7](./known_issues.md#issue-7).
 
 **Issue:** Poor search results for code  
 **Solution:** Ensure `ENABLE_CODE_GRAPH=true` server-side so graph expansion supplies related functions
@@ -599,7 +642,8 @@ curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
   -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "user authentication flow",
+    "messageId": "msg-001",
+    "userQuery": "user authentication flow",
     "top_k": 5
   }'
 ```
@@ -608,6 +652,7 @@ curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
 
 ```bash
 curl -X POST http://localhost:8001/api/rag/ingest-async \
+  -H "Authorization: Bearer <tenant_jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "file_paths": [
@@ -640,14 +685,25 @@ All other endpoints are legacy or internal tools.
 
 
 
-**Last Updated:** 2026-05-23  
-**Version:** 1.2.0  
+**Last Updated:** 2026-05-24  
+**Version:** 1.3.0  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
 
 ---
 
 ## Changelog
+
+### 2026-05-24 — v1.3.0
+
+- **ingest-async auth corrected:** Endpoint is JWT-protected via `PROTECTED_EXACT` in `JWTAuthMiddleware`. All curl examples updated to include `Authorization: Bearer <tenant_jwt>`. Previous docs incorrectly said "unauthenticated".
+- **Auth table corrected:** `/api/rag/ingest-async` row now shows correct JWT requirement.
+- **Parameters table rewritten:** Now reflects actual `semanticSearchForChat` request body fields (`messageId`, `userQuery`, `fileIds`, `top_k`) instead of old internal tool params.
+- **fileIds filter documented:** New section with curl example. Notes that fileIds disables BM25/hybrid and that cross-file graph expansion is still limited.
+- **TypeScript AST fix noted:** Added note to Code-Aware Chunking section — TS files now produce `chunk_type=class/function` chunks correctly. `ast_fallback` field added to metadata example.
+- **Cross-file expansion limitation (Issue #6):** Graph Traversal section updated with intra-file vs cross-file distinction. Troubleshooting entry added with root cause.
+- **Issue #7 noted in troubleshooting:** `chunkingStatus: "success"` does not reveal text fallback; workaround via chunk inspection documented.
+- **Celery cache key bug (Issue #1):** Troubleshooting entry updated from "open bug" to "fixed 2026-05-23".
 
 ### 2026-05-23 — v1.2.0: Graph expansion truncation fix + updated troubleshooting
 
