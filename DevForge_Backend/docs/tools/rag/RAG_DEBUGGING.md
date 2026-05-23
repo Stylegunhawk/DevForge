@@ -217,7 +217,7 @@ asyncio.run(purge_orphans(dry_run=True))   # change to False to actually delete
 | Symptom | Root cause | Fix |
 |---------|-----------|-----|
 | `chunks: []` on search | Redis file metadata missing (orphan filter) | Run `purge_orphans.py` then re-upload files |
-| `expansion_count: 0` always | Graph cache stale or never built | Delete `rag_graph:v2:*` keys, query once to rebuild |
+| `expansion_count: 0` always | All related entities already returned by vector search (correct), OR graph cache stale | Delete `rag_graph:v2:*` keys, query once to rebuild; expansion only appears when vector search misses a related entity |
 | Stale chunks after file delete | BM25 in-memory index not updated | Restart API container or call `/api/rag/bm25/rebuild` |
 | New file not appearing in graph expansion | Celery cache key bug (Issue #1) | **Fixed 2026-05-23** — `rag_tasks.py` now uses `v2` key |
 | `403 Forbidden` on file delete | File belongs to different tenant | Check `tenant_id` in JWT matches file owner |
@@ -263,13 +263,16 @@ docker compose --profile rag down && docker compose --profile rag up -d
 
 ---
 
-## Open Issues (as of 2026-05-23)
+## Open Issues (as of 2026-05-24)
 
 | # | Issue | Severity | Status |
 |---|-------|----------|--------|
-| 1 | Celery graph cache uses old key | Medium | ✅ Fixed |
+| 1 | Celery graph cache uses old key | Medium | ✅ Fixed 2026-05-23 |
 | 2 | Orphan filter: missing Redis = dropped chunk | High | ✅ Operational fix (code fix pending) |
-| 3 | 17/49 unit tests fail (Ollama mock + stale signatures) | Low | Open |
-| 4 | `POST /api/rag/ingest-async` unauthenticated | High | ✅ Fixed (middleware + tenant-scoped collection) |
+| 3 | BM25 index stale after file deletion | Low | Open |
+| 4 | `POST /api/rag/ingest-async` unauthenticated | High | ✅ Fixed (was stale docs) |
+| 5 | TypeScript AST fallback for all exported classes | High | ✅ Fixed 2026-05-24 |
+| 6 | Cross-file graph expansion returns 0 | Medium | ✅ Fixed 2026-05-24 |
+| 7 | `chunkingStatus: "success"` masks ast_fallback | Low | Open |
 
 See [`known_issues.md`](./known_issues.md) for full detail and fix recipes.
