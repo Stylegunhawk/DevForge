@@ -87,23 +87,26 @@ class SemanticCache:
         query: str,
         intent: str,
         tenant_id: str = "default",
-        query_embedding: Optional[np.ndarray] = None
+        query_embedding: Optional[np.ndarray] = None,
+        file_ids: Optional[tuple] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Get cached results for semantically similar query.
-        
+
         Args:
             query: User query
             intent: Intent classification
             tenant_id: Tenant identifier
             query_embedding: Pre-computed embedding (optional)
-        
+            file_ids: Tuple of file IDs for scoped search (optional)
+
         Returns:
             Cached results or None if no similar query found
         """
-        logger.info(f"[RAG-DEBUG] SemanticCache.get() called: query='{query[:50]}...', intent={intent}, tenant_id={tenant_id}")
-        
-        intent_key = f"{tenant_id}::{intent}"
+        logger.info(f"[RAG-DEBUG] SemanticCache.get() called: query='{query[:50]}...', intent={intent}, tenant_id={tenant_id}, file_ids={file_ids}")
+
+        scope_suffix = f"::files={'|'.join(sorted(file_ids))}" if file_ids else ""
+        intent_key = f"{tenant_id}::{intent}{scope_suffix}"
         
         # Get or create intent-specific cache
         if intent_key not in self._caches:
@@ -165,25 +168,28 @@ class SemanticCache:
         intent: str,
         results: Dict[str, Any],
         tenant_id: str = "default",
-        query_embedding: Optional[np.ndarray] = None
+        query_embedding: Optional[np.ndarray] = None,
+        file_ids: Optional[tuple] = None
     ):
         """
         Cache query results with embedding.
-        
+
         Args:
             query: User query
             intent: Intent classification
             results: Final retrieval results (post-expansion, post-fusion)
             tenant_id: Tenant identifier
             query_embedding: Pre-computed embedding (optional)
+            file_ids: Tuple of file IDs for scoped search (optional)
         """
-        logger.info(f"[RAG-DEBUG] SemanticCache.set() called: query='{query[:50]}...', intent={intent}, tenant_id={tenant_id}")
-        
+        logger.info(f"[RAG-DEBUG] SemanticCache.set() called: query='{query[:50]}...', intent={intent}, tenant_id={tenant_id}, file_ids={file_ids}")
+
         # Get query embedding
         if query_embedding is None:
             query_embedding = await self._embed_query(query)
-        
-        intent_key = f"{tenant_id}::{intent}"
+
+        scope_suffix = f"::files={'|'.join(sorted(file_ids))}" if file_ids else ""
+        intent_key = f"{tenant_id}::{intent}{scope_suffix}"
         
         # Get or create intent-specific cache
         if intent_key not in self._caches:

@@ -706,3 +706,311 @@ class TestSupervisorRAGRouting:
             assert result["error"] is not None
             assert "RAG execution failed" in result["error"]
             assert result["agent_result"]["success"] is False
+
+
+# ── Task 1: cache_key_from_query with file_ids ──────────────────────────────
+
+from src.agents.rag.cache.query_normalizer import cache_key_from_query
+from src.agents.rag.cache.semantic_cache import SemanticCache
+
+def test_cache_key_differs_with_different_file_ids():
+    key_no_scope = cache_key_from_query("auth function", 5, tenant_id="t1")
+    key_scoped   = cache_key_from_query("auth function", 5, tenant_id="t1", file_ids=("f_auth",))
+    assert key_no_scope != key_scoped
+
+def test_cache_key_order_independent_file_ids():
+    key_a = cache_key_from_query("auth function", 5, tenant_id="t1", file_ids=("f_b", "f_a"))
+    key_b = cache_key_from_query("auth function", 5, tenant_id="t1", file_ids=("f_a", "f_b"))
+    assert key_a == key_b
+
+def test_cache_key_none_file_ids_matches_no_arg():
+    key_none = cache_key_from_query("auth function", 5, tenant_id="t1", file_ids=None)
+    key_omit = cache_key_from_query("auth function", 5, tenant_id="t1")
+    assert key_none == key_omit
+
+
+# ── Task 2: SemanticCache scoped by file_ids ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_semantic_cache_scoped_miss_on_different_file_ids():
+    """A cache entry stored without file_ids must not be returned for a scoped query."""
+    cache = SemanticCache(similarity_threshold=0.92)
+
+    fake_embedding = MagicMock()
+    fake_embedding.similarity = MagicMock(return_value=0.99)  # would be a hit without scoping
+
+    fake_result = {"documents": ["doc1"], "reranked": True}
+
+    with patch.object(cache, '_embed_query', new=AsyncMock(return_value=fake_embedding)):
+        # Store without file_ids
+        await cache.set("auth function", "code_search", fake_result, tenant_id="t1")
+        # Retrieve with file_ids — must be a MISS (different bucket)
+        hit = await cache.get("auth function", "code_search", tenant_id="t1", file_ids=("f_auth",))
+        assert hit is None
+
+
+# ── Task 3: ChromaVectorStore file_ids filter ───────────────────────────────
+
+from src.storage.chroma_store import ChromaVectorStore
+
+@pytest.mark.asyncio
+async def test_chroma_search_passes_where_filter_when_file_ids_set():
+    """search() must pass where={"file_id": {"$in": [...]}} to collection.query when file_ids is set."""
+    store = ChromaVectorStore.__new__(ChromaVectorStore)
+
+    mock_collection = MagicMock()
+    mock_collection.query.return_value = {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+    store._collection = mock_collection
+
+    await store.search(
+        query_embedding=[0.1, 0.2, 0.3],
+        top_k=5,
+        file_ids=["f_auth", "f_utils"],
+    )
+
+    call_kwargs = mock_collection.query.call_args.kwargs
+    assert call_kwargs.get("where") == {"file_id": {"$in": ["f_auth", "f_utils"]}}
+
+@pytest.mark.asyncio
+async def test_chroma_search_no_where_filter_when_file_ids_none():
+    """search() must NOT pass a where filter when file_ids is None."""
+    store = ChromaVectorStore.__new__(ChromaVectorStore)
+
+    mock_collection = MagicMock()
+    mock_collection.query.return_value = {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+    store._collection = mock_collection
+
+    await store.search(
+        query_embedding=[0.1, 0.2, 0.3],
+        top_k=5,
+        file_ids=None,
+    )
+
+    call_kwargs = mock_collection.query.call_args.kwargs
+    assert call_kwargs.get("where") is None
+
+
+# ── Task 4: PgVectorStore file_ids filter ──────────────────────────────────
+
+from unittest.mock import AsyncMock, MagicMock
+from src.storage.pgvector_store import PgVectorStore
+
+@pytest.mark.asyncio
+async def test_pgvector_search_includes_file_id_any_clause_when_file_ids_set():
+    """search() SQL must contain ANY($n) and bind file_ids when file_ids is provided."""
+    store = PgVectorStore.__new__(PgVectorStore)
+    store.table_name = "rag_chunks"
+    store.collection_name = "user_t1"
+
+    mock_conn = AsyncMock()
+    mock_conn.fetch = AsyncMock(return_value=[])
+    store._get_conn = AsyncMock(return_value=mock_conn)
+
+    await store.search(
+        query_embedding=[0.1, 0.2],
+        top_k=5,
+        tenant_id="t1",
+        collection_name="user_t1",
+        file_ids=["f_auth"],
+    )
+
+    assert mock_conn.fetch.called
+    sql_arg = mock_conn.fetch.call_args.args[0]
+    assert "ANY(" in sql_arg
+    # file_ids list should be among the bind params
+    bind_params = mock_conn.fetch.call_args.args[1:]
+    assert ["f_auth"] in bind_params
+
+
+# ── Task 5: _vector_search passes file_ids to store ────────────────────────
+
+from unittest.mock import AsyncMock, MagicMock, patch
+from src.agents.rag.agent import RAGAgent
+
+@pytest.mark.asyncio
+async def test_vector_search_passes_file_ids_to_chroma_store():
+    """_vector_search(file_ids=...) must call vector_store.search with file_ids kwarg."""
+    agent = RAGAgent.__new__(RAGAgent)
+    agent.backend = "chroma"
+    agent.collection_name = "user_t1"
+    agent.tenant_id = "t1"
+
+    mock_store = MagicMock()
+    mock_store.search = AsyncMock(return_value=[])
+    mock_store.embeddings = MagicMock()
+    mock_store.embeddings.embed_query = MagicMock(return_value=[0.1, 0.2])
+    agent.vector_store = mock_store
+
+    with patch("asyncio.to_thread", new=AsyncMock(return_value=[0.1, 0.2])):
+        await agent._vector_search("auth function", top_k=5, file_ids=["f_auth"])
+
+    mock_store.search.assert_called_once()
+    call_kwargs = mock_store.search.call_args.kwargs
+    assert call_kwargs.get("file_ids") == ["f_auth"]
+
+
+# ── Task 6: retrieve_with_reranking file_ids wiring ────────────────────────
+
+@pytest.mark.asyncio
+async def test_retrieve_with_reranking_skips_bm25_when_file_ids_set():
+    """When file_ids is set, the hybrid retriever must NOT be called."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from src.agents.rag.agent import RAGAgent
+
+    agent = RAGAgent.__new__(RAGAgent)
+    agent.backend = "chroma"
+    agent.collection_name = "user_t1"
+    agent.tenant_id = "t1"
+    agent._reranker = None
+    agent._code_graph = None
+    agent._intent_classifier = None
+    agent._query_expander = None
+    agent._query_cache = None
+    agent._semantic_cache = None
+
+    mock_context_shaper = MagicMock()
+    mock_context_shaper.shape_context = MagicMock(side_effect=lambda x: x)
+    agent._context_shaper = mock_context_shaper
+
+    mock_hybrid = AsyncMock()
+    agent._hybrid_retriever = mock_hybrid
+    mock_bm25 = MagicMock()
+    mock_bm25.is_ready = MagicMock(return_value=True)
+    agent._bm25_index = mock_bm25
+
+    agent._vector_search = AsyncMock(return_value=[])
+
+    from src.core.config import settings
+    with patch.object(settings, "ENABLE_HYBRID_SEARCH", True), \
+         patch.object(settings, "ENABLE_RERANKING", False), \
+         patch.object(settings, "ENABLE_CODE_GRAPH", False), \
+         patch.object(settings, "ENABLE_INTENT_CLASSIFICATION", False), \
+         patch.object(settings, "ENABLE_QUERY_EXPANSION", False), \
+         patch.object(settings, "ENABLE_SEMANTIC_CACHE", False), \
+         patch.object(settings, "ENABLE_QUERY_CACHE", False):
+        await agent.retrieve_with_reranking(
+            query="auth function",
+            top_k=5,
+            file_ids=["f_auth"],
+        )
+
+    mock_hybrid.search.assert_not_called()
+    agent._vector_search.assert_called_once()
+    call_kwargs = agent._vector_search.call_args.kwargs
+    assert call_kwargs.get("file_ids") == ["f_auth"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_with_reranking_empty_file_ids_uses_hybrid():
+    """When file_ids=[], hybrid search must run normally (empty list = no scope)."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from src.agents.rag.agent import RAGAgent
+    from src.core.config import settings
+
+    agent = RAGAgent.__new__(RAGAgent)
+    agent.backend = "chroma"
+    agent.collection_name = "user_t1"
+    agent.tenant_id = "t1"
+    agent._reranker = None
+    agent._code_graph = None
+    agent._intent_classifier = None
+    agent._query_expander = None
+    agent._query_cache = None
+    agent._semantic_cache = None
+
+    mock_context_shaper = MagicMock()
+    mock_context_shaper.shape_context = MagicMock(side_effect=lambda x: x)
+    agent._context_shaper = mock_context_shaper
+
+    mock_bm25 = MagicMock()
+    mock_bm25.is_ready = MagicMock(return_value=True)
+    agent._bm25_index = mock_bm25
+
+    mock_hybrid = MagicMock()
+    mock_hybrid.search = AsyncMock(return_value=[])
+    agent._hybrid_retriever = mock_hybrid
+
+    with patch.object(settings, "ENABLE_HYBRID_SEARCH", True), \
+         patch.object(settings, "ENABLE_RERANKING", False), \
+         patch.object(settings, "ENABLE_CODE_GRAPH", False), \
+         patch.object(settings, "ENABLE_INTENT_CLASSIFICATION", False), \
+         patch.object(settings, "ENABLE_QUERY_EXPANSION", False), \
+         patch.object(settings, "ENABLE_SEMANTIC_CACHE", False), \
+         patch.object(settings, "ENABLE_QUERY_CACHE", False):
+        await agent.retrieve_with_reranking(
+            query="auth function",
+            top_k=5,
+            file_ids=[],   # empty → treat as None → hybrid runs
+        )
+
+    mock_hybrid.search.assert_called_once()
+
+
+# ── Task 7: Router integration ─────────────────────────────────────────────
+
+from fastapi.testclient import TestClient
+
+@pytest.mark.asyncio
+async def test_router_passes_fileids_to_agent():
+    """POST semanticSearchForChat with fileIds must call retrieve_with_reranking(file_ids=[...])."""
+    from src.main import app
+
+    captured = {}
+
+    async def mock_retrieve(**kwargs):
+        captured.update(kwargs)
+        return {"documents": []}
+
+    mock_agent = MagicMock()
+    mock_agent.retrieve_with_reranking = mock_retrieve
+
+    fake_payload = {"tenant_id": "t_test"}
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value=fake_payload), \
+         patch("src.api.routers.rag.redis_store.save_query_metadata", new=AsyncMock()):
+        client = TestClient(app)
+        client.post(
+            "/api/v1/rag/chunk/semanticSearchForChat",
+            json={
+                "messageId": "msg_test",
+                "userQuery": "authenticate function",
+                "fileIds": ["f_auth"],
+            },
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert captured.get("file_ids") == ["f_auth"]
+
+
+@pytest.mark.asyncio
+async def test_router_passes_none_when_fileids_empty():
+    """POST semanticSearchForChat with fileIds=[] must call retrieve_with_reranking(file_ids=None)."""
+    from src.main import app
+
+    captured = {}
+
+    async def mock_retrieve(**kwargs):
+        captured.update(kwargs)
+        return {"documents": []}
+
+    mock_agent = MagicMock()
+    mock_agent.retrieve_with_reranking = mock_retrieve
+
+    fake_payload = {"tenant_id": "t_test"}
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value=fake_payload), \
+         patch("src.api.routers.rag.redis_store.save_query_metadata", new=AsyncMock()):
+        client = TestClient(app)
+        client.post(
+            "/api/v1/rag/chunk/semanticSearchForChat",
+            json={
+                "messageId": "msg_test",
+                "userQuery": "authenticate function",
+                "fileIds": [],
+            },
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert captured.get("file_ids") is None

@@ -244,26 +244,40 @@ class PgVectorStore(BaseVectorStore):
         score_threshold: float = 0.0,
         tenant_id: str = "default",
         collection_name: Optional[str] = None,
+        file_ids: Optional[List[str]] = None,
     ) -> List[ChunkResult]:
         """Search for similar chunks using Cosine Distance with tenant filtering."""
         conn = await self._get_conn()
         try:
             collection = collection_name or self.collection_name
-            
+
             # Cosine distance operator is <=>
             # Similarity = 1 - Distance
-            query = f"""
-                SELECT chunk_id, content, metadata, 1 - (embedding <=> $1) as similarity
-                FROM {self.table_name}
-                WHERE tenant_id = $2 
-                  AND collection_name = $3
-                ORDER BY embedding <=> $1
-                LIMIT $4;
-            """
-            
-            logger.info(f"PgVector Executing search STRICT: tenant={tenant_id}, collection={collection}, top_k={top_k}")
-            
-            rows = await conn.fetch(query, query_embedding, tenant_id, collection, top_k)
+            if file_ids:
+                query = f"""
+                    SELECT chunk_id, content, metadata, 1 - (embedding <=> $1) as similarity
+                    FROM {self.table_name}
+                    WHERE tenant_id = $2
+                      AND collection_name = $3
+                      AND metadata->>'file_id' = ANY($4)
+                    ORDER BY embedding <=> $1
+                    LIMIT $5;
+                """
+                bind_params = (query_embedding, tenant_id, collection, file_ids, top_k)
+            else:
+                query = f"""
+                    SELECT chunk_id, content, metadata, 1 - (embedding <=> $1) as similarity
+                    FROM {self.table_name}
+                    WHERE tenant_id = $2
+                      AND collection_name = $3
+                    ORDER BY embedding <=> $1
+                    LIMIT $4;
+                """
+                bind_params = (query_embedding, tenant_id, collection, top_k)
+
+            logger.info(f"PgVector Executing search STRICT: tenant={tenant_id}, collection={collection}, top_k={top_k}, file_ids={file_ids}")
+
+            rows = await conn.fetch(query, *bind_params)
             
             logger.info(f"PgVector Rows found: {len(rows)}")
             

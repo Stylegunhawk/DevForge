@@ -41,10 +41,18 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("DevForge v0.8.0 starting up...")
     
-    # ✅ FIX: Ensure data directory structure exists on startup
-    # This prevents 500 errors if the folder is missing when the first file is uploaded
+    # Ensure data directory structure exists on startup
     Path("data/uploads").mkdir(parents=True, exist_ok=True)
-    
+
+    # Pre-load reranker model so first retrieval request doesn't pay model-load latency
+    if settings.ENABLE_RERANKING:
+        try:
+            from src.agents.rag.reranking import CrossEncoderReranker
+            CrossEncoderReranker(model_name=settings.RERANK_MODEL)
+            logger.info("Reranker model pre-loaded at startup")
+        except Exception as e:
+            logger.warning(f"Reranker pre-load failed (will lazy-init on first use): {e}")
+
     yield
     # Shutdown
     logger.info("DevForge shutting down...")

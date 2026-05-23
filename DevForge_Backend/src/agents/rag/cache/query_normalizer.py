@@ -7,6 +7,7 @@ Phase 11.2 Refinement:
 
 import hashlib
 import re
+from typing import Optional
 
 
 def normalize_query(query: str, sort_threshold: int = 6) -> str:
@@ -61,27 +62,28 @@ def normalize_query(query: str, sort_threshold: int = 6) -> str:
     return normalized
 
 
-def cache_key_from_query(query: str, top_k: int, tenant_id: str = "default") -> str:
+def cache_key_from_query(
+    query: str,
+    top_k: int,
+    tenant_id: str = "default",
+    file_ids: Optional[tuple] = None,
+) -> str:
     """
-    Generate SHA256 cache key from query + retrieval params + tenant.
-    
-    Cache key includes:
-    - Normalized query (lowercase, dedupe whitespace, conditional sort)
-    - top_k (different results for different k values)
-    - tenant_id (cross-tenant isolation)
-    
+    Generate SHA256 cache key from query + retrieval params + tenant + optional file scope.
+
     Args:
         query: User query string
         top_k: Number of results requested
         tenant_id: Tenant identifier
-    
+        file_ids: Optional sorted tuple of file IDs for scoped queries
+
     Returns:
         SHA256 hash (64 hex chars)
     """
     normalized = normalize_query(query)
-    
-    # Include tenant_id and top_k in key
+
     cache_input = f"{tenant_id}::{normalized}::{top_k}"
-    
-    # SHA256 for collision resistance
+    if file_ids:
+        cache_input += f"::files={'|'.join(sorted(file_ids))}"
+
     return hashlib.sha256(cache_input.encode('utf-8')).hexdigest()

@@ -226,7 +226,8 @@ async def semantic_search_for_chat(
     result = await agent.retrieve_with_reranking(
         query=query,
         top_k=search_request.top_k,
-        use_reranking=True
+        use_reranking=True,
+        file_ids=search_request.fileIds or None,
     )
     
     response_chunks = []

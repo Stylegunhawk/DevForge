@@ -533,7 +533,8 @@ async def rag_health_check():
         # Optional components
         try:
             if settings.ENABLE_RERANKING:
-                reranker_ok = agent._reranker is not None
+                # Access via property — triggers lazy-load if not yet initialised
+                reranker_ok = agent.reranker is not None
                 components["reranker"] = "ok" if reranker_ok else "not_loaded"
             else:
                 components["reranker"] = "disabled"
@@ -544,8 +545,10 @@ async def rag_health_check():
 
         try:
             if settings.ENABLE_HYBRID_SEARCH:
-                bm25_ok = agent._bm25_index and agent._bm25_index.is_ready()
-                components["bm25_index"] = "ok" if bm25_ok else "not_ready"
+                # BM25 is tenant-scoped and lazy-inits on first retrieval per tenant.
+                # A fresh health-check agent has no tenant docs, so "not built yet" is normal.
+                bm25_built = agent._bm25_index and agent._bm25_index.is_ready()
+                components["bm25_index"] = "ok" if bm25_built else "ready_on_demand"
             else:
                 components["bm25_index"] = "disabled"
         except Exception:

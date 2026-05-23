@@ -1,3 +1,4 @@
+
 """ChromaDB vector store implementation.
 
 ARCHITECTURE (see docs/rag_architecture.md):
@@ -100,17 +101,30 @@ class ChromaVectorStore(BaseVectorStore):
         query_embedding: List[float],
         top_k: int = 5,
         score_threshold: float = 0.0,
+        file_ids: Optional[List[str]] = None,
     ) -> List[ChunkResult]:
         """
         Search for similar chunks in ChromaDB (Direct Collection Access).
+
+        Args:
+            query_embedding: Query embedding vector
+            top_k: Number of results to return
+            score_threshold: Minimum score threshold
+            file_ids: Optional list of file IDs to filter by. If provided, restricts results to chunks from these files.
         """
+        # Build where filter if file_ids is provided
+        where = None
+        if file_ids:
+            where = {"file_id": {"$in": file_ids}}
+
         # Direct query to underlying Chroma collection
         # This guarantees we get scores and metadata without wrapper issues
         results = await asyncio.to_thread(
             self._collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
-            include=["documents", "metadatas", "distances"]
+            include=["documents", "metadatas", "distances"],
+            where=where,
         )
         
         chunk_results = []

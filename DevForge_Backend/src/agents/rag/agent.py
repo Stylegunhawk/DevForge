@@ -793,15 +793,22 @@ class RAGAgent:
 
         return results
     
-    async def _vector_search(self, query: str, top_k: int, score_threshold: float = 0.0) -> List:
+    async def _vector_search(
+        self,
+        query: str,
+        top_k: int,
+        score_threshold: float = 0.0,
+        file_ids: Optional[List[str]] = None,
+    ) -> List:
         """
         Vector-only search using configured vector store.
-        
+
         Args:
             query: Search query
             top_k: Number of results
             score_threshold: Minimum similarity score (default: 0.0)
-        
+            file_ids: Optional list of file IDs to restrict results to
+
         Returns:
             List of search results (ChunkResult objects, NOT dicts)
         """
@@ -810,7 +817,7 @@ class RAGAgent:
             self.vector_store.embeddings.embed_query,
             query
         )
-        
+
         # Call search with backend-specific parameters
         if self.backend == "postgres":
             # PgVector requires tenant parameters
@@ -820,16 +827,18 @@ class RAGAgent:
                 top_k=top_k,
                 score_threshold=score_threshold,
                 tenant_id=tenant_id,
-                collection_name=self.collection_name
+                collection_name=self.collection_name,
+                file_ids=file_ids,
             )
         else:
             # ChromaDB doesn't need explicit tenant params (uses collection)
             results = await self.vector_store.search(
                 query_embedding=query_embedding,
                 top_k=top_k,
-                score_threshold=score_threshold
+                score_threshold=score_threshold,
+                file_ids=file_ids,
             )
-        
+
         return results
 
 
@@ -842,6 +851,7 @@ class RAGAgent:
         use_cache: bool = True,  # Phase 11.2 Day 1
         use_hybrid: bool = True,  # Phase 11.2 Day 3
         score_threshold: float = 0.0, # Added correct score threshold support
+        file_ids: Optional[List[str]] = None,
     ) -> dict:
         """
         Retrieve documents with optional hybrid search, caching, and reranking.
@@ -866,7 +876,12 @@ class RAGAgent:
         """
         # Ensure query is a string
         query = str(query) if query else ""
-        
+
+        # Normalise: empty list → None (no scope)
+        file_ids = file_ids if file_ids else None
+        # When scoping to specific files, BM25 has no per-file awareness — use vector-only
+        effective_use_hybrid = use_hybrid and not file_ids
+
         # [RAG-DEBUG] Pipeline entry log
         logger.info(
             f"[RAG-DEBUG] Pipeline START: query='{query[:60]}...', top_k={top_k}, "
@@ -896,7 +911,11 @@ class RAGAgent:
         # Step 2: Semantic Cache Check (intent-aware)
         if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
             try:
-                cached_result = await self._semantic_cache.get(query, intent, tenant_id=getattr(self, 'tenant_id', 'default'))
+                cached_result = await self._semantic_cache.get(
+                    query, intent,
+                    tenant_id=getattr(self, 'tenant_id', 'default'),
+                    file_ids=tuple(sorted(file_ids)) if file_ids else None,
+                )
                 if cached_result:
                     logger.info(f"[PHASE 12A] ✅ SEMANTIC CACHE HIT (intent={intent})")
                     return {
@@ -918,16 +937,14 @@ class RAGAgent:
         if self._query_expander and settings.ENABLE_QUERY_EXPANSION:
             try:
                 expansion_result = await self._query_expander.expand(query, intent)
-                # ExpansionResult is a dataclass, use attribute access
-                if hasattr(expansion_result, 'success') and expansion_result.success:
-                    expanded_queries = expansion_result.expanded_queries if hasattr(expansion_result, 'expanded_queries') else [query]
-                    # FALLBACK: if expansion failed or returned empty, use original query
-                    if not expanded_queries:
-                        logger.warning("Query expansion returned empty — falling back to original query")
-                        expanded_queries = [query]
-                    logger.info(f"[PHASE 12A] Query expanded: {len(expanded_queries)} queries")
+                # Use expansion result when it produced more than the original query
+                if expansion_result and len(expansion_result.expanded_queries) > 1:
+                    expanded_queries = expansion_result.expanded_queries
+                    logger.info(f"[PHASE 12A] Query expanded: {len(expanded_queries)} queries (method={expansion_result.method})")
                     for i, eq in enumerate(expanded_queries):
                         logger.debug(f"  [{i}] {eq[:60]}...")
+                else:
+                    logger.debug("[PHASE 12A] Expansion returned no variants, using original query")
             except Exception as e:
                 logger.warning(
                     "Query expansion failed",
@@ -943,9 +960,13 @@ class RAGAgent:
         if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
             from src.agents.rag.cache import cache_key_from_query
             
-            cache_key = cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default'))
+            cache_key = cache_key_from_query(
+                query, top_k,
+                tenant_id=getattr(self, 'tenant_id', 'default'),
+                file_ids=tuple(sorted(file_ids)) if file_ids else None,
+            )
             cached = await self._query_cache.get(cache_key)
-            
+
             if cached:
                 logger.info(f"Query cache HIT: {str(query)[:50]}...")
                 return {
@@ -960,27 +981,24 @@ class RAGAgent:
         initial_top_k = settings.VECTOR_SEARCH_CANDIDATES if (use_reranking and settings.ENABLE_RERANKING) else top_k
         
         if len(expanded_queries) > 1:
-            # Multiple queries → retrieve for each and fuse
-            from src.agents.rag.expansion import ResultFusion
-            fusion = ResultFusion()
-            
+            # Multiple queries → retrieve for each and fuse with RRF
+            from src.agents.rag.expansion import fuse_results_rrf
+
             all_results = []
             for eq in expanded_queries:
-                # Use vector search for each expanded query, pass score_threshold
-                eq_results = await self._vector_search(eq, initial_top_k, score_threshold)
+                eq_results = await self._vector_search(eq, initial_top_k, score_threshold, file_ids=file_ids)
                 all_results.append(eq_results)
-            
-            # Fuse results using Reciprocal Rank Fusion
-            initial_results = fusion.fuse(all_results, top_k=initial_top_k)
+
+            initial_results = fuse_results_rrf(all_results)[:initial_top_k]
             logger.info(f"[PHASE 12A] Fused {len(expanded_queries)} result sets → {len(initial_results)} docs")
-        
+
         # Phase 11.2 Day 3: Hybrid search (BM25 + Vector) or vector-only
-        elif use_hybrid and self._hybrid_retriever and settings.ENABLE_HYBRID_SEARCH:
+        elif effective_use_hybrid and self._hybrid_retriever and settings.ENABLE_HYBRID_SEARCH:
             # Ensure BM25 ready (lazy init if needed)
             if not self._bm25_index.is_ready():
                 logger.warning("BM25 not ready, initializing...")
                 await self.init_bm25()
-            
+
             # Hybrid search with RRF fusion
             if self._hybrid_retriever:
                 try:
@@ -993,13 +1011,13 @@ class RAGAgent:
                 except Exception as e:
                     logger.error(f"Hybrid search failed: {e}, falling back to vector-only")
                     # Graceful fallback to vector search, pass threshold
-                    initial_results = await self._vector_search(query, initial_top_k, score_threshold)
+                    initial_results = await self._vector_search(query, initial_top_k, score_threshold, file_ids=file_ids)
             else:
                 # Hybrid not available, use vector, pass threshold
-                initial_results = await self._vector_search(query, initial_top_k, score_threshold)
+                initial_results = await self._vector_search(query, initial_top_k, score_threshold, file_ids=file_ids)
         else:
             # Vector-only search, pass threshold
-            initial_results = await self._vector_search(query, initial_top_k, score_threshold)
+            initial_results = await self._vector_search(query, initial_top_k, score_threshold, file_ids=file_ids)
  
         # Phase 12A: Graph Context Expansion (Before Reranking)
         if settings.ENABLE_CODE_GRAPH:
@@ -1064,12 +1082,23 @@ class RAGAgent:
             # Cache the result (exact-match cache)
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
-                await self._query_cache.set(cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default')), result)
-            
+                await self._query_cache.set(
+                    cache_key_from_query(
+                        query, top_k,
+                        tenant_id=getattr(self, 'tenant_id', 'default'),
+                        file_ids=tuple(sorted(file_ids)) if file_ids else None,
+                    ),
+                    result,
+                )
+
             # Phase 12A: Update semantic cache
             if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
                 try:
-                    await self._semantic_cache.set(query, intent, result, tenant_id=getattr(self, 'tenant_id', 'default'))
+                    await self._semantic_cache.set(
+                        query, intent, result,
+                        tenant_id=getattr(self, 'tenant_id', 'default'),
+                        file_ids=tuple(sorted(file_ids)) if file_ids else None,
+                    )
                     logger.debug(f"[PHASE 12A] Cached result for intent={intent}")
                 except Exception as e:
                     logger.warning(
@@ -1121,8 +1150,16 @@ class RAGAgent:
             # MANDATORY FALLBACK: Never return zero results
             if len(filtered) >= 3:
                 # Case A: ≥3 pass threshold → return those
-                final_results = filtered[:top_k]
-                logger.info(f"Reranking: {len(filtered)} passed threshold, returning top {len(final_results)}")
+                # Graph-expanded chunks (score=0.0) sink to bottom after reranking.
+                # Ensure they are appended after the top_k cut rather than silently lost.
+                top_k_results = filtered[:top_k]
+                top_k_ids = {getattr(c, 'id', None) for c in top_k_results}
+                graph_extras = [
+                    c for c in filtered[top_k:]
+                    if getattr(c, 'is_graph_expansion', False) and getattr(c, 'id', None) not in top_k_ids
+                ]
+                final_results = top_k_results + graph_extras
+                logger.info(f"Reranking: {len(filtered)} passed threshold, returning top {len(top_k_results)} + {len(graph_extras)} graph extras")
                 
                 # Phase 13: Deterministic Context Shaping
                 shaped_results = self._context_shaper.shape_context(final_results)
@@ -1174,12 +1211,23 @@ class RAGAgent:
             # Phase 11.2: Cache the final result (exact-match)
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
-                await self._query_cache.set(cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default')), result)
-            
+                await self._query_cache.set(
+                    cache_key_from_query(
+                        query, top_k,
+                        tenant_id=getattr(self, 'tenant_id', 'default'),
+                        file_ids=tuple(sorted(file_ids)) if file_ids else None,
+                    ),
+                    result,
+                )
+
             # Phase 12A: Update semantic cache
             if use_cache and self._semantic_cache and settings.ENABLE_SEMANTIC_CACHE:
                 try:
-                    await self._semantic_cache.set(query, intent, result, tenant_id=getattr(self, 'tenant_id', 'default'))
+                    await self._semantic_cache.set(
+                        query, intent, result,
+                        tenant_id=getattr(self, 'tenant_id', 'default'),
+                        file_ids=tuple(sorted(file_ids)) if file_ids else None,
+                    )
                     logger.debug(f"[PHASE 12A] Cached reranked result for intent={intent}")
                 except Exception as e:
                     logger.warning(
@@ -1207,7 +1255,14 @@ class RAGAgent:
             # Cache even error fallback results
             if use_cache and self._query_cache and settings.ENABLE_QUERY_CACHE:
                 from src.agents.rag.cache import cache_key_from_query
-                await self._query_cache.set(cache_key_from_query(query, top_k, tenant_id=getattr(self, 'tenant_id', 'default')), result)
+                await self._query_cache.set(
+                    cache_key_from_query(
+                        query, top_k,
+                        tenant_id=getattr(self, 'tenant_id', 'default'),
+                        file_ids=tuple(sorted(file_ids)) if file_ids else None,
+                    ),
+                    result,
+                )
             
             return result
     
