@@ -221,6 +221,85 @@ class CodeGraph:
             
         return graph
 
+    def resolve_cross_file_edges(self) -> int:
+        """
+        Rewire intra-file call edges that point to dangling (non-existent) nodes
+        to the real cross-file definition.
+
+        When add_node resolves a call target it always assumes the callee lives in
+        the same source file: ``tenant::caller_file::callee_name``.  If the callee
+        is actually imported from another file that QID has no metadata entry — it
+        is "dangling".  This method detects those dangling targets and, when exactly
+        one real node with the same entity name exists elsewhere, rewires all
+        incoming edges to the real node.
+
+        Resolution rules:
+        - 0 real candidates  → leave as-is (entity not indexed; will silently miss at retrieval)
+        - 1 real candidate   → rewire (unambiguous cross-file reference)
+        - >1 real candidates → skip   (ambiguous name; safer to do nothing)
+
+        Should be called once after all chunks have been loaded via
+        ``add_chunks_batch`` and before the graph is serialised to Redis.
+
+        Returns:
+            Number of individual edges that were rewired.
+        """
+        real_qids: Set[str] = set(self._metadata.keys())
+
+        dangling_qids: Set[str] = {
+            qid for qid in self._graph if qid not in real_qids
+        }
+
+        if not dangling_qids:
+            logger.debug("resolve_cross_file_edges: no dangling nodes found")
+            return 0
+
+        # entity_name → list of real QIDs that carry that name
+        entity_to_real: Dict[str, List[str]] = defaultdict(list)
+        for qid in real_qids:
+            parts = qid.split("::")
+            if len(parts) >= 3:
+                entity_to_real[parts[-1]].append(qid)
+
+        rewired = 0
+        for dangling_qid in dangling_qids:
+            parts = dangling_qid.split("::")
+            if len(parts) < 3:
+                continue
+
+            entity_name = parts[-1]
+            dangling_file = parts[1]
+
+            # Candidates must be in a *different* file than the dangling QID
+            candidates = [
+                qid for qid in entity_to_real.get(entity_name, [])
+                if qid.split("::")[1] != dangling_file
+            ]
+
+            if len(candidates) != 1:
+                logger.debug(
+                    f"[CROSS_FILE] '{dangling_qid}': {len(candidates)} candidate(s) — skipping"
+                )
+                continue
+
+            real_qid = candidates[0]
+            logger.info(f"[CROSS_FILE] Rewiring '{dangling_qid}' → '{real_qid}'")
+
+            for source_qid in list(self._graph.keys()):
+                if dangling_qid in self._graph[source_qid]:
+                    self._graph[source_qid].discard(dangling_qid)
+                    self._graph[source_qid].add(real_qid)
+                    rewired += 1
+
+            # Remove the now-orphaned dangling entry
+            del self._graph[dangling_qid]
+
+        logger.info(
+            f"[CROSS_FILE] resolve_cross_file_edges: {rewired} edge(s) rewired "
+            f"from {len(dangling_qids)} dangling node(s)"
+        )
+        return rewired
+
     def clear(self) -> None:
         """Clear the entire graph."""
         self._graph.clear()

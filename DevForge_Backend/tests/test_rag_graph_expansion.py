@@ -1,5 +1,102 @@
 # tests/test_rag_graph_expansion.py
 from src.storage.base_store import ChunkResult
+from src.agents.rag.graph.code_graph import CodeGraph
+
+
+# ---------------------------------------------------------------------------
+# Issue #6 — Cross-file edge resolution
+# ---------------------------------------------------------------------------
+
+def _make_graph_ab():
+    """
+    Minimal two-file graph:
+      file_a.ts::UserRepository  calls  CacheStore  (imported from file_b.ts)
+      file_b.ts::CacheStore      (real definition)
+    """
+    graph = CodeGraph()
+    tenant = "t1"
+    graph.add_node(
+        f"{tenant}::file_b.ts::CacheStore",
+        calls=[], imports=[], source="file_b.ts", name="CacheStore", tenant_id=tenant,
+    )
+    graph.add_node(
+        f"{tenant}::file_a.ts::UserRepository",
+        calls=["CacheStore"], imports=[], source="file_a.ts", name="UserRepository", tenant_id=tenant,
+    )
+    return graph, tenant
+
+
+def test_cross_file_resolution_rewires_single_match():
+    """After resolution, BFS from UserRepository reaches file_b.ts::CacheStore."""
+    graph, tenant = _make_graph_ab()
+
+    # Before: dangling edge to wrong file
+    related_before = graph.get_related(f"{tenant}::file_a.ts::UserRepository")
+    assert f"{tenant}::file_a.ts::CacheStore" in related_before
+    assert f"{tenant}::file_b.ts::CacheStore" not in related_before
+
+    rewired = graph.resolve_cross_file_edges()
+    assert rewired == 1
+
+    # After: edge points to real definition in file_b.ts
+    related_after = graph.get_related(f"{tenant}::file_a.ts::UserRepository")
+    assert f"{tenant}::file_b.ts::CacheStore" in related_after
+    assert f"{tenant}::file_a.ts::CacheStore" not in related_after
+
+
+def test_cross_file_resolution_skips_ambiguous_name():
+    """When the same entity name exists in two files, no rewiring occurs."""
+    graph = CodeGraph()
+    tenant = "t1"
+
+    # Two files both define "Helper"
+    graph.add_node(
+        f"{tenant}::utils_a.ts::Helper",
+        calls=[], imports=[], source="utils_a.ts", name="Helper", tenant_id=tenant,
+    )
+    graph.add_node(
+        f"{tenant}::utils_b.ts::Helper",
+        calls=[], imports=[], source="utils_b.ts", name="Helper", tenant_id=tenant,
+    )
+    # file_c.ts calls Helper — ambiguous which file it comes from
+    graph.add_node(
+        f"{tenant}::file_c.ts::Service",
+        calls=["Helper"], imports=[], source="file_c.ts", name="Service", tenant_id=tenant,
+    )
+
+    rewired = graph.resolve_cross_file_edges()
+    assert rewired == 0  # skipped, not guessed
+
+    # Dangling edge still exists (not removed on ambiguity)
+    related = graph.get_related(f"{tenant}::file_c.ts::Service")
+    assert f"{tenant}::file_c.ts::Helper" in related
+
+
+def test_cross_file_resolution_no_dangling_nodes():
+    """Returns 0 when all edges point to real nodes (nothing to do)."""
+    graph = CodeGraph()
+    tenant = "t1"
+    graph.add_node(
+        f"{tenant}::auth.py::authenticate",
+        calls=["validate_token"], imports=[], source="auth.py",
+        name="authenticate", tenant_id=tenant,
+    )
+    graph.add_node(
+        f"{tenant}::auth.py::validate_token",
+        calls=[], imports=[], source="auth.py",
+        name="validate_token", tenant_id=tenant,
+    )
+    # Both nodes are in the same file, no dangling edge — intra-file works already
+    assert graph.resolve_cross_file_edges() == 0
+
+
+def test_cross_file_resolution_idempotent():
+    """Calling resolve twice produces the same result as calling once."""
+    graph, tenant = _make_graph_ab()
+    first = graph.resolve_cross_file_edges()
+    second = graph.resolve_cross_file_edges()
+    assert first == 1
+    assert second == 0  # nothing left to rewire on the second call
 
 
 def test_chunk_result_has_expanded_from():

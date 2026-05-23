@@ -51,16 +51,24 @@ query_str = """
 ---
 
 ## Issue #6 — Cross-file graph expansion returns 0
-**Status:** Open  
-**Root cause:** The code graph resolves call targets intra-file:
+**Status:** ✅ Fixed 2026-05-24  
+**Files:** `src/agents/rag/graph/code_graph.py`, `src/agents/rag/agent.py`  
+**Root cause:** `add_node` always resolves call targets to the same source file:
 ```python
 called_qid = f"{tenant_id}::{source}::{call_name}"  # always same source file
 ```
-When `UserRepository` (user-repository.ts) calls `CacheStore` (imported from cache.ts), the graph creates `user-repository.ts::UserRepository → user-repository.ts::CacheStore`. But `user-repository.ts::CacheStore` has no pgvector entry (CacheStore is defined in cache.ts), so `get_chunk_by_qualified_id` returns `None` and the expansion is silently skipped.
+When `UserRepository` (user-repository.ts) calls `CacheStore` (imported from cache.ts), the graph created `user-repository.ts::UserRepository → user-repository.ts::CacheStore`. But `user-repository.ts::CacheStore` has no pgvector entry (CacheStore is defined in cache.ts), so `get_chunk_by_qualified_id` returned `None` and the expansion was silently skipped.
 
-**What works:** Intra-file BFS expansion (entities that call other entities in the same file) does work.  
-**What doesn't work:** Cross-file expansion (A calls B where B is imported from another file).  
-**Fix needed:** In `code_graph.py::add_node`, when a call target resolves to a node not in the graph, check the import chunk metadata to find the correct source file and create a cross-file edge.
+**Fix:** Added `CodeGraph.resolve_cross_file_edges()` — a post-processing step called after all chunks are loaded (in `agent.py::init_graph`). It:
+1. Detects "dangling" nodes: exist in the adjacency list but have no chunk metadata
+2. For each dangling node, looks for a real node with the same entity name in a different file
+3. If exactly 1 match (unambiguous): rewires all incoming edges to the real node
+4. If 0 or >1 matches: skips (avoids false positives on overloaded names)
+5. Is idempotent — safe to call twice (second call finds nothing to rewire)
+
+Called in both code paths of `init_graph`: after cold-start build (before Redis caching) and after cache load (to clean up dangling edges re-created by `from_dict`).
+
+**Tests:** `tests/test_rag_graph_expansion.py` — 4 new tests covering single match rewire, ambiguous skip, no-op when clean, idempotency.
 
 ---
 

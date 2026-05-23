@@ -459,6 +459,11 @@ class RAGAgent:
                     if not needs_rebuild:
                         self._code_graph = CodeGraph.from_dict(graph_dict)
                         logger.info(f"Graph loaded from cache: {self._code_graph.size()} nodes")
+                        # Re-resolve cross-file edges: from_dict recreates dangling edges
+                        # from raw call metadata before the serialised resolved links are applied.
+                        rewired = self._code_graph.resolve_cross_file_edges()
+                        if rewired:
+                            logger.info(f"Cross-file edges re-resolved after cache load: {rewired}")
                         await redis_client.close()
                         return
             except Exception as e:
@@ -493,7 +498,14 @@ class RAGAgent:
                     count += len(valid_batch)
             
             logger.info(f"Graph initialized: {count} chunks → {self._code_graph.size()} nodes")
-            
+
+            # Resolve call edges that cross file boundaries before caching.
+            # add_node resolves calls intra-file; this step rewires dangling targets
+            # to their real definition in another file (Issue #6).
+            rewired = self._code_graph.resolve_cross_file_edges()
+            if rewired:
+                logger.info(f"Cross-file edges resolved: {rewired} edge(s) rewired")
+
             # 2. Save to Cache
             if redis_client:
                 try:
