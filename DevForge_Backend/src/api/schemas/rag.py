@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal, Union
 from datetime import datetime
 
@@ -7,6 +7,10 @@ from datetime import datetime
 # ============================================================================
 
 TaskStatus = Literal['pending', 'processing', 'success', 'error']
+
+# Legacy Redis data written by older workers used "complete" instead of "success".
+# This mapping is applied before Pydantic validates the Literal constraint.
+_LEGACY_STATUS_MAP = {"complete": "success", "done": "success", "failed": "error"}
 
 # ============================================================================
 # 2. ERROR STRUCTURES
@@ -27,20 +31,27 @@ class FileStatusResponse(BaseModel):
     size: int
     url: str  # Static URL for preview
     fileType: str  # MIME type (e.g., "application/pdf", "text/python")
-    
+
     # Async Task Fields (polling)
     chunkCount: Optional[int] = 0
     chunkingStatus: Optional[TaskStatus] = "pending"
     embeddingStatus: Optional[TaskStatus] = "pending"
     finishEmbedding: bool = False  # ⚠️ CRITICAL: Stops polling when True
-    
+
     # Error tracking
     chunkingError: Optional[AsyncTaskError] = None
     embeddingError: Optional[AsyncTaskError] = None
-    
+
     # Optional metadata
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
+
+    @field_validator("chunkingStatus", "embeddingStatus", mode="before")
+    @classmethod
+    def normalise_legacy_status(cls, v: object) -> object:
+        if isinstance(v, str):
+            return _LEGACY_STATUS_MAP.get(v, v)
+        return v
 
 # ============================================================================
 # 4. CHUNK RESPONSE (Matches ChatFileChunk from frontend)
