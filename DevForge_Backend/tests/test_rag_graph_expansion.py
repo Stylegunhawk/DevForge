@@ -116,7 +116,8 @@ def test_chunk_result_expanded_from_set():
 
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+from fastapi.testclient import TestClient
 
 
 @pytest.mark.asyncio
@@ -255,3 +256,266 @@ def test_semantic_search_response_expansion_count_counts_expanded():
     )
     assert resp.expansion_count == 2
     assert computed_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Graph endpoint schemas
+# ---------------------------------------------------------------------------
+
+def test_graph_node_schema():
+    from src.api.schemas.rag import GraphNode
+    node = GraphNode(id="t1::auth.py::Foo", name="Foo", chunk_type="class", source_file="auth.py")
+    assert node.id == "t1::auth.py::Foo"
+    assert node.language is None
+
+
+def test_graph_related_response_schema():
+    from src.api.schemas.rag import GraphRelatedResponse, GraphAnchor
+    anchor = GraphAnchor(id="t1::auth.py::Foo", name="Foo", chunk_type="class", source_file="auth.py")
+    resp = GraphRelatedResponse(entity="Foo", anchor=anchor, related=[], related_count=0)
+    assert resp.ambiguous is False
+    assert resp.all_anchors == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/rag/graph endpoint tests
+# ---------------------------------------------------------------------------
+
+def test_get_code_graph_empty_graph():
+    """Empty graph → HTTP 200 with node_count=0 and empty arrays."""
+    from src.main import app
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = CodeGraph()  # empty — no nodes
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t_test"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["node_count"] == 0
+    assert data["link_count"] == 0
+    assert data["nodes"] == []
+    assert data["links"] == []
+
+
+def test_get_code_graph_strips_full_path():
+    """source_file in response must be the filename only, never the full server path."""
+    from src.main import app
+
+    graph = CodeGraph()
+    graph.add_node(
+        "t1::/app/data/uploads/users/t1/default/abc_cache.ts::CacheStore",
+        calls=[], imports=[],
+        source="/app/data/uploads/users/t1/default/abc_cache.ts",
+        name="CacheStore",
+        chunk_type="class",
+        language="typescript",
+        tenant_id="t1",
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = graph
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t1"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 200
+    nodes = response.json()["nodes"]
+    assert len(nodes) == 1
+    assert nodes[0]["source_file"] == "abc_cache.ts"
+    assert "/app/" not in nodes[0]["source_file"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/rag/graph/related endpoint tests
+# ---------------------------------------------------------------------------
+
+def _make_two_file_graph() -> CodeGraph:
+    """
+    Two-file graph:
+      file_a.ts::UserRepository  calls  CacheStore (imported from file_b.ts)
+      file_b.ts::CacheStore      (real definition)
+    After resolve_cross_file_edges() the edge points to file_b.ts::CacheStore.
+    """
+    graph = CodeGraph()
+    tenant = "t1"
+    graph.add_node(
+        f"{tenant}::file_b.ts::CacheStore",
+        calls=[], imports=[], source="file_b.ts",
+        name="CacheStore", chunk_type="class", language="typescript", tenant_id=tenant,
+    )
+    graph.add_node(
+        f"{tenant}::file_a.ts::UserRepository",
+        calls=["CacheStore"], imports=[], source="file_a.ts",
+        name="UserRepository", chunk_type="class", language="typescript", tenant_id=tenant,
+    )
+    graph.resolve_cross_file_edges()
+    return graph
+
+
+def test_get_graph_related_by_name():
+    """Plain entity name resolves to the correct anchor and returns related nodes."""
+    from src.main import app
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = _make_two_file_graph()
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t1"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph/related?entity=UserRepository",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entity"] == "UserRepository"
+    assert data["anchor"] is not None
+    assert data["anchor"]["name"] == "UserRepository"
+    assert data["related_count"] >= 1
+    related_names = [r["name"] for r in data["related"]]
+    assert "CacheStore" in related_names
+    assert data["ambiguous"] is False
+
+
+def test_get_graph_related_by_full_qid():
+    """Full QID in entity param resolves directly without name scan."""
+    from src.main import app
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = _make_two_file_graph()
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t1"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph/related?entity=t1::file_a.ts::UserRepository",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["anchor"]["id"] == "t1::file_a.ts::UserRepository"
+    assert data["ambiguous"] is False
+
+
+def test_get_graph_related_entity_not_found():
+    """Unknown entity → HTTP 200 with anchor=null and empty related list."""
+    from src.main import app
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = _make_two_file_graph()
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t1"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph/related?entity=NonExistentClass",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["anchor"] is None
+    assert data["related"] == []
+    assert data["related_count"] == 0
+
+
+def test_get_graph_related_ambiguous():
+    """Two files defining the same entity name → ambiguous=True, all_anchors populated."""
+    from src.main import app
+
+    graph = CodeGraph()
+    tenant = "t1"
+    graph.add_node(
+        f"{tenant}::a.ts::Helper",
+        calls=[], imports=[], source="a.ts",
+        name="Helper", chunk_type="class", language="typescript", tenant_id=tenant,
+    )
+    graph.add_node(
+        f"{tenant}::b.ts::Helper",
+        calls=[], imports=[], source="b.ts",
+        name="Helper", chunk_type="class", language="typescript", tenant_id=tenant,
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = graph
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t1"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph/related?entity=Helper",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ambiguous"] is True
+    assert data["anchor"] is not None          # first match used
+    assert len(data["all_anchors"]) == 2
+
+
+def test_get_graph_related_depth_cap():
+    """depth param outside 1–3 → HTTP 422 validation error."""
+    from src.main import app
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = CodeGraph()
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t1"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph/related?entity=Foo&depth=5",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 422
+
+
+def test_get_graph_related_with_snippets():
+    """include_snippets=true attaches 200-char snippet; failure for one entity doesn't abort."""
+    from src.main import app
+
+    mock_agent = MagicMock()
+    mock_agent.init_graph = AsyncMock()
+    mock_agent._code_graph = _make_two_file_graph()
+
+    fake_chunk = MagicMock()
+    fake_chunk.content = "x" * 300  # longer than 200 — handler must truncate
+    mock_agent.vector_store = MagicMock()
+    mock_agent.vector_store.get_chunk_by_qualified_id = AsyncMock(return_value=fake_chunk)
+
+    with patch("src.api.routers.rag.get_rag_agent", return_value=mock_agent), \
+         patch("src.core.middleware.verify_jwt", return_value={"tenant_id": "t1"}):
+        client = TestClient(app)
+        response = client.get(
+            "/api/v1/rag/graph/related?entity=UserRepository&include_snippets=true",
+            headers={"Authorization": "Bearer test_token"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    for entity in data["related"]:
+        if entity["snippet"] is not None:
+            assert len(entity["snippet"]) <= 200

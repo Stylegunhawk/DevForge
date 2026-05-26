@@ -1,7 +1,7 @@
 # RAG Debugging Guide
 
 **Branch:** `rag_resolve`  
-**Last Updated:** 2026-05-23  
+**Last Updated:** 2026-05-25  
 **Purpose:** Operational reference for debugging the RAG pipeline — JWT tokens, Docker commands, Redis inspection, pgvector queries, and common fixes.
 
 ---
@@ -110,6 +110,44 @@ curl -s -X POST http://localhost:8001/api/v1/rag/file/upload \
 ### Delete a file
 ```bash
 curl -s -X DELETE http://localhost:8001/api/v1/rag/file/FILE_ID \
+  -H "Authorization: Bearer $JWT" | python3 -m json.tool
+```
+
+### Code graph — full dump
+```bash
+# Returns all nodes + links for this tenant's code graph
+curl -s http://localhost:8001/api/v1/rag/graph \
+  -H "Authorization: Bearer $JWT" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print(f'nodes={d[\"node_count\"]}, links={d[\"link_count\"]}')
+for n in d['nodes'][:5]: print(f'  {n[\"chunk_type\"]:10} {n[\"name\"]} ({n[\"source_file\"]})')
+"
+```
+
+### Code graph — related entities (BFS)
+```bash
+# Find entities related to PackLoader (depth=2, max=10)
+curl -s "http://localhost:8001/api/v1/rag/graph/related?entity=PackLoader" \
+  -H "Authorization: Bearer $JWT" | python3 -m json.tool
+
+# Include 200-char snippets
+curl -s "http://localhost:8001/api/v1/rag/graph/related?entity=PackLoader&include_snippets=true" \
+  -H "Authorization: Bearer $JWT" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print(f'anchor={d[\"anchor\"][\"name\"] if d[\"anchor\"] else None}, related={d[\"related_count\"]}')
+for r in d['related']: print(f'  {r[\"name\"]} ({r[\"source_file\"]}): {repr(r.get(\"snippet\", \"\")[:60])}...')
+"
+
+# Entity not found — expect anchor=null, related=[]
+curl -s "http://localhost:8001/api/v1/rag/graph/related?entity=DoesNotExist" \
+  -H "Authorization: Bearer $JWT" | python3 -m json.tool
+
+# Depth out of range — expect HTTP 422
+curl -s "http://localhost:8001/api/v1/rag/graph/related?entity=PackLoader&depth=5" \
+  -H "Authorization: Bearer $JWT" | python3 -m json.tool
+
+# Look up by full QID (copy an id from GET /graph response)
+curl -s "http://localhost:8001/api/v1/rag/graph/related?entity=TENANT_ID%3A%3AFULL_PATH%3A%3APackLoader" \
   -H "Authorization: Bearer $JWT" | python3 -m json.tool
 ```
 
@@ -234,7 +272,7 @@ When restarting the API container, the following in-memory state is **lost** and
 |-------|--------------|-------------|
 | Agent TTL cache (1hr) | `agent.py` `_agent_cache` | First request per tenant |
 | BM25 index | `retrieval.py` `BM25Index` | `init_bm25()` on agent init |
-| Code graph | `agent.py` `init_graph()` | First search request per tenant |
+| Code graph | `agent.py` `init_graph()` | First search request per tenant, or first `GET /graph` / `GET /graph/related` |
 
 > After restart, the **first query per tenant** is slow (~2–5s) as the graph and BM25 rebuild from pgvector. Subsequent queries are fast.
 

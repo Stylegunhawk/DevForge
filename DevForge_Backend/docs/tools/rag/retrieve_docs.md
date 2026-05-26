@@ -1,9 +1,9 @@
 # retrieve_docs - RAG Document Retrieval Tool
 
-**Version:** 1.3.0  
+**Version:** 1.4.0  
 **Status:** ✅ Implemented & Frozen  
-**Last Updated:** 2026-05-24  
-**Last Verified:** 2026-05-24 — TypeScript AST fix applied; ingest-async auth corrected; cross-file expansion limitation documented
+**Last Updated:** 2026-05-25  
+**Last Verified:** 2026-05-25 — Cross-file graph expansion fixed; code graph API endpoints added
 
 > **Note:** `retrieve_docs` is **not** registered in `SUPPORTED_TOOLS` and is not callable via `POST /api/gateway`. The canonical retrieval entry point is **`POST /api/v1/rag/chunk/semanticSearchForChat`** (tenant-JWT authenticated).
 
@@ -145,6 +145,8 @@ The RAG system is fully integrated with Lobe Chat's TypeScript data contracts vi
 | `/api/v1/rag/chunk/semanticSearchForChat` | `POST` | Primary search endpoint for Lobe Chat sessions |
 | `/api/v1/rag/file/{id}[?force=true]` | `DELETE` | Removes file, vectors, and metadata (use `?force=true` to prune orphaned chunks) |
 | `/api/v1/rag/message/{id}/query` | `DELETE` | Cleans up RAG queries for the specified message |
+| `/api/v1/rag/graph` | `GET` | Full code graph dump (nodes + links) for visualization |
+| `/api/v1/rag/graph/related` | `GET` | BFS entity query: find code entities related to a given class or function |
 
 ### Integration Architecture
 
@@ -230,7 +232,7 @@ curl -X POST http://localhost:8001/api/v1/rag/chunk/semanticSearchForChat \
 - Vector-only search: `WHERE metadata->>'file_id' = ANY(fileIds)`
 - BM25/hybrid fusion is skipped regardless of `ENABLE_HYBRID_SEARCH`
 - Graph expansion still runs on the anchors if `ENABLE_CODE_GRAPH=true`
-- ⚠️ Cross-file graph expansion will return 0 for inter-file call edges (see Issue #6 in [known_issues.md](./known_issues.md))
+- ✅ Cross-file graph expansion now works (Issue #6 fixed 2026-05-25)
 
 **Response (with expansion):**
 ```json
@@ -388,8 +390,8 @@ BFS Traversal:
 Result: 3 chunks (1 initial + 2 related)
 ```
 
-**⚠️ Cross-file expansion (Issue #6 — open):**  
-When entity A calls entity B imported from another file, the graph creates edge `file1.ts::A → file1.ts::B` (same source) rather than `file1.ts::A → file2.ts::B`. Since `file1.ts::B` has no pgvector entry, expansion returns 0 for these cross-file calls. See [known_issues.md — Issue #6](./known_issues.md#issue-6).
+**✅ Cross-file expansion (Issue #6 — fixed 2026-05-25):**  
+`resolve_cross_file_edges()` is called after every cold-start build and Redis cache load. It detects dangling QIDs (in the graph but not in metadata) and rewires them to the real cross-file definitions. Both intra-file and cross-file BFS expansion now work correctly.
 
 ### Test-Source Linking
 
@@ -606,9 +608,7 @@ If Tree-sitter parsing fails, automatically falls back to text chunking:
 **Status (fixed 2026-05-23):** `rag_tasks.py` now correctly invalidates `rag_graph:v2:{collection_name}` after each file ingest. If you are on an older build, flush manually: `redis-cli del rag_graph:v2:<collection_name>`. See [known_issues.md — Issue #1](./known_issues.md#issue-1).
 
 **Issue:** `expansion_count` is 0 for cross-file calls (e.g. `UserRepository` calling `CacheStore` from another file)  
-**Root cause (open — Issue #6):** `code_graph.py::add_node` resolves all call targets with the same source file path. When entity A in `file1.ts` calls entity B imported from `file2.ts`, the graph creates edge `file1.ts::A → file1.ts::B`, but `file1.ts::B` has no pgvector entry. `get_chunk_by_qualified_id` returns `None` → expansion silently skipped.  
-**What works:** Intra-file BFS (entities calling other entities in the same file).  
-**Workaround:** None currently. See [known_issues.md — Issue #6](./known_issues.md#issue-6).
+**Status (fixed 2026-05-25 — Issue #6):** `resolve_cross_file_edges()` is now called after every cold-start build and Redis cache load in `init_graph()`. It rewires dangling QIDs to the correct cross-file definitions. If you see cross-file expansion still failing, flush the graph cache and let it rebuild: `redis-cli DEL rag_graph:v2:<collection_name>`. See [known_issues.md — Issue #6](./known_issues.md#issue-6).
 
 **Issue:** `chunkingStatus: "success"` but results have no class/function chunks  
 **Root cause (open — Issue #7):** The file status API returns `"success"` even when all chunks are text fallback (`ast_fallback=True`). This occurred for all TypeScript files before the 2026-05-24 AST fix.  
@@ -685,14 +685,21 @@ All other endpoints are legacy or internal tools.
 
 
 
-**Last Updated:** 2026-05-24  
-**Version:** 1.3.0  
+**Last Updated:** 2026-05-25  
+**Version:** 1.4.0  
 **Maintainer:** DevForge Team  
 **Feedback:** Create an issue in the repository
 
 ---
 
 ## Changelog
+
+### 2026-05-25 — v1.4.0
+
+- **Cross-file graph expansion fixed (Issue #6):** `resolve_cross_file_edges()` rewires dangling QIDs after every graph build/load. `expansion_count` now reflects cross-file related entities. Troubleshooting entry updated from "open" to "fixed".
+- **New code graph endpoints:** `GET /api/v1/rag/graph` and `GET /api/v1/rag/graph/related` added to Integration Endpoints table.
+- **Graph Traversal section updated:** Cross-file expansion limitation replaced with fix description.
+- **fileIds filter behaviour updated:** Cross-file expansion caveat removed (now works).
 
 ### 2026-05-24 — v1.3.0
 

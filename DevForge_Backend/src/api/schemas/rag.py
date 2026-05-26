@@ -102,3 +102,52 @@ class SemanticSearchResponse(BaseModel):
 class FileUploadResponse(BaseModel):
     """Response for file upload"""
     files: List[FileStatusResponse]
+
+# ============================================================================
+# 7. CODE GRAPH RESPONSES
+# ============================================================================
+
+class GraphNode(BaseModel):
+    id: str
+    name: str
+    chunk_type: str
+    source_file: str
+    language: Optional[str] = None
+
+
+class GraphLink(BaseModel):
+    source: str
+    target: str
+    relation: str = "related"
+
+
+class CodeGraphResponse(BaseModel):
+    node_count: int
+    link_count: int
+    nodes: List[GraphNode] = Field(default_factory=list)
+    links: List[GraphLink] = Field(default_factory=list)
+
+
+# GraphAnchor, RelatedEntity, GraphRelatedResponse — used by GET /graph/related (Task 3)
+class GraphAnchor(BaseModel):
+    id: str
+    name: str
+    chunk_type: str
+    source_file: str
+
+
+class RelatedEntity(BaseModel):
+    id: str
+    name: str
+    chunk_type: str
+    source_file: str
+    snippet: Optional[str] = None
+
+
+class GraphRelatedResponse(BaseModel):
+    entity: str
+    anchor: Optional[GraphAnchor] = None
+    related: List[RelatedEntity] = []
+    related_count: int
+    ambiguous: bool = False
+    all_anchors: List[GraphAnchor] = []

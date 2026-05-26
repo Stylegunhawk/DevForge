@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException, Request, Depends, security
+from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException, Request, Depends, security, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from src.core.config import settings
@@ -425,7 +425,172 @@ async def delete_file(file_id: str, request: Request, force: bool = False):
     return {"success": True, "fileId": file_id}
 
 # ============================================================================
-# 5. QUERY DELETION
+# 5. CODE GRAPH ENDPOINTS
+# ============================================================================
+
+@router.get(
+    "/graph",
+    response_model=CodeGraphResponse,
+    summary="Get full code dependency graph",
+    description=(
+        "Returns all nodes and edges in the tenant's code dependency graph. "
+        "Returns node_count=0 and empty arrays when no files have been ingested (never 404). "
+        "Requires JWT authentication."
+    ),
+    dependencies=[Depends(security_scheme)],
+)
+async def get_code_graph(request: Request) -> CodeGraphResponse:
+    tenant_id = get_current_tenant_id(request)
+    collection_name = f"user_{tenant_id}"
+
+    agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
+    if agent._code_graph is None:
+        await agent.init_graph()
+
+    graph = agent._code_graph
+    graph_dict = graph.to_dict()
+
+    nodes = []
+    for node in graph_dict["nodes"]:
+        raw_source = node.get("source", "")
+        nodes.append(GraphNode(
+            id=node["id"],
+            name=node.get("name", ""),
+            chunk_type=node.get("chunk_type", "unknown"),
+            source_file=Path(raw_source).name if raw_source else "",
+            language=node.get("language"),
+        ))
+
+    links = []
+    for link in graph_dict["links"]:
+        links.append(GraphLink(
+            source=link["source"],
+            target=link["target"],
+            relation=link.get("relation", "related"),
+        ))
+
+    return CodeGraphResponse(
+        node_count=len(nodes),
+        link_count=len(links),
+        nodes=nodes,
+        links=links,
+    )
+
+
+@router.get(
+    "/graph/related",
+    response_model=GraphRelatedResponse,
+    summary="Get entities related to a code entity via BFS",
+    description=(
+        "BFS query on the code dependency graph. Accepts a plain entity name "
+        "(e.g. 'CacheStore') or a full qualified ID (tenant::file::entity). "
+        "Returns HTTP 200 with anchor=null when the entity is not found. "
+        "Requires JWT authentication."
+    ),
+    dependencies=[Depends(security_scheme)],
+)
+async def get_graph_related(
+    request: Request,
+    entity: str = Query(..., description="Entity name or full QID"),
+    depth: int = Query(2, ge=1, le=3, description="BFS depth (1–3)"),
+    max_results: int = Query(10, ge=1, le=20, alias="max", description="Max results (1–20)"),
+    include_snippets: bool = Query(False, description="Attach 200-char code snippet to each result"),
+) -> GraphRelatedResponse:
+    tenant_id = get_current_tenant_id(request)
+    collection_name = f"user_{tenant_id}"
+
+    agent = get_rag_agent(tenant_id=tenant_id, collection_name=collection_name)
+    if agent._code_graph is None:
+        await agent.init_graph()
+
+    graph = agent._code_graph
+
+    # --- Entity resolution ---
+    if "::" in entity:
+        # Full QID: direct adjacency-list lookup
+        anchor_qid: Optional[str] = entity if entity in graph._metadata else None
+        all_anchor_qids: list = [anchor_qid] if anchor_qid else []
+        ambiguous = False
+    else:
+        # Plain name: scan metadata for matching last segment
+        matching_qids = [
+            qid for qid in graph._metadata
+            if qid.split("::")[-1] == entity
+        ]
+        if not matching_qids:
+            anchor_qid = None
+            all_anchor_qids = []
+            ambiguous = False
+        elif len(matching_qids) == 1:
+            anchor_qid = matching_qids[0]
+            all_anchor_qids = [anchor_qid]
+            ambiguous = False
+        else:
+            anchor_qid = matching_qids[0]
+            all_anchor_qids = matching_qids
+            ambiguous = True
+
+    if anchor_qid is None:
+        return GraphRelatedResponse(
+            entity=entity,
+            anchor=None,
+            related=[],
+            related_count=0,
+            ambiguous=False,
+            all_anchors=[],
+        )
+
+    def _to_anchor(qid: str) -> GraphAnchor:
+        meta = graph._metadata.get(qid, {})
+        return GraphAnchor(
+            id=qid,
+            name=meta.get("name", qid.split("::")[-1]),
+            chunk_type=meta.get("chunk_type", "unknown"),
+            source_file=Path(meta.get("source", "")).name,
+        )
+
+    anchor = _to_anchor(anchor_qid)
+    all_anchors = [_to_anchor(q) for q in all_anchor_qids] if ambiguous else []
+
+    # --- BFS ---
+    related_qids = graph.get_related(anchor_qid, depth=depth, max_results=max_results)
+
+    # --- Build related entities, optionally fetch snippets ---
+    related: list = []
+    for qid in related_qids:
+        meta = graph._metadata.get(qid)
+        if meta is None:
+            continue  # skip dangling nodes that slipped through
+        snippet: Optional[str] = None
+        if include_snippets:
+            try:
+                chunk = await agent.vector_store.get_chunk_by_qualified_id(
+                    qid, tenant_id=tenant_id, collection_name=collection_name
+                )
+                if chunk:
+                    snippet = chunk.content[:200]
+            except Exception as exc:
+                logger.warning("snippet fetch failed for %s: %s", qid, exc)
+        related.append(RelatedEntity(
+            id=qid,
+            name=meta.get("name", qid.split("::")[-1]),
+            chunk_type=meta.get("chunk_type", "unknown"),
+            source_file=Path(meta.get("source", "")).name,
+            snippet=snippet,
+        ))
+
+    return GraphRelatedResponse(
+        entity=entity,
+        anchor=anchor,
+        related=related,
+        related_count=len(related),
+        ambiguous=ambiguous,
+        all_anchors=all_anchors,
+    )
+
+
+# ============================================================================
+# 6. QUERY DELETION
 # ============================================================================
 
 @router.delete("/message/{message_id}/query")

@@ -1,8 +1,8 @@
 # RAG Integration Flow
 
-**Version:** 1.3.0  
-**Last Updated:** 2026-05-24  
-**Last Verified:** 2026-05-24 — TypeScript AST fix applied; Celery cache key fixed; cross-file graph expansion limitation documented
+**Version:** 1.4.0  
+**Last Updated:** 2026-05-25  
+**Last Verified:** 2026-05-25 — Cross-file graph expansion fixed (`resolve_cross_file_edges`); code graph API endpoints added
 
 This document details the integration flow of the RAG pipeline, including Phase 12A query intelligence features.
 
@@ -139,7 +139,7 @@ Poll for completion: `GET /api/v1/rag/file/{file_id}` until `finishEmbedding: tr
    → BFS on calls + imports edges
    → vector_store.get_chunk_by_qualified_id(related_qid) for each
    → Append as is_graph_expansion=True candidates
-   ⚠️ Cross-file expansion limited — see Issue #6 in known_issues.md
+   ✅ Cross-file expansion fixed 2026-05-25 via resolve_cross_file_edges()
 
 8. Cross-Encoder Reranking (ENABLE_RERANKING=true)
    → ms-marco-MiniLM-L-6-v2, top_k × 2 candidates
@@ -206,7 +206,7 @@ chunk_dict = {
 }
 ```
 
-**Current limitation (Issue #6):** The graph resolves call targets within the same source file. When `UserRepository` (in user-repository.ts) calls `CacheStore` (imported from cache.ts), the graph creates edge `user-repository.ts::UserRepository → user-repository.ts::CacheStore`. But `user-repository.ts::CacheStore` has no pgvector entry — `CacheStore` is defined in cache.ts — so `get_chunk_by_qualified_id` returns `None` and the expansion is silently skipped. **Intra-file expansion works; cross-file expansion does not.**
+**Cross-file expansion (fixed 2026-05-25 — Issue #6):** Previously the graph resolved call targets within the same source file, so `user-repository.ts::UserRepository → user-repository.ts::CacheStore` was created instead of the correct cross-file edge. `resolve_cross_file_edges()` is now called after every cold-start build and Redis cache load. It detects dangling QIDs (in `_graph` but not `_metadata`) and rewires them to the real definitions in the correct file — unambiguously. **Both intra-file and cross-file expansion now work.**
 
 ---
 
@@ -307,7 +307,7 @@ async def init_graph(self) -> None:
 | CodeChunker TypeScript | Tree-sitter with `export_statement` + `type_identifier` | ✅ Fixed 2026-05-24 | Was: `ast_fallback=True` for all TS |
 | fileIds filter | `retrieve_with_reranking(file_ids=...)` | ✅ | Disables BM25, uses vector-only |
 | Graph expansion (intra-file) | BFS via `calls` metadata | ✅ | Works when called entity is in same file |
-| Graph expansion (cross-file) | BFS across import boundaries | ⚠️ Open | Returns 0 — see Issue #6 |
+| Graph expansion (cross-file) | BFS across import boundaries | ✅ Fixed 2026-05-25 | `resolve_cross_file_edges()` rewires dangling QIDs |
 | Orphan filter | `routers/rag.py` file_id Redis check | ✅ | Drops chunks from deleted files |
 | ingest-async JWT auth | `JWTAuthMiddleware PROTECTED_EXACT` | ✅ | Was stale docs — always was protected |
 
@@ -366,10 +366,72 @@ export class UserSessionCache extends CacheStore<string> {
 tenant::cache.ts::imports → tenant::cache.ts::CacheEntry  (import edge)
 tenant::auth-service.ts::AuthService → tenant::auth-service.ts::UserSessionCache  (call edge)
 
-# ⚠️ Cross-file edge NOT created:
+# ✅ Cross-file edge correctly rewired by resolve_cross_file_edges():
 # tenant::auth-service.ts::UserSessionCache → tenant::cache.ts::UserSessionCache
-# (resolution gap — see Issue #6)
 ```
+
+---
+
+## Code Graph API Endpoints
+
+Two GET endpoints expose the in-memory graph for visualization and LLM tool use.
+
+### `GET /api/v1/rag/graph`
+
+Full slim graph dump (nodes + links) for D3/Cytoscape rendering.
+
+**Auth:** `Authorization: Bearer <tenant_jwt>`
+
+```bash
+curl -s http://localhost:8001/api/v1/rag/graph \
+  -H "Authorization: Bearer $JWT" | python3 -m json.tool
+```
+
+**Response shape:**
+```json
+{
+  "node_count": 15,
+  "link_count": 29,
+  "nodes": [
+    { "id": "tenant::/.../pack_loader.py::PackLoader", "name": "PackLoader",
+      "chunk_type": "class", "source_file": "pack_loader.py", "language": "python" }
+  ],
+  "links": [
+    { "source": "tenant::/.../pack_loader.py::PackLoader",
+      "target": "tenant::/.../pack_loader.py::PackNotFoundError", "relation": "related" }
+  ]
+}
+```
+
+- `source_file` = filename only — full server path is never returned.
+- Empty graph (no files ingested) → `node_count: 0, nodes: [], links: []` (not 404).
+- Graph is lazily built via `init_graph()` on the first call per tenant TTL window.
+
+### `GET /api/v1/rag/graph/related`
+
+BFS entity lookup for LLM agent tool use.
+
+**Auth:** `Authorization: Bearer <tenant_jwt>`
+
+**Query params:**
+
+| Param | Type | Default | Constraint |
+|-------|------|---------|-----------|
+| `entity` | string | required | Entity name or full QID |
+| `depth` | int | 2 | 1–3 |
+| `max` | int | 10 | 1–20 |
+| `include_snippets` | bool | false | — |
+
+```bash
+curl -s "http://localhost:8001/api/v1/rag/graph/related?entity=PackLoader&include_snippets=true" \
+  -H "Authorization: Bearer $JWT" | python3 -m json.tool
+```
+
+**Entity resolution:**
+- `entity` contains `::` → direct QID lookup in `graph._metadata`
+- plain name → scan `_metadata` for matching last segment
+- 0 matches → `anchor: null`, `related: []`, HTTP 200
+- N>1 matches → `ambiguous: true`, `all_anchors` populated with all N matches
 
 ---
 
@@ -383,6 +445,15 @@ tenant::auth-service.ts::AuthService → tenant::auth-service.ts::UserSessionCac
 ---
 
 ## Changelog
+
+### 2026-05-25 — v1.4.0
+
+- **Cross-file graph expansion fixed (Issue #6):** `resolve_cross_file_edges()` added to `CodeGraph` — called after cold-start build and Redis cache load. Detects dangling QIDs and rewires them to real cross-file definitions. Live-verified: `PackLoader → PackNotFoundError` and `PackLoader → _load` resolve correctly across files.
+- **New code graph API endpoints:** `GET /api/v1/rag/graph` (full dump) and `GET /api/v1/rag/graph/related` (BFS entity query) added to `src/api/routers/rag.py`. Six new Pydantic models in `src/api/schemas/rag.py`.
+- **Integration Verification table updated:** Cross-file graph expansion now ✅ Fixed 2026-05-25.
+- **Phase 12A Retrieval Flow updated:** Step 7 note changed from ⚠️ to ✅.
+- **Graph Structure example updated:** Cross-file edge now shown as correctly created.
+- **Graph Expansion Detail updated:** Limitation paragraph replaced with fix description.
 
 ### 2026-05-24 — v1.3.0
 
@@ -403,4 +474,4 @@ tenant::auth-service.ts::AuthService → tenant::auth-service.ts::UserSessionCac
 
 ---
 
-**Last Updated:** 2026-05-24
+**Last Updated:** 2026-05-25
