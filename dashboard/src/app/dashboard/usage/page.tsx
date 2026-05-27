@@ -24,13 +24,18 @@ import {
 
 const TOOL_COLORS = ["#D97757", "#C8B286", "#8EA898", "#B291AD", "#D4B88E"];
 
+interface DailyRequest {
+  date: string;
+  request_count: number;
+}
+
 function buildDailyData(
-  tokenUsage: TokenUsage[]
+  dailyRequests: DailyRequest[]
 ): { name: string; requests: number }[] {
   const grouped: Record<string, number> = {};
-  tokenUsage.forEach((u) => {
-    const day = (u.date || "").substring(0, 10);
-    grouped[day] = (grouped[day] || 0) + (u.request_count || 0);
+  dailyRequests.forEach((d) => {
+    const day = (d.date || "").substring(0, 10);
+    grouped[day] = d.request_count;
   });
   const result = [];
   for (let i = 29; i >= 0; i--) {
@@ -63,6 +68,14 @@ interface ToolUsage {
   success_count: number;
   error_count: number;
   success_rate: number;
+}
+
+interface RecentRequest {
+  tool_name: string;
+  success: boolean;
+  duration_ms: number;
+  created_at: string;
+  input_summary: string | null;
 }
 
 function formatCurrency(amount: number): string {
@@ -103,6 +116,8 @@ export default function UsagePage() {
     period_days: number;
     token_usage: TokenUsage[];
     tool_usage: ToolUsage[];
+    recent_requests: RecentRequest[];
+    daily_requests: DailyRequest[];
     total_tokens: number;
     total_cost: number;
     total_requests: number;
@@ -286,7 +301,7 @@ export default function UsagePage() {
             <CardContent>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart
-                  data={buildDailyData(usageData.token_usage || [])}
+                  data={buildDailyData(usageData.daily_requests || [])}
                   margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
                 >
                   <XAxis
@@ -351,6 +366,49 @@ export default function UsagePage() {
           </Card>
         </div>
       )}
+
+      {/* Call History — all tool calls from request_logs */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Call History</CardTitle>
+          <CardDescription>Every API call in the last 30 days, newest first</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {usageData?.recent_requests && usageData.recent_requests.length > 0 ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-4 gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide">
+                <div>Time</div>
+                <div>Tool</div>
+                <div>Duration</div>
+                <div>Status</div>
+              </div>
+              {usageData.recent_requests.map((req, i) => (
+                <div key={i} className="grid grid-cols-4 gap-4 text-sm items-center">
+                  <div className="text-[rgb(var(--text-muted))] text-xs">
+                    {new Date(req.created_at).toLocaleString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                  <div className="font-medium">{req.tool_name}</div>
+                  <div>{formatDuration(req.duration_ms)}</div>
+                  <div>
+                    <Badge variant={req.success ? "default" : "destructive"}>
+                      {req.success ? "ok" : "error"}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-[rgb(var(--text-muted))] py-8">
+              No calls in the last 30 days
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Token Usage by Model */}
       <Card>

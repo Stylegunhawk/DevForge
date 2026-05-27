@@ -23,8 +23,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.url.path
         
-        # Only protect specific routes exactly
-        if path == "/api/gateway" or path == "/mcp":
+        # Protect gateway and all MCP paths (/mcp and /mcp/ sub-paths)
+        if path == "/api/gateway" or path == "/mcp" or path.startswith("/mcp/"):
             auth_key = request.headers.get("x-api-key")
             
             if not auth_key:

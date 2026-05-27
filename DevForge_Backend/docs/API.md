@@ -512,15 +512,25 @@ Content-Type: application/json
 
 ---
 
-### MCP Protocol (JSON-RPC 2.0)
-**POST** `/mcp`
+### MCP Protocol (Streamable HTTP — MCP SDK)
+**POST** `/mcp/`
 
-Execute tools via MCP JSON-RPC 2.0 protocol.
+Execute tools via the MCP Python SDK using the Streamable HTTP transport. The endpoint is a FastMCP ASGI sub-app mounted at `/mcp/` (**trailing slash required**).
 
 **Headers:**
 ```
 x-api-key: <api_key>
 Content-Type: application/json
+```
+
+**Rate limit headers returned on every response:**
+```
+X-RateLimit-Limit-Hourly: 50
+X-RateLimit-Used-Hourly: 3
+X-RateLimit-Reset-Hourly: 2026-05-27T14:00:00+00:00
+X-RateLimit-Limit-Monthly: 500
+X-RateLimit-Used-Monthly: 17
+X-RateLimit-Reset-Monthly: 2026-06-01T00:00:00+00:00
 ```
 
 **Available Methods:**
@@ -570,6 +580,12 @@ Content-Type: application/json
   }
 }
 ```
+
+**Implementation notes:**
+- The `/mcp/` sub-app is powered by `fastmcp` (MCP Python SDK). The old hand-rolled JSON-RPC handler has been removed.
+- `APIKeyAuthMiddleware` protects both `/mcp` and all `/mcp/*` sub-paths.
+- `MCPRateLimitHeadersMiddleware` (pure ASGI, `src/api/mcp/headers_middleware.py`) injects `X-RateLimit-*` headers on every response from `/mcp`.
+- Per-call analytics are logged to `request_logs` via `dispatch.py` for all tool calls; LLM token usage is logged to `llm_usage` only when a language model is invoked.
 
 ---
 
@@ -633,30 +649,71 @@ Authorization: Bearer <admin_jwt>
   "token_usage": [
     {
       "model_name": "gpt-oss:20b-cloud",
-      "task_type": "data_generation",
-      "total_prompt_tokens": 1000,
-      "total_completion_tokens": 500,
-      "total_tokens": 1500,
-      "total_cost_usd": 0.015,
-      "request_count": 10,
-      "date": "2026-03-04"
+      "task_type": "cheatsheet_personalization",
+      "total_prompt_tokens": 1766,
+      "total_completion_tokens": 1381,
+      "total_tokens": 3147,
+      "total_cost_usd": 0.03,
+      "request_count": 1,
+      "date": "2026-05-27"
     }
   ],
   "tool_usage": [
     {
       "tool_name": "generate_data",
+      "call_count": 2,
+      "avg_duration_ms": 340,
+      "success_count": 2,
+      "error_count": 0,
+      "success_rate": 100.0
+    },
+    {
+      "tool_name": "github_operation",
       "call_count": 10,
-      "avg_duration_ms": 150,
+      "avg_duration_ms": 820,
       "success_count": 9,
       "error_count": 1,
       "success_rate": 90.0
     }
   ],
-  "total_tokens": 1500,
-  "total_cost": 0.015,
-  "total_requests": 10
+  "recent_requests": [
+    {
+      "tool_name": "github_operation",
+      "success": true,
+      "duration_ms": 760,
+      "created_at": "2026-05-27T13:45:00+00:00",
+      "input_summary": "{\"operation\": \"list_repos\"}"
+    },
+    {
+      "tool_name": "generate_data",
+      "success": true,
+      "duration_ms": 310,
+      "created_at": "2026-05-27T13:40:00+00:00",
+      "input_summary": "{\"rows\": 50, \"format\": \"json\"}"
+    }
+  ],
+  "daily_requests": [
+    {
+      "date": "2026-05-27",
+      "request_count": 15
+    },
+    {
+      "date": "2026-05-26",
+      "request_count": 3
+    }
+  ],
+  "total_tokens": 4768,
+  "total_cost": 0.05,
+  "total_requests": 15
 }
 ```
+
+**Field notes:**
+- `token_usage` — LLM-only rows from `llm_usage` table. Only tools that invoke a language model appear here (e.g. `refine_prompt`, `generate_cheatsheet`, high-realism `generate_data`).
+- `tool_usage` — aggregated per-tool stats from `request_logs`. Covers **all** tools including `generate_data` (Faker path) and `github_operation` (REST API ops).
+- `recent_requests` — last 100 individual call log entries from `request_logs`, newest first. Covers all tools regardless of LLM use.
+- `daily_requests` — per-day call counts from `request_logs`. Used by the dashboard "Daily Requests" chart.
+- `total_requests` — sum of `call_count` across all tools in `tool_usage` (i.e. total calls from `request_logs`, not just LLM calls).
 
 ---
 
@@ -1083,14 +1140,14 @@ curl -X POST http://localhost:8001/api/gateway \
   -H "x-api-key: df_abc123def456ghi789jkl012mno345pqr678stu901vwx234yz" \
   -d '{"name": "generate_data", "arguments": {"rows": 10, "format": "json", "fields": ["name", "email"]}}'
 
-# List tools via MCP
-curl -X POST http://localhost:8001/mcp \
+# List tools via MCP (trailing slash required)
+curl -X POST http://localhost:8001/mcp/ \
   -H "Content-Type: application/json" \
   -H "x-api-key: df_abc123def456ghi789jkl012mno345pqr678stu901vwx234yz" \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}'
 
 # Execute tool via MCP
-curl -X POST http://localhost:8001/mcp \
+curl -X POST http://localhost:8001/mcp/ \
   -H "Content-Type: application/json" \
   -H "x-api-key: df_abc123def456ghi789jkl012mno345pqr678stu901vwx234yz" \
   -d '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "generate_data", "arguments": {"rows": 5, "format": "json"}}}'
@@ -1338,4 +1395,4 @@ curl -X PATCH http://localhost:8001/api/admin/keys/{key_id}/overrides \
 
 ---
 
-*This documentation covers all endpoints implemented in DevForge backend Phases 1-4.*
+*Last updated: 2026-05-27 — covers Phases 1–4 plus MCP SDK migration (FastMCP Streamable HTTP) and dashboard usage analytics.*

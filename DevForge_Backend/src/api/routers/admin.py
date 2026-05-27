@@ -290,7 +290,38 @@ async def get_user_usage(user_id: str, days: int = 30):
         """
         
         tools_rows = await conn.fetch(tools_query, uuid.UUID(user_id), days)
-        
+
+        # Individual call log entries (all tools, newest first)
+        recent_query = """
+            SELECT
+                tool_name,
+                success,
+                duration_ms,
+                created_at,
+                input_summary
+            FROM request_logs
+            WHERE user_id = $1
+            AND created_at > NOW() - (INTERVAL '1 day' * $2)
+            ORDER BY created_at DESC
+            LIMIT 100
+        """
+        recent_rows = await conn.fetch(recent_query, uuid.UUID(user_id), days)
+
+        # Per-day call counts from request_logs (all tools, not just LLM)
+        daily_query = """
+            SELECT
+                DATE(created_at) as date,
+                COUNT(*) as request_count
+            FROM request_logs
+            WHERE user_id = $1
+            AND created_at > NOW() - (INTERVAL '1 day' * $2)
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        """
+        daily_rows = await conn.fetch(daily_query, uuid.UUID(user_id), days)
+
+        total_requests = sum(r["call_count"] for r in tools_rows)
+
         return {
             "success": True,
             "user": {
@@ -302,9 +333,20 @@ async def get_user_usage(user_id: str, days: int = 30):
             "period_days": days,
             "token_usage": [dict(r) for r in usage_rows],
             "tool_usage": [dict(r) for r in tools_rows],
+            "recent_requests": [
+                {
+                    "tool_name": r["tool_name"],
+                    "success": r["success"],
+                    "duration_ms": r["duration_ms"],
+                    "created_at": r["created_at"].isoformat(),
+                    "input_summary": r["input_summary"],
+                }
+                for r in recent_rows
+            ],
+            "daily_requests": [{"date": str(r["date"]), "request_count": r["request_count"]} for r in daily_rows],
             "total_tokens": sum(r["total_tokens"] for r in usage_rows),
             "total_cost": sum(r["total_cost_usd"] for r in usage_rows),
-            "total_requests": sum(r["request_count"] for r in usage_rows)
+            "total_requests": total_requests,
         }
 
 

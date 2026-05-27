@@ -13,7 +13,7 @@ from src.core.config import settings
 # Ensure Celery app is loaded to apply broker config (prevents fallback to AMQP)
 import src.workers.celery_app
 
-from src.api.routers import router, mcp_router
+from src.api.routers import router
 from src.api.routers.rag import router as rag_router
 from src.api.routers.auth import router as auth_router
 from src.api.monitoring import router as monitoring_router  # Phase 3
@@ -53,7 +53,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Reranker pre-load failed (will lazy-init on first use): {e}")
 
-    yield
+    # Start the FastMCP session manager (required for Streamable HTTP transport).
+    # app.mount() does not automatically propagate lifespan to sub-apps in all
+    # ASGI contexts, so we start it explicitly here.
+    from src.api.mcp.server import mcp
+    async with mcp._session_manager.run():
+        yield
+
     # Shutdown
     logger.info("DevForge shutting down...")
     await PostgresPoolManager.close_pool()
@@ -90,7 +96,11 @@ app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api") # Auth routes (includes refresh)
 app.include_router(users_router, prefix="/api") # User-scoped routes
 app.include_router(rag_router, prefix="/api") # Lobe Chat RAG
-app.include_router(mcp_router)  # MCP endpoints
+# MCP endpoint (FastMCP-backed Streamable HTTP, mounted as ASGI sub-app)
+from src.api.mcp import streamable_http_app
+from src.api.mcp.headers_middleware import MCPRateLimitHeadersMiddleware
+app.mount("/mcp", streamable_http_app)
+app.add_middleware(MCPRateLimitHeadersMiddleware)
 app.include_router(monitoring_router)  # Phase 3: Observability
 app.include_router(admin_router)  # API Key Management
 

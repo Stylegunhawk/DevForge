@@ -22,10 +22,12 @@ Frontend → Google OAuth → JWT Token → Dashboard Endpoints (Protected)
 
 ### Components
 1. **User Authentication** (`src/core/auth.py`, `src/api/routers/auth.py`)
-2. **API Key Authentication** (`src/core/api_key_middleware.py`)
+2. **API Key Authentication** (`src/core/api_key_middleware.py`) — protects `/api/gateway`, `/mcp`, `/mcp/*`
 3. **Rate Limiting** (`src/core/rate_limiter.py`, `src/storage/tier_config_store.py`)
 4. **Tier Management** (`src/api/routers/admin.py`)
 5. **Per-key Overrides** (`src/api/routers/admin.py`)
+6. **MCP Rate Limit Headers** (`src/api/mcp/headers_middleware.py`) — pure ASGI, injects `X-RateLimit-*` on `/mcp` responses
+7. **MCP Server** (`src/api/mcp/server.py`) — FastMCP ASGI sub-app mounted at `/mcp/`
 
 ---
 
@@ -135,7 +137,8 @@ curl -X POST http://localhost:8001/api/users/keys \
 ### API Key Usage
 
 #### Tool Execution with API Key
-**POST** `/api/gateway`
+
+**REST gateway — POST `/api/gateway`**
 
 ```bash
 curl -X POST http://localhost:8001/api/gateway \
@@ -147,13 +150,26 @@ curl -X POST http://localhost:8001/api/gateway \
   }'
 ```
 
-**Rate Limit Headers:**
+**MCP endpoint — POST `/mcp/`** (trailing slash required; FastMCP Streamable HTTP)
+
+```bash
+curl -X POST http://localhost:8001/mcp/ \
+  -H "x-api-key: df_abc123def456ghi789jkl012mno345pqr678stu901vwx234yz" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "generate_data", "arguments": {"rows": 10, "format": "json"}}}'
 ```
-x-ratelimit-limit-hourly: 50
-x-ratelimit-used-hourly: 1
-x-ratelimit-limit-monthly: 500
-x-ratelimit-used-monthly: 13
+
+**Rate Limit Headers** (returned on both `/api/gateway` and `/mcp/` responses):
 ```
+X-RateLimit-Limit-Hourly: 50
+X-RateLimit-Used-Hourly: 1
+X-RateLimit-Reset-Hourly: 2026-05-27T14:00:00+00:00
+X-RateLimit-Limit-Monthly: 500
+X-RateLimit-Used-Monthly: 13
+X-RateLimit-Reset-Monthly: 2026-06-01T00:00:00+00:00
+```
+
+On the gateway (`/api/gateway`) these headers are set directly by the route handler. On the MCP endpoint they are injected by `MCPRateLimitHeadersMiddleware` (`src/api/mcp/headers_middleware.py`).
 
 ---
 
@@ -639,11 +655,17 @@ curl -X GET http://localhost:8001/api/admin/keys/<key_id>/usage \
 curl -X GET http://localhost:8001/api/admin/keys \
   -H "Authorization: Bearer <admin_token>"
 
-# Test key validity
+# Test key validity via REST gateway
 curl -X POST http://localhost:8001/api/gateway \
   -H "x-api-key: <api_key>" \
   -H "Content-Type: application/json" \
   -d '{"name": "generate_data", "arguments": {"rows": 1}}'
+
+# Test key validity via MCP (trailing slash required)
+curl -X POST http://localhost:8001/mcp/ \
+  -H "x-api-key: <api_key>" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}'
 ```
 
 ### Debug Commands
@@ -869,22 +891,29 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
 #### Middleware Registration Order (`src/main.py`)
 
+Starlette wraps middleware in reverse registration order — the **last** `add_middleware` call runs **first** on the request.
+
 ```python
-# 1. CORS Middleware (FIRST)
-app.add_middleware(CORSMiddleware, ...)
+# Registered last → runs FIRST on request
+app.add_middleware(DashboardAuthMiddleware)   # Bearer <dashboard_jwt> for /api/users/*, /api/admin/*
+app.add_middleware(APIKeyAuthMiddleware)      # x-api-key for /api/gateway, /mcp, /mcp/*
+app.add_middleware(JWTAuthMiddleware)         # Bearer <tenant_jwt> for /api/v1/rag/*
+app.add_middleware(CORSMiddleware, ...)       # Registered first → runs LAST (innermost)
 
-# 2. JWT Auth Middleware (SECOND)  
-app.add_middleware(JWTAuthMiddleware)
-
-# 3. Router Registration (LAST)
-app.include_router(auth_router, prefix="/api")
-app.include_router(rag_router, prefix="/api")
+# Pure ASGI — not a BaseHTTPMiddleware, added separately
+app.add_middleware(MCPRateLimitHeadersMiddleware)  # Injects X-RateLimit-* on /mcp responses
 ```
 
-**✅ Order is CRITICAL:**
-1. **CORS** processes headers first
-2. **JWT Auth** validates tokens second
-3. **Routes** handle requests last
+**Effective request-flow order:**
+1. `DashboardAuthMiddleware` — dashboard JWT guard
+2. `APIKeyAuthMiddleware` — API key guard (covers `/api/gateway`, `/mcp`, and all `/mcp/*` sub-paths)
+3. `JWTAuthMiddleware` — tenant JWT guard for RAG
+4. `CORSMiddleware` — applied last before route handler
+5. `MCPRateLimitHeadersMiddleware` — response-side only; reads `rate_limit_info` from ASGI scope state and appends `X-RateLimit-*` headers
+
+**✅ Key points:**
+- `APIKeyAuthMiddleware` checks `path == "/mcp"` **or** `path.startswith("/mcp/")` so the FastMCP sub-app at `/mcp/` is fully protected
+- `MCPRateLimitHeadersMiddleware` is a pure ASGI class (not `BaseHTTPMiddleware`) and reads from `scope["state"]` which is a plain `dict` in Starlette ≥ 0.49
 
 ---
 
@@ -1545,4 +1574,4 @@ For authentication-related issues:
 
 ---
 
-*Last updated: 2026-03-02*
+*Last updated: 2026-05-27*

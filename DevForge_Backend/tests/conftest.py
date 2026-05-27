@@ -12,6 +12,24 @@ Provides:
 import pytest
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
+from fastapi.testclient import TestClient
+from src.main import app
+
+
+# Session-scoped TestClient that properly triggers the FastAPI lifespan
+# (including the FastMCP session manager). Used by test_github_integration.py.
+# base_url uses localhost:80 so the Host header satisfies FastMCP's DNS-rebinding
+# protection (allowed_hosts defaults to ["127.0.0.1:*", "localhost:*", "[::1]:*"]).
+# The pattern "localhost:*" requires a port suffix, so "localhost:80" is needed;
+# plain "localhost" without a port does NOT match the wildcard pattern.
+@pytest.fixture(scope="session")
+def started_client():
+    with TestClient(
+        app,
+        base_url="http://localhost:8001",
+        headers={"Accept": "application/json"},
+    ) as c:
+        yield c
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +118,15 @@ def _bypass_rate_limiter():
     ), patch(
         "src.api.routers.rate_limiter.get_usage",
         new=AsyncMock(return_value=fake_limit_info),
+    ), patch(
+        "src.api.mcp.dispatch.rate_limiter.check_limits",
+        new=AsyncMock(return_value=(True, fake_limit_info)),
+    ), patch(
+        "src.api.mcp.dispatch.rate_limiter.check_and_increment",
+        new=AsyncMock(return_value={**fake_limit_info, "success": True}),
+    ), patch(
+        "src.api.mcp.dispatch.rate_limiter.get_usage",
+        new=AsyncMock(return_value=fake_limit_info),
     ):
         yield
 
@@ -121,7 +148,7 @@ def patch_github_operation():
         async def test_x(patch_github_operation):
             mock = AsyncMock(return_value={"success": True, ...})
             with patch_github_operation(mock):
-                response = client.post("/mcp", json=...)
+                response = client.post("/mcp/", json=...)
             mock.assert_called_once()
     """
 

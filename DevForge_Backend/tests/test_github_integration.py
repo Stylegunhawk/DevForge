@@ -4,6 +4,7 @@ Comprehensive integration tests covering full workflows, session handling,
 disambiguation, and async job lifecycle.
 """
 
+import sys
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from fastapi.testclient import TestClient
@@ -14,15 +15,53 @@ from src.core.session import SessionManager, get_session_manager
 from src.core.jobs import JobQueue, get_job_queue, JobStatus
 
 
-client = TestClient(app)
+# Module-level placeholder; replaced by started_client fixture in conftest.
+# Using None here surfaces a clear error if any test bypasses fixture injection.
+client = None
 
 import json as _json
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _set_module_client(started_client):
+    """Wire the session-scoped TestClient (with lifespan) into the module-level client var."""
+    import tests.test_github_integration as _self
+    _self.client = started_client
+    yield
+
+
+def _get_error_msg(body: dict) -> str:
+    """Extract the error message from either the old JSON-RPC error envelope
+    OR the new FastMCP isError content format.
+
+    Old format: {"error": {"code": ..., "message": "..."}}
+    New format: {"result": {"content": [{"text": "Error executing tool ...: ..."}], "isError": True}}
+    """
+    if "error" in body:
+        return body["error"].get("message", "")
+    result = body.get("result", {})
+    if result.get("isError"):
+        content = result.get("content", [])
+        if content:
+            return content[0].get("text", "")
+    return ""
+
+
+def _is_error_response(body: dict) -> bool:
+    """Return True if the response is an error in either the old or new format."""
+    if "error" in body:
+        return True
+    result = body.get("result", {})
+    return bool(result.get("isError"))
 
 
 def parse_mcp_payload(mcp_response_dict: dict) -> dict:
     """
     Extract the agent payload from a JSON-RPC tools/call response.
     Returns the parsed dict from result.content[0].text, or the error envelope if present.
+
+    Handles both the old JSON-RPC error envelope format AND the new FastMCP SDK
+    format where errors are returned as result.content[0].text with isError=True.
     """
     if "error" in mcp_response_dict:
         return {"_jsonrpc_error": mcp_response_dict["error"]}
@@ -31,7 +70,14 @@ def parse_mcp_payload(mcp_response_dict: dict) -> dict:
     if not content:
         return {"_empty_content": True, "_result": result}
     text = content[0].get("text", "{}")
-    return _json.loads(text)
+    # If isError=True, the text may be a plain error string, not JSON.
+    # Return an envelope that mirrors the old JSON-RPC error shape.
+    if result.get("isError") is True:
+        return {"_jsonrpc_error": {"code": -32603, "message": text}, "_is_error_content": True}
+    try:
+        return _json.loads(text)
+    except _json.JSONDecodeError:
+        return {"_parse_error": True, "_raw_text": text}
 
 
 def assert_matches_snapshot(actual: dict, fixture_path: str, ignore_paths: list[str]) -> None:
@@ -119,7 +165,7 @@ class TestNaturalLanguageRegression:
         })
         with patch_github_operation(mock_invoke):
             response = client.post(
-                "/mcp",
+                "/mcp/",
                 headers={"x-api-key": "df_test"},
                 json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -172,7 +218,7 @@ class TestStructuredCallMode:
         })
         with patch_github_operation(mock_invoke):
             response = client.post(
-                "/mcp",
+                "/mcp/",
                 headers={"x-api-key": "df_test"},
                 json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -295,7 +341,7 @@ class TestStructuredCallMode:
 
     def test_tools_list_github_operation_has_oneOf_union(self):
         """tools/list inputSchema for github_operation must expose both NL and structured shapes."""
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         assert response.status_code == 200
@@ -409,7 +455,7 @@ class TestStructuredCallMode:
         parse_spy.assert_called_once()
 
     def test_mcp_rejects_both_query_and_operation(self):
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -418,12 +464,12 @@ class TestStructuredCallMode:
                                          "context": {"github_token": "ghp_test"}}}
             })
         body = response.json()
-        assert "error" in body, f"Expected JSON-RPC error envelope. Got: {body}"
-        assert body["error"]["code"] == -32602
-        assert "Cannot specify both" in body["error"]["message"]
+        assert _is_error_response(body), f"Expected error response. Got: {body}"
+        msg = _get_error_msg(body)
+        assert "Cannot specify both" in msg, f"Expected 'Cannot specify both' in: {msg}"
 
     def test_mcp_rejects_neither_query_nor_operation(self):
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -431,12 +477,12 @@ class TestStructuredCallMode:
                            "arguments": {"context": {"github_token": "ghp_test"}}}
             })
         body = response.json()
-        assert "error" in body
-        assert body["error"]["code"] == -32602
-        assert "Must specify either" in body["error"]["message"]
+        assert _is_error_response(body), f"Expected error response. Got: {body}"
+        msg = _get_error_msg(body)
+        assert "Must specify either" in msg, f"Expected 'Must specify either' in: {msg}"
 
     def test_mcp_rejects_unknown_operation(self):
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -445,15 +491,15 @@ class TestStructuredCallMode:
                                          "context": {"github_token": "ghp_test"}}}
             })
         body = response.json()
-        assert "error" in body
-        assert body["error"]["code"] == -32602
-        assert "Unknown operation 'foo_bar_baz'" in body["error"]["message"]
+        assert _is_error_response(body), f"Expected error response. Got: {body}"
+        msg = _get_error_msg(body)
+        assert "foo_bar_baz" in msg, f"Expected 'foo_bar_baz' in error message: {msg}"
         # Message must enumerate at least a few valid ops
         for op in ["list_repos", "create_issue", "delete_repo"]:
-            assert op in body["error"]["message"], f"Missing '{op}' in error message: {body['error']['message']}"
+            assert op in msg, f"Missing '{op}' in error message: {msg}"
 
     def test_mcp_rejects_missing_required_field(self):
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -462,11 +508,10 @@ class TestStructuredCallMode:
                                          "context": {"github_token": "ghp_test"}}}
             })
         body = response.json()
-        assert "error" in body
-        assert body["error"]["code"] == -32602
+        assert _is_error_response(body), f"Expected error response. Got: {body}"
         # Pydantic's ValidationError for missing required field "title"
-        msg = body["error"]["message"].lower()
-        assert "title" in msg, f"Expected 'title' to be flagged in error: {body['error']['message']}"
+        msg = _get_error_msg(body).lower()
+        assert "title" in msg, f"Expected 'title' to be flagged in error: {_get_error_msg(body)}"
 
     def test_mcp_structured_create_issue_happy_path(self):
         """End-to-end: MCP /mcp tools/call with operation=create_issue and full typed params.
@@ -484,7 +529,7 @@ class TestStructuredCallMode:
                 "assignees": [],
                 "created_at": "2026-05-15T00:00:00Z",
             }
-            response = client.post("/mcp",
+            response = client.post("/mcp/",
                 headers={"x-api-key": "df_test"},
                 json={
                     "jsonrpc": "2.0", "id": 42, "method": "tools/call",
@@ -707,7 +752,7 @@ class TestStructuredCallMode:
         with _patch(mock_target) as mock_fn:
             mock_fn.return_value = mock_return
             response = client.post(
-                "/mcp",
+                "/mcp/",
                 headers={"x-api-key": "df_test"},
                 json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -745,7 +790,7 @@ class TestStructuredCallMode:
 
     def test_structured_create_repo_blocked_without_confirmed(self):
         """HIGH-risk create_repo via structured path must hit the risk gate just like NL."""
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -759,23 +804,16 @@ class TestStructuredCallMode:
                 },
             })
         body = response.json()
-        # Either JSON-RPC error envelope (preferred) OR result.content with success=false
-        # are valid risk-block responses. The risk-gate path produces -32603 per the plan.
-        if "error" in body:
-            assert body["error"]["code"] == -32603, f"Expected -32603, got: {body['error']}"
-            assert "Risk gate blocked" in body["error"]["message"]
-            assert "confirmed=true" in body["error"]["message"]
-        else:
-            # If wrapped in result.content with isError=true, parse the inner payload
-            payload = parse_mcp_payload(body)
-            assert payload.get("success") is False
-            msg = (payload.get("message") or "") + " " + (payload.get("error") or "")
-            assert "Risk gate blocked" in msg, f"Expected risk-gate block. Got: {payload}"
-            assert "confirmed=true" in msg
+        # Either JSON-RPC error envelope OR result.content with isError=True are valid
+        # risk-block responses. Use helpers that handle both SDK formats.
+        assert _is_error_response(body), f"Expected risk-gate error response. Got: {body}"
+        msg = _get_error_msg(body)
+        assert "Risk gate blocked" in msg, f"Expected 'Risk gate blocked' in: {msg}"
+        assert "confirmed=true" in msg, f"Expected 'confirmed=true' in: {msg}"
 
     def test_structured_delete_repo_blocked_without_reason(self):
         """CRITICAL delete_repo with confirmed=true but no reason — still blocked."""
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -789,19 +827,14 @@ class TestStructuredCallMode:
                 },
             })
         body = response.json()
-        if "error" in body:
-            assert body["error"]["code"] == -32603
-            assert "reason" in body["error"]["message"].lower()
-        else:
-            payload = parse_mcp_payload(body)
-            assert payload.get("success") is False
-            msg = (payload.get("message") or "") + " " + (payload.get("error") or "")
-            assert "reason" in msg.lower(), f"Expected 'reason' in message. Got: {payload}"
+        assert _is_error_response(body), f"Expected risk-gate error response. Got: {body}"
+        msg = _get_error_msg(body)
+        assert "reason" in msg.lower(), f"Expected 'reason' in error message: {msg}"
 
     def test_structured_delete_branch_main_escalates_to_critical(self):
         """Contextual escalation: delete_branch of main/master must escalate to CRITICAL
         (which requires confirmed+reason)."""
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -816,17 +849,11 @@ class TestStructuredCallMode:
                 },
             })
         body = response.json()
-        # Risk-gate block expected. Either form is acceptable (-32603 OR wrapped failure).
-        if "error" in body:
-            assert body["error"]["code"] == -32603
-            # Either "Risk gate" or "reason" mentioned
-            msg = body["error"]["message"]
-            assert "Risk gate" in msg or "reason" in msg.lower(), f"Got: {msg}"
-        else:
-            payload = parse_mcp_payload(body)
-            assert payload.get("success") is False
-            msg = (payload.get("message") or "") + " " + (payload.get("error") or "")
-            assert "Risk gate" in msg or "reason" in msg.lower()
+        # Risk-gate block expected. Either the old JSON-RPC error envelope or the
+        # new FastMCP isError content format is acceptable.
+        assert _is_error_response(body), f"Expected risk-gate error response. Got: {body}"
+        msg = _get_error_msg(body)
+        assert "Risk gate" in msg or "reason" in msg.lower(), f"Expected risk-gate block. Got: {msg}"
 
 
 class TestCommitFileContentHallucinationGuard:
@@ -1092,7 +1119,7 @@ class TestSlice2Persistence:
 
         with _patch('src.tools.github.tools.GitHubTools.delete_repo', new_callable=AsyncMock) as mock_del:
             mock_del.return_value = {"deleted": "owner/r"}
-            response = client.post("/mcp",
+            response = client.post("/mcp/",
                 headers={"x-api-key": "df_test"},
                 json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -1118,7 +1145,7 @@ class TestSlice2Persistence:
         import src.core.audit as audit_mod
         audit_mod._escalation_logger = None
         escalation = get_escalation_logger()
-        response = client.post("/mcp",
+        response = client.post("/mcp/",
             headers={"x-api-key": "df_test"},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -1132,7 +1159,7 @@ class TestSlice2Persistence:
                 },
             })
         body = response.json()
-        assert "error" in body
+        assert _is_error_response(body), f"Expected error response (risk gate block). Got: {body}"
         records = await escalation.get_records()
         assert any(
             r["operation"] == "delete_repo" and r["outcome"] == "blocked"
@@ -1165,7 +1192,7 @@ class TestSlice2Persistence:
                 RepoMatch(repo=None, full_name="owner/api-backend", confidence=0.85, match_type="fuzzy"),
                 RepoMatch(repo=None, full_name="owner/api-frontend", confidence=0.82, match_type="fuzzy"),
             ]
-            response = client.post("/mcp",
+            response = client.post("/mcp/",
                 headers={"x-api-key": "df_test"},
                 json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -1181,7 +1208,7 @@ class TestSlice2Persistence:
                     },
                 })
         body = response.json()
-        if "error" not in body:
+        if not _is_error_response(body):
             payload = parse_mcp_payload(body)
             assert payload.get("status") == "needs_clarification"
             assert payload.get("session_id", "").startswith("sess_")
