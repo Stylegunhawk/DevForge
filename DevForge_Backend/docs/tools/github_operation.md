@@ -531,10 +531,10 @@ curl -X POST http://localhost:8001/api/gateway \
 
 > **Important:** Use `"name"` (or alias `"apiName"`), not `"tool_name"`. Both fields are validated by `GatewayRequest` Pydantic model; either must be provided.
 
-### MCP (JSON-RPC 2.0) — `POST /mcp`
+### MCP (JSON-RPC 2.0) — `POST /mcp/`
 
 ```bash
-curl -X POST http://localhost:8001/mcp \
+curl -X POST http://localhost:8001/mcp/ \
   -H "Content-Type: application/json" \
   -H "x-api-key: <dev_api_key>" \
   -d '{

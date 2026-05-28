@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from "next/link";
@@ -15,6 +15,15 @@ export default function AdminLayout({
 }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+
+  const activeTab = pathname.includes("/requests")
+    ? "requests"
+    : pathname.includes("/users")
+    ? "users"
+    : pathname.includes("/pricing")
+    ? "pricing"
+    : "overview";
 
   useEffect(() => {
     if (status === "loading") return; // Still loading
@@ -53,7 +62,7 @@ export default function AdminLayout({
         </p>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={activeTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview" asChild>
             <Link href="/dashboard/admin">Overview</Link>

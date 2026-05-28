@@ -11,7 +11,7 @@
 
 | Setting | Value |
 |---------|-------|
-| MCP endpoint | `POST http://localhost:8001/mcp` |
+| MCP endpoint | `POST http://localhost:8001/mcp/` |
 | REST gateway | `POST http://localhost:8001/api/gateway` |
 | Auth header | `x-api-key: <your-key>` |
 | Content-Type | `application/json` |
@@ -63,7 +63,7 @@ Client must `JSON.parse(result.content[0].text)` to get the agent payload. On to
 ### Initialize
 
 ```bash
-curl -s -X POST http://localhost:8001/mcp \
+curl -s -X POST http://localhost:8001/mcp/ \
   -H "Content-Type: application/json" \
   -H "x-api-key: $API_KEY" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
@@ -77,7 +77,7 @@ Expected:
 ### tools/list — schema verification
 
 ```bash
-curl -s -X POST http://localhost:8001/mcp \
+curl -s -X POST http://localhost:8001/mcp/ \
   -H "Content-Type: application/json" \
   -H "x-api-key: $API_KEY" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
@@ -118,7 +118,7 @@ All structured calls: params go **flat** alongside `operation`, not nested.
 ### list_repos
 
 ```bash
-curl -s -X POST http://localhost:8001/mcp \
+curl -s -X POST http://localhost:8001/mcp/ \
   -H "Content-Type: application/json" \
   -H "x-api-key: $API_KEY" \
   -d '{
@@ -423,7 +423,7 @@ NL mode still works via both `/mcp` and `/api/gateway`. All v3 ops are reachable
 ### MCP NL call
 
 ```bash
-curl -s -X POST http://localhost:8001/mcp \
+curl -s -X POST http://localhost:8001/mcp/ \
   -H "Content-Type: application/json" \
   -H "x-api-key: $API_KEY" \
   -d '{

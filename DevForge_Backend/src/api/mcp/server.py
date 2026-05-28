@@ -25,6 +25,7 @@ from src.api.mcp.schemas import (
     GITHUB_OPERATION_INPUT_SCHEMA,
     GenerateCheatsheetInput,
     GenerateDataInput,
+    GenerateTestsInput,
     GithubOperationArgs,
     RefinePromptInput,
 )
@@ -97,6 +98,25 @@ async def generate_cheatsheet(
         code_context=code_context, intent=intent,
     )
     return await _dispatch("generate_cheatsheet", args.model_dump(exclude_none=True), ctx)
+
+
+@mcp.tool(name="generate_tests", description=TOOL_DESCRIPTIONS["generate_tests"])
+async def generate_tests(
+    code: str,
+    language: Literal["python", "javascript", "typescript"],
+    framework: Optional[Literal["pytest", "jest", "vitest"]] = None,
+    module_path: Optional[str] = None,
+    coverage: Literal["happy_path", "edge_cases", "all"] = "all",
+    use_repo_context: bool = False,
+    instructions: Optional[str] = None,
+    ctx: Context = None,
+) -> dict:
+    args = GenerateTestsInput(
+        code=code, language=language, framework=framework,
+        module_path=module_path, coverage=coverage,
+        use_repo_context=use_repo_context, instructions=instructions,
+    )
+    return await _dispatch("generate_tests", args.model_dump(exclude_none=True), ctx)
 
 
 # --------------------------------------------------------------------------- #

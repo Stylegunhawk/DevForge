@@ -22,12 +22,46 @@ from src.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+# Atomic INCR-and-check. Runs inside Redis (single-threaded), so the read of
+# current usage and the increment happen as one indivisible step — closes the
+# race where concurrent callers could all read used<limit and then all bump
+# the counter past the limit.
+#
+# Args:
+#   KEYS[1] = hourly key, KEYS[2] = monthly key
+#   ARGV[1] = hourly_limit  (-1 means unlimited)
+#   ARGV[2] = monthly_limit (-1 means unlimited)
+#   ARGV[3] = hourly TTL seconds
+#   ARGV[4] = monthly TTL seconds
+# Returns: { allowed (1|0), hourly_used, monthly_used }
+#   When allowed=0, neither counter was incremented.
+#   When allowed=1, both counters were incremented by 1 and TTLs refreshed.
+_ACQUIRE_LUA = """
+local hl = tonumber(ARGV[1])
+local ml = tonumber(ARGV[2])
+local hu = tonumber(redis.call('GET', KEYS[1])) or 0
+local mu = tonumber(redis.call('GET', KEYS[2])) or 0
+if hl >= 0 and hu >= hl then
+  return {0, hu, mu}
+end
+if ml >= 0 and mu >= ml then
+  return {0, hu, mu}
+end
+local nh = redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+local nm = redis.call('INCR', KEYS[2])
+redis.call('EXPIRE', KEYS[2], tonumber(ARGV[4]))
+return {1, nh, nm}
+"""
+
+
 class RateLimiter:
     """Tier-based rate limiting using Redis and PostgreSQL."""
-    
+
     def __init__(self):
         self.redis_client = None
         self._redis_initialized = False
+        self._acquire_script = None  # cached redis-py Script object (EVALSHA-with-fallback)
     
     async def _get_limits(
         self, 
@@ -145,70 +179,23 @@ class RateLimiter:
             logger.error(f"[RATE_LIMIT] Failed to persist monthly usage to DB: {e}")
     
     async def check_and_increment(
-        self, 
-        api_key_id: str, 
-        tier: str, 
+        self,
+        api_key_id: str,
+        tier: str,
         tokens_used: int,
         hourly_override: Optional[int] = None,
-        monthly_override: Optional[int] = None
+        monthly_override: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Check limits and increment counters after request completes."""
-        await self._ensure_redis()
-        
-        now = datetime.now(timezone.utc)
-        limits = await self._get_limits(tier, hourly_override, monthly_override)
-        
-        result = {
-            "success": True,
-            "hourly_used": 0,
-            "hourly_limit": limits["hourly"],
-            "monthly_used": 0,
-            "monthly_limit": limits["monthly"],
-            "hourly_reset_at": self._next_hour_reset(now),
-            "monthly_reset_at": self._next_month_reset(now),
-        }
-        
-        try:
-            if self.redis_client:
-                # Use Redis pipeline for atomic operations
-                pipe = self.redis_client.pipeline()
-                
-                # Hourly counter
-                hourly_key = self._hourly_key(api_key_id, now)
-                pipe.incrby(hourly_key, tokens_used)
-                pipe.expire(hourly_key, 3600)  # 1 hour TTL
-                
-                # Monthly counter
-                monthly_key = self._monthly_key(api_key_id, now)
-                pipe.incrby(monthly_key, tokens_used)
-                pipe.expire(monthly_key, self._seconds_until_end_of_month(now))
-                
-                # Execute pipeline
-                pipeline_results = await pipe.execute()
-                hourly_result, monthly_result = pipeline_results[0], pipeline_results[1]
-                
-                result["hourly_used"] = hourly_result
-                result["monthly_used"] = monthly_result
-                
-                # Persist monthly to DB (async, don't wait)
-                month_str = now.strftime("%Y-%m")
-                try:
-                    await self._persist_monthly_to_db(api_key_id, month_str, tokens_used)
-                except Exception as e:
-                    logger.error(f"[RATE_LIMIT] Failed to persist monthly usage: {e}")
-                
-            else:
-                # Fallback to DB only (no Redis)
-                logger.warning("[RATE_LIMIT] Redis unavailable, using DB fallback")
-                # For now, just return success without tracking
-                # In production, you might want to implement DB-only tracking
-                
-        except Exception as e:
-            logger.error(f"[RATE_LIMIT] Error in check_and_increment: {e}")
-            # Fail open - don't block requests due to rate limiter errors
-        
-        return result
-    
+        """DEPRECATED: no-op kept for back-compat with existing callers.
+
+        Slot reservation now happens atomically inside ``check_limits`` via a
+        Lua script, so calling this after a successful ``check_limits`` would
+        double-count. New callers should drop the post-call invocation entirely
+        and use ``release`` on the failure path instead.
+        """
+        del tokens_used
+        return await self.get_usage(api_key_id, tier, hourly_override, monthly_override)
+
     async def get_usage(
         self, 
         api_key_id: str, 
@@ -268,24 +255,98 @@ class RateLimiter:
         return result
     
     async def check_limits(
-        self, 
-        api_key_id: str, 
+        self,
+        api_key_id: str,
         tier: str,
         hourly_override: Optional[int] = None,
-        monthly_override: Optional[int] = None
+        monthly_override: Optional[int] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
-        """Check if current usage already exceeds limits."""
-        usage = await self.get_usage(api_key_id, tier, hourly_override, monthly_override)
-        
-        # Check hourly limit
-        hourly_exceeded = usage["hourly_limit"] is not None and usage["hourly_used"] >= usage["hourly_limit"]
-        
-        # Check monthly limit
-        monthly_exceeded = usage["monthly_limit"] is not None and usage["monthly_used"] >= usage["monthly_limit"]
-        
-        is_allowed = not (hourly_exceeded or monthly_exceeded)
-        
-        return is_allowed, usage
+        """Atomically check the hourly + monthly limits and reserve a slot.
+
+        Runs ``_ACQUIRE_LUA`` inside Redis: reads both counters, blocks if
+        either is at its cap (no increment), otherwise INCRs both counters
+        and refreshes their TTLs — all as one indivisible operation. This
+        closes the read-then-increment race the older two-step pattern had.
+
+        Returns:
+            (allowed, usage). When False, no counter was incremented and the
+            caller should reject the request. When True, both counters have
+            already been bumped by 1 and the call should proceed; pair with
+            ``release`` on the tool-failure path so failed calls do not
+            consume quota.
+
+        Fails open on Redis errors — don't lock users out on transient issues.
+        """
+        await self._ensure_redis()
+
+        now = datetime.now(timezone.utc)
+        limits = await self._get_limits(tier, hourly_override, monthly_override)
+        usage: Dict[str, Any] = {
+            "hourly_used": 0,
+            "hourly_limit": limits["hourly"],
+            "monthly_used": 0,
+            "monthly_limit": limits["monthly"],
+            "hourly_reset_at": self._next_hour_reset(now),
+            "monthly_reset_at": self._next_month_reset(now),
+        }
+
+        if not self.redis_client:
+            return True, usage
+
+        try:
+            if self._acquire_script is None:
+                self._acquire_script = self.redis_client.register_script(_ACQUIRE_LUA)
+
+            hourly_limit_arg = -1 if limits["hourly"] is None else int(limits["hourly"])
+            monthly_limit_arg = -1 if limits["monthly"] is None else int(limits["monthly"])
+            hourly_key = self._hourly_key(api_key_id, now)
+            monthly_key = self._monthly_key(api_key_id, now)
+
+            result = await self._acquire_script(
+                keys=[hourly_key, monthly_key],
+                args=[
+                    hourly_limit_arg,
+                    monthly_limit_arg,
+                    3600,
+                    self._seconds_until_end_of_month(now),
+                ],
+            )
+            allowed = int(result[0]) == 1
+            usage["hourly_used"] = int(result[1])
+            usage["monthly_used"] = int(result[2])
+
+            if allowed:
+                # DB fallback source for the monthly counter (used when Redis dies).
+                try:
+                    await self._persist_monthly_to_db(api_key_id, now.strftime("%Y-%m"), 1)
+                except Exception as e:
+                    logger.error(f"[RATE_LIMIT] Failed to persist monthly usage: {e}")
+
+            return allowed, usage
+        except Exception as e:
+            logger.error(f"[RATE_LIMIT] check_limits (atomic acquire) failed: {e}")
+            return True, usage
+
+    async def release(self, api_key_id: str) -> None:
+        """Refund a previously-acquired slot.
+
+        Call on the tool-failure path after a successful ``check_limits`` so
+        failed calls do not count toward the user's limits. Best-effort:
+        failures here are logged and swallowed.
+        """
+        await self._ensure_redis()
+        if not self.redis_client:
+            return
+        now = datetime.now(timezone.utc)
+        try:
+            hourly_key = self._hourly_key(api_key_id, now)
+            monthly_key = self._monthly_key(api_key_id, now)
+            pipe = self.redis_client.pipeline()
+            pipe.decr(hourly_key)
+            pipe.decr(monthly_key)
+            await pipe.execute()
+        except Exception as e:
+            logger.warning(f"[RATE_LIMIT] release failed: {e}")
 
 
 # Global rate limiter instance

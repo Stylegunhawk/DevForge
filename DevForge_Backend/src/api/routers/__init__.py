@@ -12,6 +12,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from src.agents.cheatsheet.agent import generate_cheatsheet_invoke
+from src.agents.testgen.agent import generate_tests_invoke
 from src.core.rate_limiter import rate_limiter
 # Import agents
 from src.agents.datagen.agent import datagen_agent
@@ -44,6 +45,7 @@ SUPPORTED_TOOLS = {
     "github_operation": github_agent_invoke,
     "refine_prompt": refine_prompt_invoke,
     "generate_cheatsheet": generate_cheatsheet_invoke,
+    "generate_tests": generate_tests_invoke,
     # Phase 2: Specialized GitHub Tools (Integrated into github_operation)
     # "generate_changelog": generate_changelog_invoke,
     # "analyze_ci_failure": analyze_ci_failure_invoke,
@@ -614,6 +616,8 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
 
     agent_func = SUPPORTED_TOOLS[tool_name]
 
+    api_key_id: Optional[str] = None  # bound inside the try; init here so the except handler can refer to it safely
+    slot_acquired = False  # rate-limit slot — refunded via release() on any failure path
     try:
         # ------------------------------------------------------------------- #
         # Phase 4: Extract user_id and request context for analytics
@@ -662,6 +666,7 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
                         "Retry-After": limit_info["hourly_reset_at"],
                     }
                 )
+            slot_acquired = True
 
         # ------------------------------------------------------------------- #
         # Special handling for github_operation (v0.8 with context support)
@@ -754,24 +759,16 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
         )
 
         # ------------------------------------------------------------------- #
-        # Phase 4: Rate Limiting Increment (after successful execution)
+        # Phase 4: Rate-limit slot release on failure
         # ------------------------------------------------------------------- #
-        tokens_used = 1  # Default fallback
-        if success and api_key_id:
+        # The slot was reserved atomically by rate_limiter.check_limits (Lua
+        # acquire) at the top of this handler. On failure, refund the slot so
+        # failed tool calls do not count against the user's quota.
+        if not success and api_key_id:
             try:
-                # Try to extract actual token usage from result if available
-                if isinstance(result, dict) and "tokens_used" in result:
-                    tokens_used = result["tokens_used"]
-                elif isinstance(result_data, dict) and "tokens_used" in result_data:
-                    tokens_used = result_data["tokens_used"]
-                
-                await rate_limiter.check_and_increment(
-                    api_key_id, tier, tokens_used,
-                    hourly_override=getattr(request.state, "hourly_limit_override", None),
-                    monthly_override=getattr(request.state, "monthly_limit_override", None)
-                )
+                await rate_limiter.release(api_key_id)
             except Exception as e:
-                logging.warning(f"Failed to increment rate limit: {e}")
+                logging.warning(f"Failed to release rate-limit slot: {e}")
 
         # ------------------------------------------------------------------- #
         # Phase 4: Async request logging for analytics
@@ -824,7 +821,16 @@ async def gateway_endpoint(gateway_req: GatewayRequest, request: Request):
     except Exception as e:
         exec_time = time.time() - start_time
         error_msg = f"{tool_name} execution error: {str(e)}"
-        
+
+        # Refund the rate-limit slot reserved earlier so a raised exception
+        # does not consume the user's quota. Guarded by slot_acquired so we
+        # never DECR a slot that was never acquired.
+        if slot_acquired and api_key_id:
+            try:
+                await rate_limiter.release(api_key_id)
+            except Exception as rel_e:
+                logging.warning(f"Failed to release rate-limit slot after exception: {rel_e}")
+
         # Phase 2 & 4: Enhanced error feedback for GitHub permission issues
         is_github_tool = tool_name == "github_operation"
         is_permission_error = any(phrase in str(e).lower() for phrase in ["403", "permission denied", "bad credentials", "requires secondary factor"])

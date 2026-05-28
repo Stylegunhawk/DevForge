@@ -21,6 +21,16 @@
   --color-warning-bg: rgb(var(--warning-bg));
   --color-danger: rgb(var(--danger));
   --color-danger-bg: rgb(var(--danger-bg));
+
+  /* Shadcn compatibility aliases — map standard class names to the custom design system */
+  --color-background: rgb(var(--bg));
+  --color-foreground: rgb(var(--text));
+  --color-card: rgb(var(--surface));
+  --color-card-foreground: rgb(var(--text));
+  --color-popover: rgb(var(--surface));
+  --color-popover-foreground: rgb(var(--text));
+  --color-muted: rgb(var(--surface-2));
+  --color-muted-foreground: rgb(var(--text-muted));
 }
 
 :root {

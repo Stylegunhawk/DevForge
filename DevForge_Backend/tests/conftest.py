@@ -119,6 +119,9 @@ def _bypass_rate_limiter():
         "src.api.routers.rate_limiter.get_usage",
         new=AsyncMock(return_value=fake_limit_info),
     ), patch(
+        "src.api.routers.rate_limiter.release",
+        new=AsyncMock(return_value=None),
+    ), patch(
         "src.api.mcp.dispatch.rate_limiter.check_limits",
         new=AsyncMock(return_value=(True, fake_limit_info)),
     ), patch(
@@ -127,6 +130,9 @@ def _bypass_rate_limiter():
     ), patch(
         "src.api.mcp.dispatch.rate_limiter.get_usage",
         new=AsyncMock(return_value=fake_limit_info),
+    ), patch(
+        "src.api.mcp.dispatch.rate_limiter.release",
+        new=AsyncMock(return_value=None),
     ):
         yield
 

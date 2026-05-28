@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Activity, Zap, DollarSign, ArrowRight } from "lucide-react";
+import { Activity, Zap, DollarSign, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { getUserUsage, getUserKeys, type ApiKey } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import {
@@ -23,6 +23,12 @@ import {
 } from "recharts";
 
 const TOOL_COLORS = ["#D97757", "#C8B286", "#8EA898", "#B291AD", "#D4B88E"];
+const CALL_HISTORY_PAGE_SIZE = 10;
+const TOKEN_BREAKDOWN_PAGE_SIZE = 10;
+
+// Fixed widths for numeric columns; Model + Task share remaining space
+const TOKEN_COL_TEMPLATE =
+  "100px minmax(0,150px) minmax(0,1fr) 100px 130px 80px 70px";
 
 interface DailyRequest {
   date: string;
@@ -123,6 +129,8 @@ export default function UsagePage() {
     total_requests: number;
   } | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [callHistoryPage, setCallHistoryPage] = useState(1);
+  const [tokenBreakdownPage, setTokenBreakdownPage] = useState(1);
 
   useEffect(() => {
     if (session?.user?.accessToken && session?.user?.id) {
@@ -143,6 +151,8 @@ export default function UsagePage() {
 
       setUsageData(usageResponse);
       setApiKeys(keysResponse);
+      setCallHistoryPage(1);
+      setTokenBreakdownPage(1);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch usage data");
@@ -177,7 +187,7 @@ export default function UsagePage() {
           <CardContent>
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="grid grid-cols-7 gap-4">
+                <div key={i} className="grid gap-4" style={{ gridTemplateColumns: "100px minmax(0,150px) minmax(0,1fr) 100px 130px 80px 70px" }}>
                   <Skeleton className="h-4 w-20" />
                   <Skeleton className="h-4 w-24" />
                   <Skeleton className="h-4 w-16" />
@@ -250,6 +260,22 @@ export default function UsagePage() {
       </div>
     );
   }
+
+  // Call History — client-side pagination over recent_requests (backend caps the slice at ~100)
+  const recentRequests = usageData?.recent_requests ?? [];
+  const totalCallPages = Math.max(1, Math.ceil(recentRequests.length / CALL_HISTORY_PAGE_SIZE));
+  const currentCallPage = Math.min(callHistoryPage, totalCallPages);
+  const callRangeStart = (currentCallPage - 1) * CALL_HISTORY_PAGE_SIZE;
+  const callRangeEnd = Math.min(callRangeStart + CALL_HISTORY_PAGE_SIZE, recentRequests.length);
+  const pagedRecentRequests = recentRequests.slice(callRangeStart, callRangeEnd);
+
+  // Token Breakdown — client-side pagination
+  const tokenUsage = usageData?.token_usage ?? [];
+  const totalTokenPages = Math.max(1, Math.ceil(tokenUsage.length / TOKEN_BREAKDOWN_PAGE_SIZE));
+  const currentTokenPage = Math.min(tokenBreakdownPage, totalTokenPages);
+  const tokenRangeStart = (currentTokenPage - 1) * TOKEN_BREAKDOWN_PAGE_SIZE;
+  const tokenRangeEnd = Math.min(tokenRangeStart + TOKEN_BREAKDOWN_PAGE_SIZE, tokenUsage.length);
+  const pagedTokenUsage = tokenUsage.slice(tokenRangeStart, tokenRangeEnd);
 
   return (
     <div className="space-y-6">
@@ -374,7 +400,7 @@ export default function UsagePage() {
           <CardDescription>Every API call in the last 30 days, newest first</CardDescription>
         </CardHeader>
         <CardContent>
-          {usageData?.recent_requests && usageData.recent_requests.length > 0 ? (
+          {recentRequests.length > 0 ? (
             <div className="space-y-3">
               <div className="grid grid-cols-4 gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide">
                 <div>Time</div>
@@ -382,8 +408,8 @@ export default function UsagePage() {
                 <div>Duration</div>
                 <div>Status</div>
               </div>
-              {usageData.recent_requests.map((req, i) => (
-                <div key={i} className="grid grid-cols-4 gap-4 text-sm items-center">
+              {pagedRecentRequests.map((req, i) => (
+                <div key={callRangeStart + i} className="grid grid-cols-4 gap-4 text-sm items-center">
                   <div className="text-[rgb(var(--text-muted))] text-xs">
                     {new Date(req.created_at).toLocaleString("en-US", {
                       month: "short",
@@ -401,6 +427,36 @@ export default function UsagePage() {
                   </div>
                 </div>
               ))}
+              {recentRequests.length > CALL_HISTORY_PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <p className="text-xs text-[rgb(var(--text-muted))]">
+                    Showing {callRangeStart + 1}–{callRangeEnd} of {recentRequests.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentCallPage === 1}
+                      onClick={() => setCallHistoryPage(currentCallPage - 1)}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </Button>
+                    <span className="text-xs text-[rgb(var(--text-muted))] min-w-[80px] text-center">
+                      Page {currentCallPage} of {totalCallPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentCallPage === totalCallPages}
+                      onClick={() => setCallHistoryPage(currentCallPage + 1)}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-center text-[rgb(var(--text-muted))] py-8">
@@ -416,9 +472,9 @@ export default function UsagePage() {
           <CardTitle>Token Breakdown</CardTitle>
         </CardHeader>
         <CardContent>
-          {usageData?.token_usage && usageData.token_usage.length > 0 ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-7 gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide">
+          {tokenUsage.length > 0 ? (
+            <div className="space-y-3">
+              <div className="grid gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide pb-2 border-b" style={{ gridTemplateColumns: TOKEN_COL_TEMPLATE }}>
                 <div>Date</div>
                 <div>Model</div>
                 <div>Task</div>
@@ -427,17 +483,47 @@ export default function UsagePage() {
                 <div>Total</div>
                 <div>Cost</div>
               </div>
-              {usageData.token_usage.map((usage, index) => (
-                <div key={index} className="grid grid-cols-7 gap-4 text-sm">
-                  <div>{formatDate(usage.date)}</div>
-                  <div className="font-mono text-xs">{usage.model_name}</div>
-                  <div>{usage.task_type}</div>
-                  <div>{usage.total_prompt_tokens.toLocaleString()}</div>
-                  <div>{usage.total_completion_tokens.toLocaleString()}</div>
-                  <div>{usage.total_tokens.toLocaleString()}</div>
-                  <div>{formatCurrency(usage.total_cost_usd)}</div>
+              {pagedTokenUsage.map((usage, index) => (
+                <div key={tokenRangeStart + index} className="grid gap-4 text-sm items-center py-2 hover:bg-[rgb(var(--muted)/0.4)] transition-colors rounded" style={{ gridTemplateColumns: TOKEN_COL_TEMPLATE }}>
+                  <div className="text-xs text-[rgb(var(--text-muted))]">{formatDate(usage.date)}</div>
+                  <div className="font-mono text-xs truncate" title={usage.model_name}>{usage.model_name}</div>
+                  <div className="text-xs truncate" title={usage.task_type}>{usage.task_type}</div>
+                  <div className="text-xs">{usage.total_prompt_tokens.toLocaleString()}</div>
+                  <div className="text-xs">{usage.total_completion_tokens.toLocaleString()}</div>
+                  <div className="text-xs">{usage.total_tokens.toLocaleString()}</div>
+                  <div className="text-xs">{formatCurrency(usage.total_cost_usd)}</div>
                 </div>
               ))}
+              {tokenUsage.length > TOKEN_BREAKDOWN_PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <p className="text-xs text-[rgb(var(--text-muted))]">
+                    Showing {tokenRangeStart + 1}–{tokenRangeEnd} of {tokenUsage.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentTokenPage === 1}
+                      onClick={() => setTokenBreakdownPage(currentTokenPage - 1)}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </Button>
+                    <span className="text-xs text-[rgb(var(--text-muted))] min-w-[80px] text-center">
+                      Page {currentTokenPage} of {totalTokenPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentTokenPage === totalTokenPages}
+                      onClick={() => setTokenBreakdownPage(currentTokenPage + 1)}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-center text-[rgb(var(--text-muted))] py-8">

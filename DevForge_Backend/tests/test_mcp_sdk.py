@@ -287,22 +287,54 @@ class TestDispatchRateLimit:
         assert request.state.rate_limit_info == info
         fake_agent.assert_not_awaited()
 
-    async def test_increment_called_on_success(self):
+    # Slot reservation now happens atomically inside check_limits (Lua INCR-and-check).
+    # On success: no further counter action (no release). On failure: release() refunds.
+
+    async def test_success_does_not_release(self):
         ctx, _ = _make_ctx({"tenant_id": "t1", "api_key_id": "key1", "tier": "free"})
-        fake_agent = AsyncMock(return_value={"success": True, "tokens_used": 42})
+        fake_agent = AsyncMock(return_value={"success": True})
 
         with patch.dict("src.api.routers.SUPPORTED_TOOLS", {"refine_prompt": fake_agent}), \
              patch("src.api.mcp.dispatch.rate_limiter") as rl:
             rl.check_limits = AsyncMock(return_value=(True, {}))
-            rl.check_and_increment = AsyncMock()
+            rl.release = AsyncMock()
             rl.get_usage = AsyncMock(return_value={
                 "hourly_limit": 100, "hourly_used": 1, "hourly_reset_at": "x",
                 "monthly_limit": 10, "monthly_used": 1, "monthly_reset_at": "y",
             })
             await _dispatch("refine_prompt", {"prompt": "x"}, ctx)
 
-        rl.check_and_increment.assert_awaited_once()
-        assert rl.check_and_increment.await_args.args[2] == 42  # tokens_used
+        rl.release.assert_not_awaited()
+
+    async def test_failure_releases_slot(self):
+        ctx, _ = _make_ctx({"tenant_id": "t1", "api_key_id": "key1", "tier": "free"})
+        fake_agent = AsyncMock(return_value={"success": False, "data": {"message": "boom"}})
+
+        with patch.dict("src.api.routers.SUPPORTED_TOOLS", {"refine_prompt": fake_agent}), \
+             patch("src.api.mcp.dispatch.rate_limiter") as rl:
+            rl.check_limits = AsyncMock(return_value=(True, {}))
+            rl.release = AsyncMock()
+            rl.get_usage = AsyncMock(return_value={
+                "hourly_limit": 100, "hourly_used": 1, "hourly_reset_at": "x",
+                "monthly_limit": 10, "monthly_used": 1, "monthly_reset_at": "y",
+            })
+            await _dispatch("refine_prompt", {"prompt": "x"}, ctx)
+
+        rl.release.assert_awaited_once()
+        assert rl.release.await_args.args[0] == "key1"
+
+    async def test_agent_exception_releases_slot(self):
+        ctx, _ = _make_ctx({"tenant_id": "t1", "api_key_id": "key1", "tier": "free"})
+        fake_agent = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with patch.dict("src.api.routers.SUPPORTED_TOOLS", {"refine_prompt": fake_agent}), \
+             patch("src.api.mcp.dispatch.rate_limiter") as rl:
+            rl.check_limits = AsyncMock(return_value=(True, {}))
+            rl.release = AsyncMock()
+            with pytest.raises(RuntimeError):
+                await _dispatch("refine_prompt", {"prompt": "x"}, ctx)
+
+        rl.release.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -373,10 +405,16 @@ class TestFastMCPRegistration:
         from src.api.mcp.server import mcp
         assert mcp._mcp_server.version == "1.0.0"
 
-    def test_four_tools_registered(self):
+    def test_five_tools_registered(self):
         from src.api.mcp.server import mcp
         names = set(mcp._tool_manager._tools.keys())
-        assert names == {"generate_data", "github_operation", "refine_prompt", "generate_cheatsheet"}
+        assert names == {
+            "generate_data",
+            "github_operation",
+            "refine_prompt",
+            "generate_cheatsheet",
+            "generate_tests",
+        }
 
     def test_descriptions_match(self):
         from src.api.mcp.server import mcp

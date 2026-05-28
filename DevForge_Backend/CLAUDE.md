@@ -65,7 +65,7 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 
 | Layer | Purpose | Key files |
 |-------|---------|-----------|
-| API | HTTP endpoints (REST gateway, MCP JSON-RPC, RAG, auth, admin) | `src/api/routers/__init__.py`, `src/api/routers/{rag,auth,users,admin}.py` |
+| API | HTTP endpoints (REST gateway, MCP Streamable HTTP, RAG, auth, admin) | `src/api/routers/__init__.py`, `src/api/routers/{rag,auth,users,admin}.py`, `src/api/mcp/{server,dispatch,schemas,descriptions,headers_middleware}.py` |
 | Agents | Business logic & orchestration | `src/agents/*/agent.py`, `src/agents/supervisor.py` |
 | Tools | Reusable functions invoked by agents | `src/tools/*/tools.py` |
 | Storage | Vector store abstraction | `src/storage/base_store.py`, `chroma_store.py`, `pgvector_store.py` |
@@ -74,7 +74,26 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 
 ### Request flow (tool execution)
 
-`POST /api/gateway` (REST) or `POST /mcp` (JSON-RPC) → `APIKeyAuthMiddleware` validates `x-api-key` → `src/api/routers.py` resolves tool name → `src/agents/supervisor.py` classifies intent (LangGraph) → individual agent (datagen / github / prompt_refiner / cheatsheet / rag) → response.
+Two callers, one shared dispatch table (`SUPPORTED_TOOLS` in `src/api/routers/__init__.py`):
+
+- **REST gateway:** `POST /api/gateway` → `APIKeyAuthMiddleware` validates `x-api-key` → `gateway_endpoint` in `src/api/routers/__init__.py` → resolves `tool_name` against `SUPPORTED_TOOLS` → agent invoke.
+- **MCP Streamable HTTP:** `POST /mcp/` (**trailing slash required** — `/mcp` is a FastMCP ASGI sub-app mounted at `/mcp`) → `APIKeyAuthMiddleware` → FastMCP routes `tools/call` to the registered `@mcp.tool` function in `src/api/mcp/server.py` → cross-cutting wrapper `_dispatch` (or `_dispatch_github`) in `src/api/mcp/dispatch.py` → same `SUPPORTED_TOOLS` agent invoke.
+
+Both paths converge on the same per-feature agent (datagen / github / prompt_refiner / cheatsheet / testgen / rag). `src/agents/supervisor.py` (LangGraph) is used by the natural-language `github_operation` query route; the simple tools dispatch directly.
+
+### MCP SDK migration (2026-05-27)
+
+The hand-rolled `/mcp` JSON-RPC handler was replaced with the official **MCP Python SDK** (`fastmcp`) using the Streamable HTTP transport. The sub-app is created in `src/api/mcp/server.py` with `stateless_http=True, json_response=True` and mounted at `/mcp` in `src/main.py`. Key per-file responsibilities under `src/api/mcp/`:
+
+| File | Role |
+|------|------|
+| `server.py` | FastMCP instance + `@mcp.tool` registrations (flat parameters so the SDK auto-generates the JSON schema). |
+| `dispatch.py` | Cross-cutting wrapper run on every tool call: rate-limit pre-check (atomic Lua acquire), agent dispatch, analytics log, release-on-failure, response-state stashing. |
+| `schemas.py` | Pydantic input models for the simple tools + the hand-rolled `oneOf` schema for `github_operation`. |
+| `descriptions.py` | `TOOL_DESCRIPTIONS` — agent-instructive strings surfaced via `tools/list`. **Source of truth** for tool descriptions; do not duplicate. |
+| `headers_middleware.py` | Pure ASGI middleware that injects `X-RateLimit-*` headers on every `/mcp` response (FastMCP doesn't allow direct response-header mutation from inside a tool). |
+
+The legacy `routers/__init__.py:gateway_endpoint` REST path remains for non-MCP clients and uses the same `SUPPORTED_TOOLS` table.
 
 ### Agent modules
 
@@ -84,6 +103,7 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 - `github/` — GitOps automation. **v1.0 (2026-05-19)** expands to 26 structured ops: PR inspection, issue CRUD, commit history, release management, GitHub Actions, webhooks, pagination, enriched error messages (PAT scope guidance for 403/404/422). Fuzzy repo matching, LLM commit generation, risk gate with contextual escalation. Verified: 64/64 live MCP tests. See [docs/tools/github_operation.md](docs/tools/github_operation.md) and [curl tests](docs/tools/github_operation_curl_tests.md).
 - `prompt_refiner/` — domain-aware prompt optimization. **v0.10 (2026-05-14)** adds polyglot manifest coverage (8 ecosystems), typed `chosen_stack` lists, deterministic `quality` block, and anti-hallucination guard for vague code prompts. See [docs/tools/refine_prompt.md](docs/tools/refine_prompt.md) and [v0.10 spec](../docs/superpowers/specs/2026-05-14-refine-prompt-robustness-design.md).
 - `cheatsheet/` — code cheat sheet generation. **v0.11 (2026-05-15)** rewrites the tool around curated YAML knowledge packs (`data/cheatsheet_packs/`) + a single LLM personalization call. 9 supported languages (python, javascript, typescript, go, rust, java, ruby, php, csharp), tree-sitter-validated syntax in CI, no LLM-invented code, new optional `intent` parameter for activity-driven ranking. **Verified through 16-scenario MCP stress test** including prompt-injection resistance (hallucinated-id drop guard), length-limit Pydantic gate, concurrency, unicode, and explicit-input precedence. **Pack status:** only `languages/python/beginner.yaml` (hand-written seed) ships in this commit — run `scripts/bootstrap_cheatsheet_packs.py --all` to LLM-bootstrap the remaining 68 packs. See [docs/tools/generate_cheatsheet.md](docs/tools/generate_cheatsheet.md) and [v0.11 spec](../docs/superpowers/specs/2026-05-15-generate-cheatsheet-production-grade-design.md).
+- `testgen/` — AI unit-test generation. **v1.0 (2026-05-27)** generates a ready-to-run test file from pasted source for **Python (pytest) and JavaScript/TypeScript (Jest default, Vitest opt-in)**. One Ollama `code_gen` call + **static validation**: tree-sitter parse-check plus an import-symbol guard that ensures every name imported from the module-under-test exists in the pasted source. `validated` is reported as `"static"` / `"partial"` / `"unparseable"` so callers know exactly what guarantee they got. Optional `use_repo_context` enriches the prompt with RAG-retrieved dependency snippets (best-effort, no-op when no repo is indexed). No code execution. See [docs/tools/generate_tests.md](docs/tools/generate_tests.md) and [v1.0 spec](docs/superpowers/specs/2026-05-27-generate-tests-design.md).
 - `rag/reranking/cross_encoder_reranker.py` — cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`), internal stage of `retrieve_docs`
 
 ### Current tool versions
@@ -94,8 +114,9 @@ FastAPI backend with a modular agent/tool/storage split. The supervisor agent (L
 | `refine_prompt` | 0.10.0 | 0.11.0 | Polyglot + quality block + anti-hallucination |
 | `github_operation` | 1.0.0 | 0.12.0 | 26 structured ops: PR inspection, issue CRUD, commit history, releases, Actions, webhooks + enriched error messages |
 | `generate_cheatsheet` | 0.11.0 | 0.11.0 | Curated YAML packs + LLM personalization (9 languages) |
+| `generate_tests` | 1.0.0 | 1.0.0 | Pytest / Jest / Vitest test generation; static validation (tree-sitter parse + import-symbol guard); optional RAG enrichment |
 
-The MCP `tools/list` description for `generate_data` and `refine_prompt` now teaches calling agents the iterative call pattern + cold/warm cache latency expectations. When adding new tools or updating an existing one, follow the same agent-instructive style — see `src/api/routers/__init__.py:TOOL_DESCRIPTIONS`.
+The MCP `tools/list` description for `generate_data` and `refine_prompt` now teaches calling agents the iterative call pattern + cold/warm cache latency expectations. When adding new tools or updating an existing one, follow the same agent-instructive style — see `src/api/mcp/descriptions.py:TOOL_DESCRIPTIONS` (single source of truth since the MCP SDK migration).
 
 ### Middleware order
 
@@ -198,11 +219,17 @@ Start locally: `./scripts/scale_celery.sh rag start`. Scale up in Docker: `docke
 
 ### Add a new tool
 
-1. Implement in `src/tools/<feature>/tools.py`
-2. Add an agent in `src/agents/<feature>/agent.py` if it needs orchestration
-3. Register in `SUPPORTED_TOOLS` in `src/api/routers/__init__.py`
-4. Update `manifests/devforge.json`
-5. Add `tests/test_<feature>.py`
+The newest tools (`generate_cheatsheet`, `generate_tests`) skip the `src/tools/<feature>/tools.py` split and keep all logic under `src/agents/<feature>/` with `agent.py` as the entry. Follow that pattern for new work.
+
+1. **Agent module:** `src/agents/<feature>/agent.py` exporting `async def <tool>_invoke(args, tenant_id="unknown", integration_name="unknown", user_id=None) -> dict`. Add focused helper modules alongside (`ast_tools.py`, `prompt_builder.py`, etc.) rather than packing it all into `agent.py`.
+2. **Shared dispatch table:** add `"<tool_name>": <tool>_invoke` to `SUPPORTED_TOOLS` in `src/api/routers/__init__.py`. Both `/api/gateway` (REST) and `/mcp/` (FastMCP) read from this same dict.
+3. **MCP SDK surface** (all four files):
+   - `src/api/mcp/schemas.py` — add a `<Tool>Input` Pydantic model with flat fields + Pydantic gates (max-length, enums).
+   - `src/api/mcp/descriptions.py` — add `TOOL_DESCRIPTIONS["<tool_name>"]` written agent-instructively (inputs, outputs, latency expectation, when-to-call). This is the **single source of truth**.
+   - `src/api/mcp/server.py` — `@mcp.tool(name="<tool_name>", description=TOOL_DESCRIPTIONS["<tool_name>"])` flat-param function that builds the input model and calls `_dispatch("<tool_name>", args.model_dump(exclude_none=True), ctx)`. Use the `_PassThroughArgs + direct Tool` pattern in `server.py:107-128` only if the schema needs `oneOf`.
+4. **Manifest:** add the tool entry to `manifests/devforge.json` (used by `/api/manifest`).
+5. **Per-tool doc:** add `docs/tools/<tool_name>.md` mirroring `docs/tools/generate_cheatsheet.md` (overview, inputs, outputs, pipeline, examples, failure modes).
+6. **Tests:** `tests/test_<feature>.py`. Mock `model_router.invoke_with_usage` / your tool's LLM call so tests are deterministic and don't hit Ollama. Assert on response shape, not internals.
 
 ### Debug RAG
 

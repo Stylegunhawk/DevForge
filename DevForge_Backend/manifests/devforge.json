@@ -223,6 +223,65 @@
       "call_mode": "prefer"
     },
     {
+      "name": "generate_tests",
+      "description": "Generate a ready-to-run unit-test file from pasted source code. SUPPORTED: python (pytest), javascript/typescript (jest default, vitest optional). STATIC validation only: the output is tree-sitter parse-checked and its imports are guarded against symbols that actually exist in your code — it does NOT execute tests. Provide module_path for a correct import line. LATENCY: ~5-20s on free Ollama.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Source under test — paste the function/class/module verbatim (max 16000 chars)."
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "python",
+              "javascript",
+              "typescript"
+            ],
+            "description": "Language of the code under test."
+          },
+          "framework": {
+            "type": "string",
+            "enum": [
+              "pytest",
+              "jest",
+              "vitest"
+            ],
+            "description": "Test framework. Defaults: python->pytest, js/ts->jest. python only supports pytest."
+          },
+          "module_path": {
+            "type": "string",
+            "description": "Import hint, e.g. 'src.utils.auth' (python) or '../src/auth' (js/ts). Without it the generated import uses a placeholder you must fix."
+          },
+          "coverage": {
+            "type": "string",
+            "enum": [
+              "happy_path",
+              "edge_cases",
+              "all"
+            ],
+            "default": "all",
+            "description": "Which cases to generate."
+          },
+          "use_repo_context": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enrich signatures from the tenant's indexed repo (best-effort, no-op when unavailable)."
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Optional 1-line steer, e.g. 'focus on the error paths'."
+          }
+        },
+        "required": [
+          "code",
+          "language"
+        ]
+      },
+      "call_mode": "prefer"
+    },
+    {
       "name": "generate_changelog",
       "description": "Generate release notes and changelog from git history between tags or commits. Parses conventional commits and categories changes (features, fixes, docs, etc.).",
       "parameters": {

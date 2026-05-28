@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RefreshCw, CheckCircle, XCircle, Clock } from "lucide-react";
+import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import { getRequestLogs, RequestLog, RequestLogFilters } from "@/lib/api";
 
 function formatRelativeTime(timestamp: string): string {
@@ -24,15 +24,36 @@ function formatRelativeTime(timestamp: string): string {
   return `${diffDays}d ago`;
 }
 
+function formatAbsoluteTime(timestamp: string): string {
+  return new Date(timestamp).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength) + "...";
+function durationColor(ms: number): string {
+  if (ms > 3000) return "text-[rgb(var(--danger))]";
+  if (ms > 1000) return "text-yellow-600";
+  return "";
 }
+
+interface Pagination {
+  page: number;
+  pages: number;
+  total: number;
+  limit: number;
+}
+
+// Fixed widths for structured columns; Input gets all remaining space
+const COL_TEMPLATE =
+  "90px minmax(0,130px) minmax(0,160px) minmax(0,110px) 75px 65px minmax(0,1fr)";
 
 export default function AdminRequests() {
   const { data: session } = useSession();
@@ -40,11 +61,8 @@ export default function AdminRequests() {
   const [tools, setTools] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filters, setFilters] = useState<RequestLogFilters>({
-    page: 1,
-    limit: 20,
-  });
-  const [pagination, setPagination] = useState<any>(null);
+  const [filters, setFilters] = useState<RequestLogFilters>({ page: 1, limit: 20 });
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -61,13 +79,14 @@ export default function AdminRequests() {
       const response = await getRequestLogs(session.user.accessToken, filters);
       setLogs(response.requests);
       setPagination(response.pagination);
-      
-      // Extract unique tool names for filter dropdown
-      const uniqueTools = [...new Set(response.requests.map(log => log.tool_name))];
-      setTools(uniqueTools);
-      
+
+      // Accumulate unique tool names across page changes so the dropdown stays populated
+      const incoming = response.requests.map((l) => l.tool_name);
+      setTools((prev) => [...new Set([...prev, ...incoming])]);
+
       setError("");
     } catch (err) {
+      setLogs([]);
       setError(err instanceof Error ? err.message : "Failed to fetch request logs");
     } finally {
       setLoading(false);
@@ -80,37 +99,39 @@ export default function AdminRequests() {
     fetchLogs();
   };
 
-  const handlePageChange = (newPage: number) => {
-    setFilters(prev => ({ ...prev, page: newPage }));
-  };
+  const currentPage = pagination?.page ?? 1;
+  const totalPages = pagination?.pages ?? 1;
+  const totalCount = pagination?.total ?? logs.length;
+  const pageSize = filters.limit ?? 20;
+  const rangeStart = (currentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(currentPage * pageSize, totalCount);
 
   if (loading && !refreshing) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex space-x-4">
+          <div className="flex space-x-3">
             <Skeleton className="h-10 w-40" />
             <Skeleton className="h-10 w-32" />
-            <Skeleton className="h-10 w-24" />
           </div>
-          <Skeleton className="h-10 w-10" />
+          <Skeleton className="h-9 w-9" />
         </div>
-        
+
         <Card>
           <CardHeader>
             <Skeleton className="h-6 w-32" />
             <Skeleton className="h-4 w-48" />
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <div className="space-y-3">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <div key={i} className="flex items-center space-x-4 p-4 border rounded">
-                  <Skeleton className="h-4 w-16" />
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-4 w-32" />
+                <div key={i} className="grid gap-4 items-center py-2.5" style={{ gridTemplateColumns: COL_TEMPLATE }}>
+                  <Skeleton className="h-4 w-14" />
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                  <Skeleton className="h-4 w-28" />
                   <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-4 w-16" />
                   <Skeleton className="h-4 w-12" />
+                  <Skeleton className="h-5 w-10 rounded-full" />
                   <Skeleton className="h-4 w-32" />
                 </div>
               ))}
@@ -124,21 +145,23 @@ export default function AdminRequests() {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="bg-[rgb(var(--danger)/0.08)] border border-[rgb(var(--danger)/0.3)] text-[rgb(var(--danger))] px-4 py-3 rounded">
+        <div className="bg-[rgb(var(--danger)/0.08)] border border-[rgb(var(--danger)/0.3)] text-[rgb(var(--danger))] px-4 py-3 rounded text-sm">
           {error}
         </div>
       )}
 
       {/* Filter Bar */}
       <div className="flex items-center justify-between">
-        <div className="flex space-x-4">
+        <div className="flex space-x-3">
           <Select
             value={filters.tool_name || "all"}
-            onValueChange={(value) => setFilters(prev => ({ 
-              ...prev, 
-              tool_name: value === "all" ? undefined : value,
-              page: 1 
-            }))}
+            onValueChange={(value) =>
+              setFilters((prev) => ({
+                ...prev,
+                tool_name: value === "all" ? undefined : value,
+                page: 1,
+              }))
+            }
           >
             <SelectTrigger className="w-40">
               <SelectValue placeholder="All Tools" />
@@ -155,11 +178,13 @@ export default function AdminRequests() {
 
           <Select
             value={filters.success === undefined ? "all" : filters.success.toString()}
-            onValueChange={(value) => setFilters(prev => ({ 
-              ...prev, 
-              success: value === "all" ? undefined : value === "true",
-              page: 1 
-            }))}
+            onValueChange={(value) =>
+              setFilters((prev) => ({
+                ...prev,
+                success: value === "all" ? undefined : value === "true",
+                page: 1,
+              }))
+            }
           >
             <SelectTrigger className="w-32">
               <SelectValue placeholder="Status" />
@@ -172,14 +197,21 @@ export default function AdminRequests() {
           </Select>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing}
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-        </Button>
+        <div className="flex items-center gap-3">
+          {pagination && (
+            <span className="text-xs text-[rgb(var(--text-muted))]">
+              {totalCount.toLocaleString()} total
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Request Logs Table */}
@@ -187,97 +219,132 @@ export default function AdminRequests() {
         <CardHeader>
           <CardTitle>Request Logs</CardTitle>
           <CardDescription>
-            Recent API requests and their status
+            {pagination
+              ? `${totalCount.toLocaleString()} API calls across all users`
+              : "Recent API requests and their status"}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {logs.length === 0 ? (
-              <p className="text-[rgb(var(--text-muted))] text-center py-8">
-                No request logs found
-              </p>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-7 gap-4 text-sm font-medium text-[rgb(var(--text-muted))] pb-2 border-b">
-                    <div>Time</div>
-                    <div>Tool</div>
-                    <div>User</div>
-                    <div>Tenant ID</div>
-                    <div>Duration</div>
-                    <div>Status</div>
-                    <div>Input Summary</div>
-                  </div>
-                  
-                  {logs.map((log) => (
-                    <div key={log.id} className="grid grid-cols-7 gap-4 items-center text-sm py-2 border-b">
-                      <div className="text-[rgb(var(--text-muted))]">
-                        {formatRelativeTime(log.created_at)}
-                      </div>
-                      <div>
-                        <Badge variant="outline">{log.tool_name}</Badge>
-                      </div>
-                      <div className="text-[rgb(var(--text-muted))]">
-                        {log.user_email === "Anonymous" ? (
-                          <span className="italic text-[rgb(var(--text-muted))]">Anonymous</span>
-                        ) : (
-                          <span 
-                            className="truncate max-w-[120px]" 
-                            title={log.user_email}
-                          >
-                            {log.user_email.length > 20 ? `${log.user_email.substring(0, 20)}...` : log.user_email}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[rgb(var(--text-muted))] font-mono text-xs">
-                        {log.tenant_id.substring(0, 8)}...
-                      </div>
-                      <div className="text-[rgb(var(--text-muted))]">
-                        {formatDuration(log.duration_ms)}
-                      </div>
-                      <div>
-                        {log.success ? (
-                          <CheckCircle className="h-4 w-4 text-[rgb(var(--success))]" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-[rgb(var(--danger))]" />
-                        )}
-                      </div>
-                      <div className="text-[rgb(var(--text-muted))]" title={log.input_summary}>
-                        {truncateText(log.input_summary, 60)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+          {logs.length === 0 ? (
+            <p className="text-[rgb(var(--text-muted))] text-center py-8 text-sm">
+              No request logs found
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {/* Header */}
+              <div className="grid gap-4 text-xs text-[rgb(var(--text-muted))] uppercase tracking-wide pb-2 border-b" style={{ gridTemplateColumns: COL_TEMPLATE }}>
+                <div>Time</div>
+                <div>Tool</div>
+                <div>User</div>
+                <div>Integration</div>
+                <div>Duration</div>
+                <div>Status</div>
+                <div>Input</div>
+              </div>
 
-                {/* Pagination */}
-                {pagination && pagination.total_pages > 1 && (
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <div className="text-sm text-[rgb(var(--text-muted))]">
-                      Page {pagination.current_page} of {pagination.total_pages}
+              {/* Rows */}
+              <div className="divide-y">
+                {logs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="grid gap-4 items-center text-sm py-2.5 hover:bg-[rgb(var(--muted)/0.4)] transition-colors rounded"
+                    style={{ gridTemplateColumns: COL_TEMPLATE }}
+                  >
+                    <div
+                      className="text-[rgb(var(--text-muted))] text-xs"
+                      title={formatAbsoluteTime(log.created_at)}
+                    >
+                      {formatRelativeTime(log.created_at)}
                     </div>
-                    <div className="flex space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.current_page - 1)}
-                        disabled={pagination.current_page <= 1}
+
+                    <div>
+                      <Badge variant="outline" className="text-xs font-mono">
+                        {log.tool_name}
+                      </Badge>
+                    </div>
+
+                    <div className="min-w-0">
+                      {log.user_email === "Anonymous" ? (
+                        <span className="italic text-[rgb(var(--text-muted))] text-xs">
+                          Anonymous
+                        </span>
+                      ) : (
+                        <div title={`${log.user_name} <${log.user_email}>`}>
+                          <div className="font-medium text-xs truncate">{log.user_name}</div>
+                          <div className="text-[rgb(var(--text-muted))] text-xs truncate">
+                            {log.user_email}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      className="text-[rgb(var(--text-muted))] text-xs truncate"
+                      title={log.integration_name}
+                    >
+                      {log.integration_name}
+                    </div>
+
+                    <div className={`text-xs font-mono ${durationColor(log.duration_ms)}`}>
+                      {formatDuration(log.duration_ms)}
+                    </div>
+
+                    <div>
+                      <Badge
+                        variant={log.success ? "default" : "destructive"}
+                        className="text-xs"
                       >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.current_page + 1)}
-                        disabled={pagination.current_page >= pagination.total_pages}
-                      >
-                        Next
-                      </Button>
+                        {log.success ? "ok" : "error"}
+                      </Badge>
+                    </div>
+
+                    <div
+                      className="text-[rgb(var(--text-muted))] text-xs truncate"
+                      title={log.input_summary}
+                    >
+                      {log.input_summary}
                     </div>
                   </div>
-                )}
-              </>
-            )}
-          </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {pagination && totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <p className="text-xs text-[rgb(var(--text-muted))]">
+                    Showing {rangeStart}–{rangeEnd} of {totalCount.toLocaleString()}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage <= 1}
+                      onClick={() =>
+                        setFilters((prev) => ({ ...prev, page: currentPage - 1 }))
+                      }
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </Button>
+                    <span className="text-xs text-[rgb(var(--text-muted))] min-w-[80px] text-center">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage >= totalPages}
+                      onClick={() =>
+                        setFilters((prev) => ({ ...prev, page: currentPage + 1 }))
+                      }
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

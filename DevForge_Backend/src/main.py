@@ -44,6 +44,15 @@ async def lifespan(app: FastAPI):
     # Ensure data directory structure exists on startup
     Path("data/uploads").mkdir(parents=True, exist_ok=True)
 
+    # Pre-warm the DB connection pool so the first API request doesn't pay
+    # asyncpg.create_pool() latency (TCP handshake + Postgres auth = 5-10s cold).
+    if settings.POSTGRES_URL:
+        try:
+            await PostgresPoolManager.get_pool()
+            logger.info("Database connection pool pre-warmed at startup")
+        except Exception as e:
+            logger.warning(f"Database pool pre-warm failed (will lazy-init on first use): {e}")
+
     # Pre-load reranker model so first retrieval request doesn't pay model-load latency
     if settings.ENABLE_RERANKING:
         try:

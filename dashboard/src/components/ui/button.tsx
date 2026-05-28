@@ -12,7 +12,7 @@ const variantClasses: Record<NonNullable<ButtonProps["variant"]>, string> = {
   default:
     "bg-[rgb(var(--accent))] text-white hover:bg-[rgb(var(--accent-hover))] active:scale-[0.98] shadow-sm",
   outline:
-    "bg-white border border-[rgb(var(--border))] text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))]",
+    "bg-[rgb(var(--surface))] border border-[rgb(var(--border))] text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))]",
   ghost:
     "bg-transparent text-[rgb(var(--text-muted))] hover:bg-[rgb(var(--surface-2))] hover:text-[rgb(var(--text))]",
   secondary:

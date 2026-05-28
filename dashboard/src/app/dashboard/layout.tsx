@@ -118,7 +118,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex items-center gap-1">
             <ThemeToggle />
             <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={() => signOut({ callbackUrl: "/" })}
               className="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[rgb(var(--text-muted))] hover:bg-[rgb(var(--surface-2))] hover:text-[rgb(var(--text))] transition-colors duration-100"
             >
               <LogOut className="h-3.5 w-3.5 shrink-0" />
@@ -129,7 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* ── Main ── */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto px-8 py-8">
         {children}
       </main>
     </div>

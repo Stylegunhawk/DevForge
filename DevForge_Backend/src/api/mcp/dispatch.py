@@ -119,17 +119,13 @@ async def _post_call_bookkeeping(
 ) -> None:
     api_key_id = ctx_meta["api_key_id"]
 
-    if success and api_key_id:
+    # Slot was reserved atomically in _rate_limit_pre_check (check_limits via Lua).
+    # On failure, refund the slot so failed tool calls do not count against quota.
+    if not success and api_key_id:
         try:
-            await rate_limiter.check_and_increment(
-                api_key_id,
-                ctx_meta["tier"],
-                _tokens_used(result),
-                hourly_override=ctx_meta["hourly_override"],
-                monthly_override=ctx_meta["monthly_override"],
-            )
+            await rate_limiter.release(api_key_id)
         except Exception as e:
-            logger.warning(f"Rate limit increment failed: {e}")
+            logger.warning(f"Rate limit release failed: {e}")
 
     try:
         from src.workers.tasks.analytics_tasks import log_request_call
@@ -169,13 +165,22 @@ async def _dispatch(tool_name: str, args: dict, ctx: Context) -> dict:
     start = time.time()
     agent_func = SUPPORTED_TOOLS[tool_name]
     kwargs = {"progress_callback": progress_cb} if progress_cb else {}
-    result = await agent_func(
-        args,
-        tenant_id=ctx_meta["tenant_id"],
-        integration_name=ctx_meta["integration_name"],
-        user_id=ctx_meta["user_id"],
-        **kwargs,
-    )
+    try:
+        result = await agent_func(
+            args,
+            tenant_id=ctx_meta["tenant_id"],
+            integration_name=ctx_meta["integration_name"],
+            user_id=ctx_meta["user_id"],
+            **kwargs,
+        )
+    except Exception:
+        # Agent raised — refund the slot reserved in _rate_limit_pre_check.
+        if ctx_meta["api_key_id"]:
+            try:
+                await rate_limiter.release(ctx_meta["api_key_id"])
+            except Exception as rel_e:
+                logger.warning(f"Rate limit release after exception failed: {rel_e}")
+        raise
     duration_ms = int((time.time() - start) * 1000)
     success = result.get("success", True) and not result.get("error")
 
@@ -201,29 +206,38 @@ async def _dispatch_github(validated: GithubOperationArgs, ctx: Context) -> dict
     agent_func = SUPPORTED_TOOLS["github_operation"]
 
     start = time.time()
-    if validated.operation:
-        op_params = validated.model_dump(exclude={"operation", "context"})
-        op_params = {k: v for k, v in op_params.items() if v is not None}
-        if "repo" in op_params and "repo_name" not in op_params:
-            op_params["repo_name"] = op_params.pop("repo")
-        result = await agent_func(
-            operation=validated.operation,
-            parameters=op_params,
-            context=context,
-            github_token=github_token,
-            tenant_id=ctx_meta["tenant_id"],
-            integration_name=ctx_meta["integration_name"],
-            user_id=ctx_meta["user_id"],
-        )
-    else:
-        result = await agent_func(
-            query=validated.query,
-            context=context,
-            github_token=github_token,
-            tenant_id=ctx_meta["tenant_id"],
-            integration_name=ctx_meta["integration_name"],
-            user_id=ctx_meta["user_id"],
-        )
+    try:
+        if validated.operation:
+            op_params = validated.model_dump(exclude={"operation", "context"})
+            op_params = {k: v for k, v in op_params.items() if v is not None}
+            if "repo" in op_params and "repo_name" not in op_params:
+                op_params["repo_name"] = op_params.pop("repo")
+            result = await agent_func(
+                operation=validated.operation,
+                parameters=op_params,
+                context=context,
+                github_token=github_token,
+                tenant_id=ctx_meta["tenant_id"],
+                integration_name=ctx_meta["integration_name"],
+                user_id=ctx_meta["user_id"],
+            )
+        else:
+            result = await agent_func(
+                query=validated.query,
+                context=context,
+                github_token=github_token,
+                tenant_id=ctx_meta["tenant_id"],
+                integration_name=ctx_meta["integration_name"],
+                user_id=ctx_meta["user_id"],
+            )
+    except Exception:
+        # Agent raised — refund the slot reserved in _rate_limit_pre_check.
+        if ctx_meta["api_key_id"]:
+            try:
+                await rate_limiter.release(ctx_meta["api_key_id"])
+            except Exception as rel_e:
+                logger.warning(f"Rate limit release after exception failed: {rel_e}")
+        raise
     duration_ms = int((time.time() - start) * 1000)
     success = result.get("success", True) and not result.get("error")
 

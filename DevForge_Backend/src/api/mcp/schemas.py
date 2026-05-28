@@ -60,6 +60,26 @@ class GenerateCheatsheetInput(BaseModel):
     intent: Optional[str] = None
 
 
+class GenerateTestsInput(BaseModel):
+    code: str = Field(..., min_length=1, max_length=16000, description="Source under test — pass verbatim.")
+    language: Literal["python", "javascript", "typescript"]
+    framework: Optional[Literal["pytest", "jest", "vitest"]] = Field(
+        None,
+        description="Defaults: python→pytest, javascript/typescript→jest. py+jest/vitest is rejected.",
+    )
+    module_path: Optional[str] = Field(
+        None,
+        max_length=300,
+        description="Import hint, e.g. 'src.utils.auth' (python) or '../src/auth' (js/ts). Drives the import line + filename.",
+    )
+    coverage: Literal["happy_path", "edge_cases", "all"] = "all"
+    use_repo_context: bool = Field(
+        False,
+        description="If true, enrich the prompt with related snippets from the tenant's indexed repo (best-effort, no-op when unavailable).",
+    )
+    instructions: Optional[str] = Field(None, max_length=1000, description="Optional free-form steer, e.g. 'focus on error paths'.")
+
+
 # --------------------------------------------------------------------------- #
 # github_operation — ported verbatim from routers/__init__.py:21-137
 # --------------------------------------------------------------------------- #

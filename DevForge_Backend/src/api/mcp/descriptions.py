@@ -115,4 +115,37 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "LATENCY: 5–15s warm-cache, 20–30s cold-cache (free Ollama). Suggest a "
         "loading indicator to the user."
     ),
+    "generate_tests": (
+        "Generates a ready-to-run unit-test file from pasted source code. "
+
+        "SUPPORTED: language='python'|'javascript'|'typescript'. framework defaults "
+        "python→pytest, js/ts→jest (override with 'vitest' for js/ts; pytest is the "
+        "only python option). An invalid language/framework combo returns "
+        "success:false — do NOT retry, surface the message. "
+
+        "INPUTS you should provide: "
+        "  - code (REQUIRED — paste the function/class/module under test verbatim) "
+        "  - language (REQUIRED) "
+        "  - module_path (STRONGLY RECOMMENDED — the import path of the code, e.g. "
+        "    'src.utils.auth' for python or '../src/auth' for js/ts). Without it the "
+        "    generated import uses a placeholder you must fix; a warning says so. "
+        "  - framework (optional, see defaults above) "
+        "  - coverage ('happy_path'|'edge_cases'|'all'; default 'all') "
+        "  - instructions (optional 1-line steer, e.g. 'focus on the error paths') "
+        "  - use_repo_context (optional bool; enriches signatures from the indexed repo). "
+
+        "GUARANTEE (static, no execution): the returned test_file is parsed with "
+        "tree-sitter (must be syntactically valid) and its imports from the module "
+        "under test are checked against symbols that actually exist in your code. It "
+        "does NOT execute the tests, so it does not guarantee they pass at runtime. "
+
+        "OUTPUTS: data.test_file (full source — save as data.filename), data.cases "
+        "(list of {name, asserts}), data.validated ('static' = parsed + all imports "
+        "resolve; 'partial' = parsed but data.unresolved_symbols lists imports not "
+        "found in the source; 'unparseable' = best-effort, did not parse after a "
+        "retry — review data.warnings), data.unresolved_symbols, data.repo_context_used. "
+
+        "LATENCY: ~5–20s on free Ollama (one code-gen call, plus one retry if "
+        "validation fails). Suggest a loading indicator to the user."
+    ),
 }

@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiKey, CreateKeyRequest, getUserKeys, createUserKey, revokeUserKey } from "@/lib/api";
 import { Key, Plus, Copy, Trash2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 function formatRelativeTime(timestamp: string | null): string {
   if (!timestamp) return "Never";
@@ -208,20 +209,23 @@ export default function KeysPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const activeCount = keys.filter((k) => k.is_active).length;
+  const expiredCount = keys.filter((k) => k.is_expired).length;
+
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[rgb(var(--text))]">API Keys</h1>
-          <p className="text-sm text-[rgb(var(--text-muted))] mt-0.5">
-            Create and manage keys for API access
+          <h1 className="text-3xl font-bold tracking-tight">API Keys</h1>
+          <p className="text-[rgb(var(--text-muted))] mt-1">
+            Manage access keys for your integrations
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button>
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4 mr-1.5" />
               New key
             </Button>
           </DialogTrigger>
@@ -252,102 +256,142 @@ export default function KeysPage() {
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-xl" />
+            <Skeleton key={i} className="h-28 w-full rounded-xl" />
           ))}
         </div>
       ) : keys.length === 0 ? (
         <Card>
-          <CardContent className="py-16">
-            <div className="flex flex-col items-center text-center gap-3">
-              <div className="rounded-xl border border-[rgb(var(--border-2))] bg-[rgb(var(--surface-2))] p-4">
-                <Key className="h-6 w-6 text-[rgb(var(--text-muted))]" />
+          <CardContent className="py-20">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="rounded-2xl border border-[rgb(var(--border-2))] bg-[rgb(var(--surface-2))] p-5">
+                <Key className="h-7 w-7 text-[rgb(var(--text-muted))]" />
               </div>
               <div>
-                <p className="font-medium text-[rgb(var(--text))]">No API keys yet</p>
+                <p className="font-semibold text-[rgb(var(--text))]">No API keys yet</p>
                 <p className="text-sm text-[rgb(var(--text-muted))] mt-1">
-                  Create your first key to get started
+                  Create your first key to start making API requests
                 </p>
               </div>
               <Button onClick={() => setDialogOpen(true)}>
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4 mr-1.5" />
                 Create first key
               </Button>
             </div>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {keys.map((key) => {
-            const expiry = expiryBadge(key);
-            return (
-              <Card key={key.id} className="hover:border-[rgb(var(--border-2))] transition-colors duration-150">
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    {/* Key info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="font-medium text-[rgb(var(--text))] text-sm">{key.name}</span>
-                        <Badge variant={tierVariant(key.tier)}>{key.tier}</Badge>
-                        {key.is_active ? (
-                          <Badge variant="success">
-                            <CheckCircle className="h-3 w-3" />
-                            Active
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            <XCircle className="h-3 w-3" />
-                            Inactive
-                          </Badge>
-                        )}
-                        {expiry && <Badge variant={expiry.variant}>{expiry.text}</Badge>}
+        <>
+          {/* Summary strip */}
+          <div className="flex items-center gap-4 text-sm text-[rgb(var(--text-muted))]">
+            <span>{keys.length} {keys.length === 1 ? "key" : "keys"}</span>
+            <span className="text-[rgb(var(--border-2))]">·</span>
+            <span className="text-[rgb(var(--success))]">{activeCount} active</span>
+            {expiredCount > 0 && (
+              <>
+                <span className="text-[rgb(var(--border-2))]">·</span>
+                <span className="text-[rgb(var(--danger))]">{expiredCount} expired</span>
+              </>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {keys.map((key) => {
+              const expiry = expiryBadge(key);
+              return (
+                <Card
+                  key={key.id}
+                  className={cn(
+                    "transition-all duration-150 border-l-[3px] hover:shadow-sm",
+                    key.is_active
+                      ? "border-l-[rgb(var(--success))]"
+                      : "border-l-[rgb(var(--danger))] opacity-70"
+                  )}
+                >
+                  <CardContent className="p-5">
+                    {/* Top row: icon + name + badges + delete */}
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="shrink-0 rounded-lg bg-[rgb(var(--accent-subtle))] p-2.5">
+                          <Key className="h-4 w-4 text-[rgb(var(--accent))]" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-[rgb(var(--text))]">{key.name}</span>
+                            <Badge variant={tierVariant(key.tier)} className="text-xs capitalize">{key.tier}</Badge>
+                            {key.is_active ? (
+                              <Badge variant="success" className="text-xs">
+                                <CheckCircle className="h-3 w-3 mr-1" />Active
+                              </Badge>
+                            ) : (
+                              <Badge variant="destructive" className="text-xs">
+                                <XCircle className="h-3 w-3 mr-1" />Inactive
+                              </Badge>
+                            )}
+                            {expiry && <Badge variant={expiry.variant} className="text-xs">{expiry.text}</Badge>}
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-xs text-[rgb(var(--text-muted))] font-mono">{key.integration_name}</p>
-                      <div className="flex items-center gap-3 mt-2 text-[10px] text-[rgb(var(--text-muted))]">
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          Used {formatRelativeTime(key.last_used_at)}
-                        </span>
-                        <span>Created {formatRelativeTime(key.created_at)}</span>
-                      </div>
+
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--danger))] hover:bg-[rgb(var(--danger)/0.08)] shrink-0"
+                            disabled={revokingId === key.id}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Revoke API key?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will permanently delete <strong>{key.name}</strong>. Any integrations
+                              using this key will stop working immediately.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              variant="destructive"
+                              onClick={() => handleRevoke(key.id)}
+                            >
+                              Revoke key
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
 
-                    {/* Actions */}
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--danger))] hover:bg-[rgb(var(--danger)/0.08)] shrink-0"
-                          disabled={revokingId === key.id}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Revoke API key?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This will permanently delete <strong>{key.name}</strong>. Any integrations
-                            using this key will stop working immediately.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            variant="destructive"
-                            onClick={() => handleRevoke(key.id)}
-                          >
-                            Revoke key
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                    {/* Metadata grid */}
+                    <div className="grid grid-cols-4 gap-x-6 gap-y-0 mt-4 pt-3 border-t border-[rgb(var(--border))]">
+                      <div>
+                        <p className="text-[10px] text-[rgb(var(--text-muted))] uppercase tracking-wide mb-0.5">Integration</p>
+                        <p className="text-xs font-mono text-[rgb(var(--text))] truncate" title={key.integration_name}>{key.integration_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[rgb(var(--text-muted))] uppercase tracking-wide mb-0.5">Tenant</p>
+                        <p className="text-xs font-mono text-[rgb(var(--text))] truncate" title={key.tenant_id}>{key.tenant_id}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[rgb(var(--text-muted))] uppercase tracking-wide mb-0.5">Created</p>
+                        <p className="text-xs text-[rgb(var(--text))] flex items-center gap-1">
+                          <Clock className="h-3 w-3 text-[rgb(var(--text-muted))]" />
+                          {formatRelativeTime(key.created_at)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[rgb(var(--text-muted))] uppercase tracking-wide mb-0.5">Last used</p>
+                        <p className="text-xs text-[rgb(var(--text))]">{formatRelativeTime(key.last_used_at)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Created key reveal dialog */}
